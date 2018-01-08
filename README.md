@@ -298,7 +298,7 @@ some of the more advanced features.
     deployed and scaled up across any number of hosts. See the `ansible`
     directory for scripts used to deploy abaco in production-like
     environments. For more information on the abaco architecture see
-    (<https://github.com/TACC/abaco/blob/master/docs/architecture.rst>).
+    (<https://github.com/TACC/abaco/blob/master/docs/architecture.md>).
     UPDATE: with the announcement of Docker 1.12 and embedded
     orchestration, parts of this section will be updated to make
     deploying on a swarm cluster seamless and automatic from the compose
