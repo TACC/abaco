@@ -356,8 +356,12 @@ some of the more advanced features.
     processes (or actors!) on a single host, the system can be easily
     deployed and scaled up across any number of hosts. See the `ansible`
     directory for scripts used to deploy abaco in production-like
-    environments. For more information on the Abaco architecture see
-    (<https://github.com/TACC/abaco/blob/master/docs/architecture.rst>).
+    environments. For more information on the abaco architecture see
+    (<https://github.com/TACC/abaco/blob/master/docs/architecture.md>).
+    UPDATE: with the announcement of Docker 1.12 and embedded
+    orchestration, parts of this section will be updated to make
+    deploying on a swarm cluster seamless and automatic from the compose
+    file.
 -   **Configurable**: Many aspects of the Abaco system are configurable
     via the abaco.conf file. The example contained in this repository is
     self-documenting.
