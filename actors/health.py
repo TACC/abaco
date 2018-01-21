@@ -103,8 +103,15 @@ def check_workers(actor_id, ttl):
                 pass
             try:
                 Worker.delete_worker(actor_id, worker_id)
+                logger.info("worker {} deleted from store".format(worker_id))
             except Exception as e:
                 logger.error("Got exception trying to delete worker: {}".format(e))
+            # if the put_sync timed out and we removed the worker, we also need to delete the channel
+            # otherwise the un-acked message will remain.
+            try:
+                ch.delete()
+            except Exception as e:
+                logger.error("Got exception: {} while trying to delete worker channel for worker: {}".format(e, worker_id))
         finally:
             try:
                 ch.close()
