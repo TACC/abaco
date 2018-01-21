@@ -41,10 +41,10 @@ import pytest
 import requests
 import json
 
-from actors import models, codes
+from actors import models, codes, stores
 from util import headers, base_url, case, test_remove_initial_actors, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-    execute_actor
+    execute_actor, get_tenant
 
 
 
@@ -88,6 +88,12 @@ def test_list_actors(headers):
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert len(result) == 0
+
+def test_invalid_method_list_actors(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_list_nonexistent_actor(headers):
     url = '{}/{}'.format(base_url, '/actors/bad_actor_id')
@@ -158,6 +164,13 @@ def test_register_actor_default_env(headers):
     assert result['image'] == 'abacosamples/test'
     assert result['name'] == 'abaco_test_suite_default_env'
     assert result['id'] is not None
+
+def test_invalid_method_get_actor(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 
 def test_list_actor(headers):
@@ -271,12 +284,26 @@ def test_list_executions(headers):
     result = basic_response_checks(rsp)
     assert len(result.get('ids')) == 0
 
+def test_invalid_method_list_executions(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/executions'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
 def test_list_messages(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/messages'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert result.get('messages') == 0
+
+def test_invalid_method_list_messages(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/messages'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_cors_list_messages(headers):
     actor_id = get_actor_id(headers)
@@ -366,6 +393,29 @@ def test_list_execution_details(headers):
     assert 'status' in result
     assert result['status'] == 'COMPLETE'
     assert result['id'] == exec_id
+
+def test_invalid_method_get_execution(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/executions'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    exec_id = result.get('ids')[0]
+    url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exec_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
+
+def test_invalid_method_get_execution_logs(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/executions'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    exec_id = result.get('ids')[0]
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, actor_id, exec_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 
 def test_list_execution_logs(headers):
@@ -500,6 +550,13 @@ def test_list_nonces(headers):
     # should now have 2 nonces
     assert len(result) == 2
 
+def test_invalid_method_list_nonces(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/nonces'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
 def test_redeem_unlimited_nonce(headers):
     actor_id = get_actor_id(headers)
     # first, get the nonce id:
@@ -596,6 +653,18 @@ def test_redeem_limited_nonce(headers):
     check_nonce_fields(result, actor_id=actor_id, level='READ',
                        max_uses=3, current_uses=3, remaining_uses=0)
 
+def test_invalid_method_get_nonce(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/nonces'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    nonce_id = result[0].get('id')
+    url = '{}/actors/{}/nonces/{}'.format(base_url, actor_id, nonce_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
+
 
 # ################
 # admin API
@@ -627,6 +696,13 @@ def test_list_workers(headers):
     # get the first worker
     worker = result[0]
     check_worker_fields(worker)
+
+def test_invalid_method_list_workers(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/workers'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_cors_list_workers(headers):
     actor_id = get_actor_id(headers)
@@ -672,8 +748,6 @@ def test_ensure_two_worker(headers):
     result = basic_response_checks(rsp, check_tenant=False)
     assert len(result) == 2
 
-
-
 def test_delete_worker(headers):
     # get the list of workers
     actor_id = get_actor_id(headers)
@@ -695,12 +769,25 @@ def test_delete_worker(headers):
     result = basic_response_checks(rsp, check_tenant=False)
     assert len(result) == 1
 
+    # check the workers store:
+    dbid = models.Actor.get_dbid(get_tenant(headers), actor_id)
+    workers = stores.workers_store.get(dbid)
+    for k,v in workers.items():
+        assert not k == id
+
 def test_list_permissions(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/permissions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert len(result) == 1
+
+def test_invalid_method_list_permissions(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/permissions'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_add_permissions(headers):
     actor_id = get_actor_id(headers)
