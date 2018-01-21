@@ -22,6 +22,13 @@ def headers():
         headers = {'Authorization': 'Bearer {}'.format(token)}
     return headers
 
+def get_tenant(headers):
+    for k, v in headers.items():
+        if k.startswith('X-Jwt-Assertion-'):
+            return k.split('X-Jwt-Assertion-')[1]
+    # didn't find tenant header
+    assert False
+
 def test_remove_initial_actors(headers):
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
