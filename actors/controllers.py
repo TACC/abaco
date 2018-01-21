@@ -690,7 +690,7 @@ class WorkersResource(Resource):
             logger.info("adding {} more workers for actor {}".format(num_to_add, actor_id))
             for idx in range(num_to_add):
                 worker_ids.append(Worker.request_worker(tenant=g.tenant,
-                                                        actor_id=actor_id))
+                                                        actor_id=dbid))
             logger.info("New worker ids: {}".format(worker_ids))
             ch = CommandChannel()
             ch.put_cmd(actor_id=actor.db_id,
