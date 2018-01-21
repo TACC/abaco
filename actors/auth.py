@@ -1,14 +1,12 @@
 # Utilities for authn/z
 import base64
-import json
 import os
 import re
 
 from Crypto.Signature import PKCS1_v1_5
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
-from flask import g, request, abort
-from flask_restful import Resource
+from flask import g, request
 import jwt
 import requests
 
@@ -16,16 +14,11 @@ from agaveflask.auth import authn_and_authz as agaveflask_az
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
-from agaveflask.utils import ok, RequestParser
-
 from config import Config
 import codes
-from errors import PermissionsException
 from models import Actor, get_permissions, Nonce
 
-from errors import ResourceError
-from stores import actors_store, permissions_store
-
+from errors import ResourceError, PermissionsException
 
 
 jwt.verify_methods['SHA256WITHRSA'] = (
@@ -92,7 +85,7 @@ def check_nonce():
     try:
         nonce_id = request.args['x-nonce']
     except KeyError:
-        raise PermissionError("No JWT or nonce provided.")
+        raise PermissionsException("No JWT or nonce provided.")
     logger.debug("checking nonce with id: {}".format(nonce_id))
     # the nonce encodes the tenant in its id:
     g.tenant = Nonce.get_tenant_from_nonce_id(nonce_id)
@@ -128,12 +121,6 @@ def authorization():
         logger.info("Allowing request because of ALL role.")
         return True
 
-    # the admin role when JWT auth is configured:
-    if codes.ADMIN_ROLE in g.roles:
-        g.admin = True
-        logger.info("Allowing request because of ADMIN_ROLE.")
-        return True
-
     # all other requests require some kind of abaco role:
     if set(g.roles).isdisjoint(codes.roles):
         logger.info("NOT allowing request - user has no abaco role.")
@@ -152,12 +139,19 @@ def authorization():
             raise ResourceError(
                 "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
     logger.debug("request.path: {}".format(request.path))
+
+    # the admin role when JWT auth is configured:
+    if codes.ADMIN_ROLE in g.roles:
+        g.admin = True
+        logger.info("Allowing request because of ADMIN_ROLE.")
+        return True
+
     # the admin API requires the admin role:
     if 'admin' in request.path or '/actors/admin' in request.url_rule.rule or '/actors/admin/' in request.url_rule.rule:
         if g.admin:
             return True
         else:
-            raise PermissionError("Abaco Admin role required.")
+            raise PermissionsException("Abaco Admin role required.")
 
     # there are special rules on the root collection:
     if '/actors' == request.url_rule.rule or '/actors/' == request.url_rule.rule:
