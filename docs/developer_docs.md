@@ -225,3 +225,46 @@ Deploy Abaco:
 ```shell
 $ docker run --rm -v ~/.ssh/jenkins-prod:/root/.ssh/id_rsa -v $(pwd)/ansible:/deploy agaveapi/deployer -i /deploy/dev/hosts /deploy/deploy_abaco.plbk
 ```
+
+
+Production Release
+------------------
+
+Deployment checklist:
+* logon to build server (typically, megajenkins, 129.114.6.149) and tag and push the images:
+  - docker tag abaco/core:dev abaco/core:$TAG
+    docker tag abaco/core:dev abaco/core
+  - docker tag abaco/testsuite:dev abaco/testsuite
+    docker tag abaco/testsuite:dev abaco/testsuite:$TAG
+  - docker tag abaco/nginx:dev abaco/nginx:$TAG
+    docker tag abaco/nginx:dev abaco/nginx
+
+- change the tag in the compose and abaco.conf files on each production host
+- pull the image (abaco/core:$TAG)
+- update the TAG valus in the abaco.conf file (e.g. TAG: 0.5.1)
+
+- prep the env:
+
+```shell
+$ export abaco_path=$(pwd)
+$ export TAG=0.5.1
+```
+
+1) shutdown all abaco containers
+2) shutdown and restart rabbitmq
+3) restart abaco containers
+4) run a clean up:
+
+```shell
+$ docker rm `docker ps -aq`
+```
+
+Debug container
+---------------
+
+It can be usefule to run a test container with all of the abaco code as well as iPython installed
+when investigating an Abaco host. The following command will create such a container:
+
+```shell
+$ docker run -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
+```
