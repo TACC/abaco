@@ -223,6 +223,54 @@ def test_register_without_image(headers):
     message = data['message']
     assert 'image' in message
 
+def test_register_with_invalid_stateless(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': "abcd",
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert 'stateless' in message
+
+def test_register_with_invalid_container_uid(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'use_container_uid'
+    if case == 'camel':
+        field = 'useContainerUid'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': False,
+            field: "abcd"
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert field in message
+
+def test_register_with_invalid_def_env(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'default_environment'
+    if case == 'camel':
+        field = 'defaultEnvironment'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': False,
+            field: "abcd"
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert field in message
+
+
 # This test currectly fails due to a known issue with the error handling with
 # flask-restful
 @pytest.mark.xfail
