@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 
+from flask_restful import inputs
 from hashids import Hashids
 
 from agaveflask.utils import RequestParser
@@ -182,11 +183,11 @@ class Actor(AbacoDAO):
         ('name', 'optional', 'name', str, 'User defined name for this actor.', None),
         ('image', 'required', 'image', str, 'Reference to image on docker hub for this actor.', None),
 
-        ('stateless', 'optional', 'stateless', bool, 'Whether the actor stores private state.', False),
+        ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', False),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
-        ('privileged', 'optional', 'privileged', bool, 'Whether this actor runs in privileged mode.', False),
-        ('use_container_uid', 'optional', 'use_container_uid', bool, 'Whether this actor runs as the UID set in the container image.', False),
-        ('default_environment', 'optional', 'default_environment', dict, 'Default environmental variables and values.', {}),
+        ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
+        ('use_container_uid', 'optional', 'use_container_uid', inputs.boolean, 'Whether this actor runs as the UID set in the container image.', False),
+        ('default_environment', 'optional', 'default_environment', dict, 'A dictionary of default environmental variables and values.', {}),
         ('status', 'optional', 'status', str, 'Current status of the actor.', SUBMITTED),
         ('status_message', 'optional', 'status_message', str, 'Explanation of status.', ''),
         ('executions', 'optional', 'executions', dict, 'Executions for this actor.', {}),
