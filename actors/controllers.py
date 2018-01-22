@@ -58,12 +58,15 @@ class ActorsResource(Resource):
     def validate_post(self):
         parser = Actor.request_parser()
         try:
-            return parser.parse_args()
+            args = parser.parse_args()
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
                 msg = e.data.get('message')
+            else:
+                msg = '{}: {}'.format(msg, e)
             raise DAOError("Invalid actor description: {}".format(msg))
+        return args
 
     def post(self):
         logger.info("top of POST to register a new actor.")
@@ -91,6 +94,7 @@ class ActorsResource(Resource):
             args['gid'] = gid
             args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
+        logger.debug("create args: {}".format(args))
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
@@ -193,7 +197,7 @@ class ActorResource(Resource):
             args['gid'] = gid
             args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
-
+        logger.debug("update args: {}".format(args))
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
         logger.info("updated actor {} stored in db.".format(actor_id))
@@ -212,14 +216,26 @@ class ActorResource(Resource):
         # remove since name is only required for POST, not PUT
         parser.remove_argument('name')
         parser.add_argument('force', type=bool, required=False, help="Whether to force an update of the actor image", default=False)
+
+        # if camel case, need to remove fields snake case versions of fields that can be updated
+        if Config.get('web', 'case') == 'camel':
+            actor.pop('use_container_uid')
+            actor.pop('default_environment')
+
         # this update overrides all required and optional attributes
         try:
-            actor.update(parser.parse_args())
+            new_fields = parser.parse_args()
+            logger.debug("new fields from actor PUT: {}".format(new_fields))
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
                 msg = e.data.get('message')
+            else:
+                msg = '{}: {}'.format(msg, e)
             raise DAOError("Invalid actor description: {}".format(msg))
+        if not actor.stateless and new_fields.get('stateless'):
+            raise DAOError("Invalid actor description: an actor that was not stateless cannot be update to be stateless.")
+        actor.update(new_fields)
         return actor
 
 
