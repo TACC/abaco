@@ -1,4 +1,7 @@
 # Status codes for actor objects
+from config import Config
+from agaveflask.logs import get_logger
+logger = get_logger(__name__)
 
 REQUESTED = 'REQUESTED'
 COMPLETE = 'COMPLETE'
@@ -66,7 +69,12 @@ PRIVILEGED_ROLE = 'Internal/abaco-privileged'
 
 # the base user role in Abaco. This role isn't authorized to create privileged containers or add workers but is not
 # throttled in the number of requests they can make.
-USER_ROLE = 'Internal/abaco-user'
+try:
+    USER_ROLE = Config.get('web', 'user_role')
+except Exception:
+    USER_ROLE = 'Internal/abaco-user'
+
+logger.debug("using USER_ROLE: {}".format(USER_ROLE))
 
 # a role with limited (throttled) access -- must be implemented in the Agave APIM tenant.
 LIMITED_ROLE = 'Internal/abaco-limited'

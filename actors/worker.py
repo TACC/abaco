@@ -340,7 +340,7 @@ def main(worker_id, image):
     else:
         logger.info("Did not get client:yes, got result:{}".format(result))
     try:
-        Actor.set_status(actor_id, READY)
+        Actor.set_status(actor_id, READY, status_message=" ")
     except KeyError:
         # it is possible the actor was already deleted during worker start up; if
         # so, the worker should have a stop message waiting for it. starting subscribe

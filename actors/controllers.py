@@ -166,7 +166,7 @@ class ActorResource(Resource):
         update_image = args.get('force')
         if not update_image and args['image'] == previous_image:
             logger.debug("new image is the same and force was false. not updating actor.")
-            logger.debug("Setting status to the actor's previoud status which is: {}".format(previous_status))
+            logger.debug("Setting status to the actor's previous status which is: {}".format(previous_status))
             args['status'] = previous_status
         else:
             update_image = True
@@ -174,6 +174,26 @@ class ActorResource(Resource):
             logger.debug("new image is different. updating actor.")
         args['api_server'] = g.api_server
         args['owner'] = g.user
+        use_container_uid = args.get('use_container_uid')
+        if Config.get('web', 'case') == 'camel':
+            use_container_uid = args.get('useContainerUid')
+        try:
+            use_tas = Config.get('workers', 'use_tas_uid')
+        except configparser.NoOptionError:
+            logger.debug("no use_tas_uid config.")
+            use_tas = False
+        if hasattr(use_tas, 'lower'):
+            use_tas = use_tas.lower() == 'true'
+        else:
+            logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
+        logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
+        if use_tas and not use_container_uid:
+            uid, gid, tasdir = get_tas_data(g.user)
+            args['uid'] = uid
+            args['gid'] = gid
+            args['tasdir'] = tasdir
+        args['mounts'] = get_all_mounts(args)
+
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
         logger.info("updated actor {} stored in db.".format(actor_id))

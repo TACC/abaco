@@ -17,6 +17,7 @@ reg:
     environment:
         server: dev
         api: reg
+        #server: gunicorn
         mongo_password:
         redis_password:
         TAS_ROLE_ACCT:
@@ -33,21 +34,6 @@ mes:
     environment:
         server: dev
         api: mes
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
-
-agavemes:
-    image: abaco/core$TAG
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    ports:
-        - "5002:5000"
-    environment:
-        server: dev
-        api: agavemes
         mongo_password:
         redis_password:
         TAS_ROLE_ACCT:
@@ -93,13 +79,14 @@ clientg:
     environment:
         abaco_conf_host_path: ${abaco_path}/local-dev.conf
         _abaco_secret: 123
-        # add the following pair of credentials for each tenant wanting client generation
-        _abaco_TACC-PROD_username: impersadmin
-        _abaco_TACC-PROD_password: nVXGPbNeyG3QPqZljd3tXccNeqN
         mongo_password:
         redis_password:
         TAS_ROLE_ACCT:
         TAS_ROLE_PASS:
+
+        # add the following pair of credentials for each tenant wanting client generation
+        _abaco_DEV-DEVELOP_username: testotheruser
+        _abaco_DEV-DEVELOP_password: testotheruser
 
 health:
     image: abaco/core$TAG

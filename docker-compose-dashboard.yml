@@ -1,7 +1,7 @@
 
 ---
 
-nginx:
+dashnginx:
     image: nginx
     volumes:
         - ./dashboard/nginx/nginx.conf:/etc/nginx/nginx.conf
@@ -21,13 +21,17 @@ django:
     volumes:
         - ./dashboard/requests:/requests
     environment:
+        # for TACC instance
+#        "AGAVE_CLIENT_KEY": "f_9vaEvm3oxCnNe9Z4VoxRXZGwca"
+#        "AGAVE_CLIENT_SECRET":
+#        "AGAVE_BASE_URL": "https://api.tacc.utexas.edu"
+        # for SD2E instance
+#        "AGAVE_CLIENT_KEY": "ftYwvK5aYltAqePSJQGFp3NF1l8a"
+#        "AGAVE_CLIENT_SECRET":
+#        "AGAVE_BASE_URL": "https://api.sd2e.org"
+        # for use with local development:
+        "AGAVE_BASE_URL": "http://172.17.0.1:8001"
+        "JWT_HEADER": "X-Jwt-Assertion-TACC-PROD"
+        "JWT_VALUE": ""
         SENDGRID_USER:
         SENDGRID_PASSWORD:
-        # for TACC instance
-        "AGAVE_CLIENT_KEY": "f_9vaEvm3oxCnNe9Z4VoxRXZGwca"
-        "AGAVE_CLIENT_SECRET":
-        "AGAVE_BASE_URL": "https://api.tacc.utexas.edu"
-        # for SD2E instance
-        "AGAVE_CLIENT_KEY": "ftYwvK5aYltAqePSJQGFp3NF1l8a"
-        "AGAVE_CLIENT_SECRET": 
-        "AGAVE_BASE_URL": "https://api.sd2e.org"

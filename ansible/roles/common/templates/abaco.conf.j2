@@ -89,6 +89,21 @@ dd: unix://var/run/docker.sock
 # type of access control for the web front end. supports: 'jwt', and 'none'
 access_control: {{ web_access_control }}
 
+# whether to allow the use of nonces for authenticating requests to the API. The x-nonce query parameter is only
+# checked in the absence of a JWT header.
+{% if web_accept_nonce is defined %}
+accept_nonce: {{ web_accept_nonce }}
+{% else %}
+accept_nonce: True
+{% endif %}
+
+# The user_role needed for "basic" level usage
+{% if web_user_role is defined %}
+user_role: {{ web_user_role }}
+{% else %}
+user_role: Internal/abaco-user
+{% endif %}
+
 # the name of the tenant when deployed behind apim (jwt access_control)
 tenant_name: {{ web_tenant_name }}
 

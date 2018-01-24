@@ -62,6 +62,8 @@ def check_worker_health(actor_id, worker):
     except KeyError:
         logger.error("Corrupt data in the workers_store. Worker object found but no corresponding actor. {}".format(worker))
         try:
+            # todo - removing worker objects from db can be problematic if other aspects of the worker are not cleaned
+            # up properly. this code should be reviewed.
             workers_store.pop(actor_id)
         except KeyError:
             # it's possible another health agent already removed the worker record.
@@ -184,7 +186,8 @@ def main():
     for id in ids:
         check_workers(id, ttl)
         # manage_workers(id)
-    check_workers_store(ttl)
+    # TODO - turning off the check_workers_store for now. unclear that removing worker objects
+    # check_workers_store(ttl)
 
 if __name__ == '__main__':
     main()
