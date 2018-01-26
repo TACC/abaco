@@ -10,7 +10,7 @@ from flask import g, request
 import jwt
 import requests
 
-from agaveflask.auth import authn_and_authz as agaveflask_az
+from agaveflask.auth import authn_and_authz as agaveflask_az, get_api_server
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
@@ -89,6 +89,7 @@ def check_nonce():
     logger.debug("checking nonce with id: {}".format(nonce_id))
     # the nonce encodes the tenant in its id:
     g.tenant = Nonce.get_tenant_from_nonce_id(nonce_id)
+    g.api_server = get_api_server(g.tenant)
     logger.debug("tenant associated with nonce: {}".format(g.tenant))
     # get the actor_id base on the request path
     actor_id = get_db_id()
