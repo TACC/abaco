@@ -160,6 +160,16 @@ def manage_workers(actor_id):
     workers = Worker.get_workers(actor_id)
     #TODO - implement policy
 
+def shutdown_all_workers():
+    """
+    Utility function for properly shutting down all existing workers.
+    This function is useful when deploying a new version of the worker code.
+    """
+    # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
+    for actor_id, worker in workers_store.items():
+        # call check_workers with ttl = 0 so that all will be shut down:
+        check_workers(actor_id, 0)
+
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
     try:
