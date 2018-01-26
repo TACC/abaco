@@ -15,6 +15,8 @@ sd2e03_vmware ansible_ssh_host=129.114.99.136 ansible_ssh_private_key_file=~/.ss
 
 [dashboard]
 js_dashboard_preview ansible_ssh_host=129.114.17.46 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+sd2e-svc-01-vmware ansible_ssh_host=129.114.99.190 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+
 
 [db:vars]
     abaco_env=sd2e
