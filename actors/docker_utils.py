@@ -41,7 +41,7 @@ def rm_container(cid):
     :param cid:
     :return:
     """
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd)
     try:
         rsp = cli.remove_container(cid, force=True)
     except Exception as e:
@@ -56,7 +56,7 @@ def pull_image(image):
     :return:
     """
     logger.debug("top of pull_image()")
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd)
     try:
         rsp = cli.pull(repository=image)
     except Exception as e:
@@ -77,7 +77,7 @@ def pull_image(image):
 
 def list_all_containers():
     """Returns a list of all containers """
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd)
 
 def container_running(image=None, name=None):
     """Check if there is a running container for an image.
@@ -90,7 +90,7 @@ def container_running(image=None, name=None):
         filters['name'] = name
     if image:
         filters['image'] = image
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd)
     try:
         containers = cli.containers(filters=filters)
     except Exception as e:
@@ -106,7 +106,7 @@ def run_container_with_docker(image, command, name=None, environment={}, mounts=
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().
     """
     logger.debug("top of run_container_with_docker().")
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd)
 
     # bind the docker socket as r/w since this container gets docker.
     volumes = ['/var/run/docker.sock']
@@ -246,7 +246,7 @@ def execute_actor(actor_id,
     result = {'cpu': 0,
               'io': 0,
               'runtime': 0 }
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd)
 
     # don't try to pass binary messages through the environment as these can cause
     # broken pipe errors. the binary data will be passed through the FIFO after the container
@@ -307,7 +307,7 @@ def execute_actor(actor_id,
             raise DockerStartContainerError("Error writing to fifo: {}".format(e))
 
     # create a separate cli for checking stats objects since these should be fast and we don't want to wait
-    stats_cli = docker.AutoVersionClient(base_url=dd, timeout=1)
+    stats_cli = docker.APIClient(base_url=dd, timeout=1)
 
     #@todo - is it possible to simplify this stats collection code? perhaps replace with docker events or just
     #        the State object set by docker at the end of the container run.. It's likely waiting for the timeout adds
