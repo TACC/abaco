@@ -192,7 +192,7 @@ def main():
                                       mounts=[],
                                       log_file=log_file)
         except Exception as e:
-            logger.critical("Could not restart spanwer. Exception: {}".format(e))
+            logger.critical("Could not restart spawner. Exception: {}".format(e))
     try:
         ttl = int(ttl)
     except Exception as e:
