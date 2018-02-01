@@ -100,7 +100,13 @@ def container_running(image=None, name=None):
     logger.debug("found containers: {}".format(containers))
     return len(containers) > 0
 
-def run_container_with_docker(image, command, name=None, environment={}, mounts=[], log_file='service.log'):
+def run_container_with_docker(image,
+                              command,
+                              name=None,
+                              environment={},
+                              mounts=[],
+                              log_file='service.log',
+                              auto_remove=False):
     """
     Run a container with docker mounted in it.
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().
@@ -142,7 +148,7 @@ def run_container_with_docker(image, command, name=None, environment={}, mounts=
         logs_host_dir = os.path.dirname(abaco_conf_host_path)
     binds['{}/{}'.format(logs_host_dir, log_file)] = {'bind': '/var/log/service.log', 'rw': True}
 
-    host_config = cli.create_host_config(binds=binds)
+    host_config = cli.create_host_config(binds=binds, auto_remove=auto_remove)
     logger.debug("binds: {}".format(binds))
 
     # create and start the container
@@ -190,13 +196,19 @@ def run_worker(image, worker_id):
     else:
         mounts = []
     logger.info("Final fifo_host_path_dir: {}".format(fifo_host_path_dir))
+    try:
+        auto_remove = Config.get('workers', 'auto_remove')
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        logger.debug("no auto_remove in the workers stanza.")
+        auto_remove = True
     container = run_container_with_docker(image=AE_IMAGE,
                                           command=command,
                                           environment={'image': image,
                                                        'worker_id': worker_id,
                                                        '_abaco_secret': os.environ.get('_abaco_secret')},
                                           mounts=mounts,
-                                          log_file=log_file)
+                                          log_file=log_file,
+                                          auto_remove=auto_remove)
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
     logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))
