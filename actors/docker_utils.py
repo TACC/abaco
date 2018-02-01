@@ -201,6 +201,11 @@ def run_worker(image, worker_id):
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
         logger.debug("no auto_remove in the workers stanza.")
         auto_remove = True
+    if hasattr(auto_remove, 'lower'):
+        if auto_remove.lower() == 'false':
+            auto_remove = False
+    elif not auto_remove == True:
+        auto_remove = False
     container = run_container_with_docker(image=AE_IMAGE,
                                           command=command,
                                           environment={'image': image,
