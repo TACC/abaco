@@ -196,7 +196,7 @@ def test_list_actor_state(headers):
 def test_update_actor_state_string(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/state'.format(base_url, actor_id)
-    rsp = requests.post(url, headers=headers, data={'state': 'abc'})
+    rsp = requests.post(url, headers=headers, json='abc')
     result = basic_response_checks(rsp)
     assert 'state' in result
     assert result['state'] == 'abc'
@@ -205,13 +205,13 @@ def test_update_actor_state_dict(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/state'.format(base_url, actor_id)
     # update the state
-    rsp = requests.post(url, headers=headers, json={'state': {'foo': 'abc', 'bar': 1, 'baz': True}})
+    rsp = requests.post(url, headers=headers, json={'foo': 'abc', 'bar': 1, 'baz': True})
     result = basic_response_checks(rsp)
     # retrieve the actor's state:
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert 'state' in result
-    assert ast.literal_eval(result['state']) == {'foo': 'abc', 'bar': 1, 'baz': True}
+    assert result['state'] == {'foo': 'abc', 'bar': 1, 'baz': True}
 
 # invalid requests
 def test_register_without_image(headers):
