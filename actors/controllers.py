@@ -262,25 +262,18 @@ class ActorStateResource(Resource):
         if actor.stateless:
             logger.debug("cannot update state for stateless actor: {}".format(actor_id))
             raise ResourceError("actor is stateless.", 404)
-        args = self.validate_post()
+        state = self.validate_post()
         logger.debug("state post params validated: {}".format(actor_id))
-        state = args['state']
         actors_store.update(dbid, 'state', state)
         logger.info("state updated: {}".format(actor_id))
         actor = Actor.from_db(actors_store[dbid])
         return ok(result=actor.display(), msg="State updated successfully.")
 
     def validate_post(self):
-        parser = RequestParser()
-        parser.add_argument('state', type=str, required=True, help="Set the state for this actor.")
-        try:
-            args = parser.parse_args()
-        except BadRequest as e:
-            msg = 'Unable to process the JSON description.'
-            if hasattr(e, 'data'):
-                msg = e.data.get('message')
-            raise DAOError("Invalid actor state description: {}".format(msg))
-        return args
+        json_data = request.get_json()
+        if not json_data:
+            raise DAOError("Invalid actor state description: state must be JSON serializable.")
+        return json_data
 
 
 class ActorExecutionsResource(Resource):
