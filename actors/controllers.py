@@ -1,13 +1,13 @@
 import json
 import configparser
 
-from flask import g, request
+from flask import g, request, make_response, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data
-from channels import ActorMsgChannel, CommandChannel
+from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
@@ -459,6 +459,45 @@ class ActorExecutionResource(Resource):
                                                                          actor_id))
             raise ResourceError("Execution not found {}.".format(execution_id))
         return ok(result=exc.display(), msg="Actor execution retrieved successfully.")
+
+
+class ActorExecutionResultsResource(Resource):
+    def get(self, actor_id, execution_id):
+        logger.debug("top of GET /actors/{}/executions/{}/results".format(actor_id, execution_id))
+        # check that actor exists
+        id = Actor.get_dbid(g.tenant, actor_id)
+        try:
+            Actor.from_db(actors_store[id])
+        except KeyError:
+            logger.debug("did not find actor: {}.".format(actor_id))
+            raise ResourceError(
+                "No actor found with id: {}.".format(actor_id), 404)
+        ch = ExecutionResultsChannel(actor_id=id, execution_id=execution_id)
+        try:
+            result = ch.get(timeout=0.1)
+        except:
+            result = ''
+        response = make_response(result)
+        response.headers['content-type'] = 'application/octet-stream'
+        ch.close()
+        # if not result:
+        #     ch.delete()
+        return response
+        # todo -- build support a list of results as a multipart response with boundaries?
+        # perhaps look at the requests toolbelt MultipartEncoder: https://github.com/requests/toolbelt
+        # result = []
+        # num = 0
+        # limit = request.args.get('limit', 1)
+        # logger.debug("limit: {}".format(limit))
+        # while num < limit:
+        #     try:
+        #         result.append(ch.get(timeout=0.1))
+        #         num += 1
+        #     except Exception:
+        #         break
+        # logger.debug("collected {} results".format(num))
+        # ch.close()
+        # return Response(result)
 
 
 class ActorExecutionLogsResource(Resource):

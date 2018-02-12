@@ -1,10 +1,9 @@
 import os
 import cloudpickle
+from agavepy.actors import get_binary_message, send_python_result
 
 def main():
-    fifo = open('/_abaco_binary_data', 'rb')
-    raw_message = fifo.read()
-    fifo.close()
+    raw_message = get_binary_message()
     try:
         m = cloudpickle.loads(raw_message)
     except Exception as e:
@@ -21,7 +20,7 @@ def main():
         result = f(*args, **kwargs)
     except Exception as e:
         print("Got exception trying to call f: {}. Exception: {}".format(f, e))
-
+    send_python_result(result)
     print("result: {}".format(result))
 
 if __name__ == '__main__':

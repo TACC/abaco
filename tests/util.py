@@ -96,7 +96,7 @@ def execute_actor(headers, actor_id, data=None, json_data=None, binary=None):
     # data = {'message': 'testing execution'}
     if data:
         rsp = requests.post(url, data=data, headers=headers)
-    elif json:
+    elif json_data:
         rsp = requests.post(url, json=json_data, headers=headers)
     elif binary:
         rsp = requests.post(url, data=binary, headers=headers)

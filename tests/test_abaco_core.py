@@ -37,6 +37,7 @@ sys.path.append(os.path.split(os.getcwd())[0])
 sys.path.append('/actors')
 import time
 
+import cloudpickle
 import pytest
 import requests
 import json
@@ -163,6 +164,18 @@ def test_register_actor_default_env(headers):
     assert result['owner'] == 'testuser'
     assert result['image'] == 'abacosamples/test'
     assert result['name'] == 'abaco_test_suite_default_env'
+    assert result['id'] is not None
+
+def test_register_actor_func(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/py3_func:dev', 'name': 'abaco_test_suite_func'}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testuser'
+    assert result['image'] == 'abacosamples/py3_func:dev'
+    assert result['name'] == 'abaco_test_suite_func'
     assert result['id'] is not None
 
 def test_invalid_method_get_actor(headers):
@@ -312,6 +325,10 @@ def test_default_env_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_default_env')
     check_actor_is_ready(headers, actor_id)
 
+def test_func_actor_is_ready(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_func')
+    check_actor_is_ready(headers, actor_id)
+
 def test_executions_empty_list(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
@@ -415,6 +432,23 @@ def test_execute_default_env_actor(headers):
     assert 'default_env_key2' in logs
     assert 'default_env_value1' in logs
     assert 'default_env_value1' in logs
+
+def test_execute_func_actor(headers):
+    # toy function and list to send as a message:
+    def f(a, b, c=1):
+        return a+b+c
+    l = [5, 7]
+    message = cloudpickle.dumps({'func': f, 'args': l, 'kwargs': {'c': 5}})
+    headers['Content-Type'] = 'application/octet-stream'
+    actor_id = get_actor_id(headers, name='abaco_test_suite_func')
+    result = execute_actor(headers, actor_id, binary=message)
+    exec_id = result['id']
+    headers.pop('Content-Type')
+    url = '{}/actors/{}/executions/{}/results'.format(base_url, actor_id, exec_id)
+    rsp = requests.get(url, headers=headers)
+    result = cloudpickle.loads(rsp.content)
+    assert result == 17
+
 
 
 def test_list_execution_details(headers):

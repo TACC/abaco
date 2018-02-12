@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import threading
 import time
@@ -18,7 +19,6 @@ from stores import actors_store, workers_store
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
-
 
 # keep_running will be updated by the thread listening on the worker channel when a graceful shutdown is
 # required.
@@ -107,7 +107,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                             "worker_id: {}"
                             "Exception: {}".format(worker_id, e))
             keep_running = False
-            # actor_ch.close()
+            # delete associated channels:
             actor_ch.delete()
             worker_ch.delete()
             logger.info("WorkerChannel deleted and ActorMsgChannel closed for actor: {} worker_id: {}".format(actor_id, worker_id))
@@ -175,6 +175,19 @@ def subscribe(tenant,
         content_type = msg['_abaco_Content_Type']
         mounts = actor.mounts
         logger.debug("actor mounts: {}".format(mounts))
+        # for results, create a socket in the configured directory.
+        try:
+            socket_host_path_dir = Config.get('workers', 'socket_host_path_dir')
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            logger.error("No socket_host_path configured. Cannot manage results data.")
+            Actor.set_status(actor_id, ERROR, msg="Abaco instance not configured for results data.")
+            continue
+        socket_host_path = '{}.sock'.format(os.path.join(socket_host_path_dir, worker_id, execution_id))
+        logger.info("Create socket at path: {}".format(socket_host_path))
+        # add the socket as a mount:
+        mounts.append({'host_path': socket_host_path,
+                       'container_path': '/_abaco_results.sock',
+                       'format': 'ro'})
         # for binary data, create a fifo in the configured directory. The configured
         # fifo_host_path_dir is equal to the fifo path in the worker container:
         fifo_host_path = None
@@ -186,9 +199,9 @@ def subscribe(tenant,
                 Actor.set_status(actor_id, ERROR, msg="Abaco instance not configured for binary data.")
                 continue
             fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
-            logger.info("Create fifo at path: {}".format(fifo_host_path))
             try:
                 os.mkfifo(fifo_host_path)
+                logger.info("Created fifo at path: {}".format(fifo_host_path))
             except Exception as e:
                 logger.error("Could not create fifo_path. Exception: {}".format(e))
                 raise e
@@ -239,7 +252,7 @@ def subscribe(tenant,
         try:
             stats, logs, final_state, exit_code, start_time = execute_actor(actor_id,
                                                                             worker_id,
-                                                                            worker_ch,
+                                                                            execution_id,
                                                                             image,
                                                                             message,
                                                                             user,
@@ -247,7 +260,8 @@ def subscribe(tenant,
                                                                             privileged,
                                                                             mounts,
                                                                             leave_containers,
-                                                                            fifo_host_path)
+                                                                            fifo_host_path,
+                                                                            socket_host_path)
         except DockerStartContainerError as e:
             logger.error("Got DockerStartContainerError: {}".format(e))
             Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
