@@ -42,7 +42,7 @@ import pytest
 import requests
 import json
 
-from actors import models, codes, stores
+from actors import health, models, codes, stores
 from util import headers, base_url, case, test_remove_initial_actors, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
     execute_actor, get_tenant
@@ -1078,3 +1078,6 @@ def test_tenant_remove_final_actors(headers):
         url = '{}/actors/{}'.format(base_url, act.get('id'))
         rsp = requests.delete(url, headers=headers)
         result = basic_response_checks(rsp)
+
+def test_clean_up_ipc_dirs():
+    health.clean_up_ipc_dirs()
