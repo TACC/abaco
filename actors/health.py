@@ -10,6 +10,7 @@
 # docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock abaco/core python3 -u /actors/health.py
 
 import os
+import shutil
 import time
 
 import channelpy
@@ -38,10 +39,45 @@ def check_workers_store(ttl):
     for actor_id, worker in workers_store.items():
         check_worker_health(worker, actor_id, ttl)
 
-def remove_stopped_containers():
-    """Remove all containers that have exited."""
-    # @TODO -- implement
-    pass
+def get_worker(wid):
+    """
+    Check to see if a string `wid` is the id of a worker in the worker store.
+    If so, return it; if not, return None.
+    """
+    for actor_id, value in workers_store.items():
+        for worker_id, worker in value.items():
+            if worker_id == wid:
+                return worker
+    return None
+
+def clean_up_socket_dirs():
+    logger.debug("top of clean_up_socket_dirs")
+    socket_dir = os.path.join('/host/', Config.get('workers', 'socket_host_path_dir').strip('/'))
+    logger.debug("processing socket_dir: {}".format(socket_dir))
+    for p in os.listdir(socket_dir):
+        # check to see if p is a worker
+        worker = get_worker(p)
+        if not worker:
+            path = os.path.join(socket_dir, p)
+            logger.debug("Determined that {} was not a worker; deleting directory: {}.".format(p, path))
+            shutil.rmtree(path)
+
+def clean_up_fifo_dirs():
+    logger.debug("top of clean_up_fifo_dirs")
+    fifo_dir = os.path.join('/host/', Config.get('workers', 'fifo_host_path_dir').strip('/'))
+    logger.debug("processing fifo_dir: {}".format(fifo_dir))
+    for p in os.listdir(fifo_dir):
+        # check to see if p is a worker
+        worker = get_worker(p)
+        if not worker:
+            path = os.path.join(fifo_dir, p)
+            logger.debug("Determined that {} was not a worker; deleting directory: {}.".format(p, path))
+            shutil.rmtree(path)
+
+def clean_up_ipc_dirs():
+    """Remove all directories created for worker sockets and fifos"""
+    clean_up_socket_dirs()
+    clean_up_fifo_dirs()
 
 def check_worker_health(actor_id, worker):
     """Check the specific health of a worker object."""
@@ -172,6 +208,10 @@ def shutdown_all_workers():
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
+    try:
+        clean_up_ipc_dirs()
+    except Exception as e:
+        logger.error("Got exception from clean_up_ipc_dirs: {}".format(e))
     try:
         ttl = Config.get('workers', 'worker_ttl')
     except Exception as e:
