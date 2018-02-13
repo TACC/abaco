@@ -480,8 +480,6 @@ class ActorExecutionResultsResource(Resource):
         response = make_response(result)
         response.headers['content-type'] = 'application/octet-stream'
         ch.close()
-        # if not result:
-        #     ch.delete()
         return response
         # todo -- build support a list of results as a multipart response with boundaries?
         # perhaps look at the requests toolbelt MultipartEncoder: https://github.com/requests/toolbelt
