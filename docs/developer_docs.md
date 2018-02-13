@@ -134,7 +134,7 @@ $ docker build -f Dockerfile-test -t abaco/testsuite$TAG .
 To run the functional tests, execute the following:
 
 ```shell
-$ docker run -e base_url=http://172.17.0.1:8000 -e case=camel -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG
+$ docker run -e base_url=http://172.17.0.1:8000 -e case=camel -v /:/host -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG
 ```
 
 Run the unit tests with a command similar to the following, changing the test module as the end as necessary:
@@ -266,5 +266,23 @@ It can be usefule to run a test container with all of the abaco code as well as 
 when investigating an Abaco host. The following command will create such a container:
 
 ```shell
-$ docker run -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
+$ docker run -v /:/host -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
+```
+
+Additionally, when investigating a local development stack, consider using leveraging the `util` module from within
+the tests directory once inside the test container:
+
+```shell
+$ cd /tests
+$ ipython
+```
+
+Making requests to the local development stack is easy using the requests library:
+
+```shell
+>>> from util import *
+>>> import requests
+>>> requests.get('{}/actors'.format(base_url), headers=headers).json()
+>>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=headers).json()
+
 ```
