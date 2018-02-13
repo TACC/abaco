@@ -92,6 +92,7 @@ health:
     image: abaco/core$TAG
     command: /actors/health_check.sh
     volumes:
+        - /:/host
         - /var/run/docker.sock:/var/run/docker.sock
         - ./local-dev.conf:/etc/service.conf
         - ./abaco.log:/var/log/service.log
