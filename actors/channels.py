@@ -1,6 +1,6 @@
 import time
 
-from channelpy import Channel, RabbitConnection
+from channelpy import BasicChannel, Channel, RabbitConnection
 from channelpy.chan import checking_events
 from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 import cloudpickle
@@ -92,8 +92,8 @@ class CommandChannel(Channel):
         self.put(msg)
 
 
-class BinaryChannel(Channel):
-    """Extend the base channel to handle binary messages."""
+class BinaryChannel(BasicChannel):
+    """Override BaseChannel methods to handle binary messages."""
 
     @checking_events
     def put(self, value):
@@ -143,7 +143,8 @@ class ActorMsgChannel(BinaryChannel):
 class FiniteRabbitConnection(RabbitConnection):
     """Override the channelpy.connections.RabbitConnection to provide TTL functionality,"""
 
-    def create_queue(self, name=None, expires=1200000):
+    # def create_queue(self, name=None, expires=1200000):
+    def create_queue(self, name=None, expires=100000):
         """Create queue for messages.
         :type name: str
         :type expires: int (time, in milliseconds, for queue to expire) 
@@ -156,6 +157,16 @@ class FiniteRabbitConnection(RabbitConnection):
 
 class ExecutionResultsChannel(BinaryChannel):
     """Work with the results for a specific actor execution.
+    """
+    def __init__(self, actor_id, execution_id):
+        self.uri = Config.get('rabbit', 'uri')
+        super().__init__(name='results_{}_{}'.format(actor_id, execution_id),
+                         connection_type=FiniteRabbitConnection,
+                         uri=self.uri)
+
+
+class ExecutionJSONResultsChannel(Channel):
+    """Work with the results for a specific actor execution when actor type==json.
     """
     def __init__(self, actor_id, execution_id):
         self.uri = Config.get('rabbit', 'uri')
