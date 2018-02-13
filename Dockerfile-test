@@ -12,6 +12,11 @@ ADD actors/requirements.txt /requirements.txt
 RUN pip3 install -r /requirements.txt
 RUN pip3 install pytest ipython
 
+# todo -- add/remove to toggle between local channelpy and github instance
+# ADD channelpy /channelpy
+# RUN pip3 install /channelpy
+# ----
+
 ADD actors /actors
 RUN chmod +x /actors/health_check.sh
 ADD tests /tests

@@ -1,4 +1,6 @@
+# comment the following line when using a local checkout of channelpy
 -e git://github.com/TACC/channelpy.git#egg=channelpy
+
 flask==0.12.2
 Flask-RESTful==0.3.6
 
