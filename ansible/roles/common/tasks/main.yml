@@ -21,7 +21,8 @@
   become_method: sudo
 
 - name: ensure log files are present
-  file: path={{ item }} state=touch
+  #file: path={{ item }} state=touch
+  command: touch {{ item }}
   become: yes
   become_user: apim
   become_method: sudo

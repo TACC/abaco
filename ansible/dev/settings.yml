@@ -1,11 +1,19 @@
 
 abaco_tag: dev
 
-store_redis_host_ip: 10.10.10.11
+store_redis_host_ip: 10.10.10.7
 store_redis_port: 6979
 
-store_mongo_host_ip: 10.10.10.11
+store_mongo_host_ip: 10.10.10.7
 store_mongo_port: 27017
 
-store_rabbit_host_ip: 10.10.10.11
+store_rabbit_host_ip: 10.10.10.7
 store_rabbit_port: 5972
+
+workers_worker_ttl: 1800
+
+log_level: DEBUG
+
+workers_generate_clients: True
+
+web_user_role: Internal/everyone
