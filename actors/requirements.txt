@@ -14,5 +14,6 @@ pyzmq==14.3.0
 pymongo==3.3.0
 hashids==1.2.0
 cloudpickle
+prometheus_client
 
 -e git+https://jstubbs@bitbucket.org/tacc-cic/agaveflask.git#egg=agaveflask

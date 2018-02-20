@@ -12,6 +12,12 @@ elif [ $api = "admin" ]; then
     else
         cd /actors; /usr/bin/gunicorn -w 2 -b :5000 admin_api:app
     fi
+elif [ $api = "metrics" ]; then
+    if [ $server = "dev" ]; then
+        python3 -u /actors/metrics_api.py
+    else
+        cd /actors; /usr/bin/gunicorn -w 2 -b :5000 metrics_api:app
+    fi
 elif [ $api = "mes" ]; then
     if [ $server = "dev" ]; then
         python3 -u /actors/message_api.py

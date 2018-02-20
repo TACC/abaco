@@ -1,7 +1,7 @@
 import json
 import configparser
 
-from flask import g, request
+from flask import g, request, render_template, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
@@ -18,8 +18,15 @@ from mounts import get_all_mounts
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 
+from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, generate_latest
+
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
+CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
+
+class MetricsResource(Resource):
+    def get(self):
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
 class AdminActorsResource(Resource):
     def get(self):
