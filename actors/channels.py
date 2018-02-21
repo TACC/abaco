@@ -143,8 +143,8 @@ class ActorMsgChannel(BinaryChannel):
 class FiniteRabbitConnection(RabbitConnection):
     """Override the channelpy.connections.RabbitConnection to provide TTL functionality,"""
 
-    # def create_queue(self, name=None, expires=1200000):
-    def create_queue(self, name=None, expires=100000):
+    def create_queue(self, name=None, expires=1200000):
+    # def create_queue(self, name=None, expires=100000):
         """Create queue for messages.
         :type name: str
         :type expires: int (time, in milliseconds, for queue to expire) 
