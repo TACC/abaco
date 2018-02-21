@@ -731,20 +731,21 @@ class WorkersResource(Resource):
         if current_number_workers < num:
             logger.debug("There were only {} workers for actor: {} so we're adding more.".format(current_number_workers,
                                                                                                  actor_id))
-            worker_ids = []
             num_to_add = int(num) - len(workers.items())
             logger.info("adding {} more workers for actor {}".format(num_to_add, actor_id))
             for idx in range(num_to_add):
-                worker_ids.append(Worker.request_worker(tenant=g.tenant,
-                                                        actor_id=dbid))
-            logger.info("New worker ids: {}".format(worker_ids))
-            ch = CommandChannel()
-            ch.put_cmd(actor_id=actor.db_id,
-                       worker_ids=worker_ids,
-                       image=actor.image,
-                       tenant=g.tenant,
-                       num=num_to_add,
-                       stop_existing=False)
+                # send num_to_add messages to add 1 worker so that messages are spread across multiple
+                # spawners.
+                worker_ids = [Worker.request_worker(tenant=g.tenant,
+                                                        actor_id=dbid)]
+                logger.info("New worker id: {}".format(worker_ids[0]))
+                ch = CommandChannel()
+                ch.put_cmd(actor_id=actor.db_id,
+                           worker_ids=worker_ids,
+                           image=actor.image,
+                           tenant=g.tenant,
+                           num=1,
+                           stop_existing=False)
             ch.close()
             logger.info("Message put on command channel for new worker ids: {}".format(worker_ids))
             return ok(result=None, msg="Scheduled {} new worker(s) to start. There were only".format(num_to_add))
