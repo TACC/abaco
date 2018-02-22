@@ -1,15 +1,18 @@
 from flask import Flask, render_template
 from flask_cors import CORS
+from prometheus_client import Summary, MetricsHandler, Counter
 
 from agaveflask.utils import AgaveApi, handle_error
 
-from auth import authn_and_authz
 from controllers import MetricsResource
+
 from errors import errors
 
 app = Flask(__name__)
 CORS(app)
 api = AgaveApi(app, errors=errors)
+
+REQUEST_TIME = Summary('request_processing_seconds', 'DESC: Time spent processing request')
 
 # Authn/z
 # @app.before_request
@@ -22,7 +25,6 @@ api.handle_user_exception = handle_error
 
 # Resources
 api.add_resource(MetricsResource, '/metrics')
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)

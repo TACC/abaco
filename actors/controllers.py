@@ -1,5 +1,6 @@
 import json
 import configparser
+import requests
 
 from flask import g, request, render_template, Response
 from flask_restful import Resource, Api, inputs
@@ -18,15 +19,42 @@ from mounts import get_all_mounts
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 
-from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, generate_latest
+from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
+request_counter = Counter('request_total', 'Number of requests')
+gauges = {}
+
 
 class MetricsResource(Resource):
     def get(self):
+        logger.debug("top of get in MetricResource")
+
+        actor_ids = [
+            db_id
+            for db_id, _
+            in actors_store.items()
+        ]
+        logger.debug("ACTOR IDS: {}".format(actor_ids))
+        for actor_id in actor_ids:
+            if actor_id not in gauges.keys():
+                g = Gauge(
+                    'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                    'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                )
+                gauges.update({actor_id: g})
+            else:
+                g = gauges[actor_id]
+
+            ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
+            result = {'messages': len(ch._queue._queue)}
+            ch.close()
+            g.set(result['messages'])
+            logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
 
 class AdminActorsResource(Resource):
     def get(self):
@@ -53,6 +81,7 @@ class ActorsResource(Resource):
 
     def get(self):
         logger.debug("top of GET /actors")
+
         actors = []
         for k, v in actors_store.items():
             if v['tenant'] == g.tenant:
@@ -512,9 +541,10 @@ class MessagesResource(Resource):
             raise ResourceError(
                 "No actor found with id: {}.".format(actor_id), 404)
         ch = ActorMsgChannel(actor_id=id)
-        result={'messages': len(ch._queue._queue)}
+        result = {'messages': len(ch._queue._queue)}
         ch.close()
-        logger.debug("messages found for actor: {}.".format(actor_id))
+        logger.debug("messages found for actor: {}.".format(id))
+        logger.debug("MESSAGES: {}".format(result['messages']))
         result.update(get_hypermedia(actor))
         return ok(result)
 
