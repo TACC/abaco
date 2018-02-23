@@ -473,6 +473,8 @@ def execute_actor(actor_id,
             logger.info("Container removed.")
         except Exception as e:
             logger.error("Exception trying to remove actor: {}".format(e))
+    else:
+        logger.debug("leaving actor container since leave_container was True.")
     if fifo_host_path:
         os.close(fifo)
         os.remove(fifo_host_path)
