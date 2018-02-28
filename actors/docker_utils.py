@@ -28,7 +28,8 @@ MAX_RESULT_FRAME_SIZE = 131072
 max_run_time = int(Config.get('workers', 'max_run_time'))
 
 dd = Config.get('docker', 'dd')
-host_id = Config.get('spawner', 'host_id')
+host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
+logger.debug("host_id: {}".format(host_id))
 host_ip = Config.get('spawner', 'host_ip')
 
 
