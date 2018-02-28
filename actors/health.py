@@ -116,13 +116,15 @@ def check_workers(actor_id, ttl):
         logger.error("Got exception trying to retrieve workers: {}".format(e))
         return None
     logger.debug("workers: {}".format(workers))
+    host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
+    logger.debug("host_id: {}".format(host_id))
     for _, worker in workers.items():
         # if the worker has only been requested, it will not have a host_id.
         if 'host_id' not in worker:
             # @todo- we will skip for now, but we need something more robust in case the worker is never claimed.
             continue
         # ignore workers on different hosts
-        if not Config.get('spawner', 'host_id') == worker['host_id']:
+        if not host_id == worker['host_id']:
             continue
         # first check if worker is responsive; if not, will need to manually kill
         logger.info("Checking health for worker: {}".format(worker))
