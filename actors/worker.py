@@ -134,7 +134,11 @@ def subscribe(tenant,
     try:
         leave_containers = Config.get('workers', 'leave_containers')
     except configparser.NoOptionError:
+        logger.info("No leave_containers value confiured.")
         leave_containers = False
+    if hasattr(leave_containers, 'lower'):
+        leave_containers = leave_containers.lower() == "true"
+    logger.info("leave_containers: {}".format(leave_containers))
     ag = None
     if api_server and client_id and client_secret and access_token and refresh_token:
         logger.info("Creating agave client.")
