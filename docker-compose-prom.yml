@@ -26,39 +26,43 @@ services:
                     memory: 500M
                 reservations:
                     memory: 200M
+
 #    alertmanager:
-#    image: prom/alertmanager:v0.7.1
-#    environment:
-#        no_proxy: "gateway"
-#    command:
-#        - '-config.file=/alertmanager.yml'
-#    networks:
-#        - functions
-#    # Uncomment the following port mapping if you wish to expose the Prometheus
-#    # Alertmanager UI.
-#    # ports:
-#    #     - 9093:9093
-#    deploy:
-#        resources:
-#            limits:
-#                memory: 50M
-#            reservations:
-#                memory: 20M
-#        placement:
-#            constraints:
-#                - 'node.role == manager'
-#                - 'node.platform.os == linux'
-#    configs:
-#        - source: alertmanager_config
-#          target: /alertmanager.yml
-
-configs:
-     prometheus_config:
-         file: ./prometheus/prometheus.yml
-     prometheus_rules:
-         file: ./prometheus/alert.rules.yml
-
+#        image: abaco/alert$TAG
+##        environment:
+##            no_proxy: "gateway"
+#        command:
+#            - '-config.file=/alertmanager.yml'
+#        networks:
+#            - testing
+#        # Uncomment the following port mapping if you wish to expose the Prometheus
+#        # Alertmanager UI.
+#        ports:
+#             - 9093:9093
+#        deploy:
+#            resources:
+#                limits:
+#                    memory: 50M
+#                reservations:
+#                    memory: 20M
+#            placement:
+#                constraints:
+#                    - 'node.role == manager'
+#                    - 'node.platform.os == linux'
+#        configs:
+#            - source: alertmanager_config
+#              target: /alertmanager.yml
+#
+#
+#configs:
+#     prometheus_config:
+#         file: ./prometheus/prometheus.yml
+#     prometheus_rules:
+#         file: ./prometheus/alert.rules.yml
+#     alertmanager_config:
+#         file: ./prometheus/alertmanager.yml
+#
 #networks:
 #    testing:
 #        driver: overlay
-#attachable: true
+#        attachable: true

@@ -142,6 +142,7 @@ def check_workers(actor_id, ttl):
         else:
             logger.debug("Worker not in READY status, will postpone.")
 
+
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
     logger.info("Entering manage_workers for {}".format(actor_id))

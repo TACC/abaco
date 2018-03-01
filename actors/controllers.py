@@ -1,6 +1,7 @@
 import json
 import configparser
 import requests
+import datetime
 
 from flask import g, request, render_template, Response
 from flask_restful import Resource, Api, inputs
@@ -24,12 +25,18 @@ from prometheus_client import start_http_server, Summary, MetricsHandler, Counte
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
-request_counter = Counter('request_total', 'Number of requests')
+PROMETHEUS_URL = 'http://172.17.0.1:9090'
 gauges = {}
+last_metric = {}
 
 
 class MetricsResource(Resource):
     def get(self):
+        actor_ids = self.get_metrics()
+        self.check_metrics(actor_ids)
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    def get_metrics(self):
         logger.debug("top of get in MetricResource")
 
         actor_ids = [
@@ -38,22 +45,64 @@ class MetricsResource(Resource):
             in actors_store.items()
         ]
         logger.debug("ACTOR IDS: {}".format(actor_ids))
-        for actor_id in actor_ids:
-            if actor_id not in gauges.keys():
-                g = Gauge(
-                    'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                    'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
-                )
-                gauges.update({actor_id: g})
-            else:
-                g = gauges[actor_id]
+        if actor_ids:
+            for actor_id in actor_ids:
+                if actor_id not in gauges.keys():
+                    g = Gauge(
+                        'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                        'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                    )
+                    gauges.update({actor_id: g})
+                else:
+                    g = gauges[actor_id]
 
-            ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
-            result = {'messages': len(ch._queue._queue)}
-            ch.close()
-            g.set(result['messages'])
-            logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
-        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+                ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
+                result = {'messages': len(ch._queue._queue)}
+                ch.close()
+                g.set(result['messages'])
+                logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+            return actor_ids
+
+    def check_metrics(self, actor_ids):
+        for actor_id in actor_ids:
+            logger.debug("TOP OF CHECK METRICS")
+            query = {
+                'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                'time': datetime.datetime.utcnow().isoformat() + "Z"
+            }
+            logger.debug("METRICS QUERY: {}".format(query))
+            r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
+            data = json.loads(r.text)['data']['result']
+            change_rate = 0
+            try:
+                previous_data = last_metric[actor_id]
+                try:
+                    change_rate = int(previous_data[0]['value'][1]) - int(data[0]['value'][1])
+                except:
+                    logger.debug("Could not calculate change rate.")
+                logger.debug(
+                    'METRICS CHECK PREV DATA {} AND CURRENT DATA {}'.format(previous_data, data))
+            except:
+                logger.info("Creating Metrics for new actor {}".format(actor_id))
+            logger.debug('METRICS CHECK CHANGE RATE: {}'.format(change_rate))
+
+            # try:
+            #     logger.debug('METRICS value {}'.format(int(data[0]['value'][1]) == 100 and change_rate == 0))
+            #     if int(data[0]['value'][1] == 100) and change_rate == 0:
+            #         tenant, aid = actor_id.split('_')
+            #         logger.debug('Attempting to create a new worker for {}'.format(actor_id))
+            #         w = Worker()
+            #         worker_id = w.request_worker(tenant, aid)
+            #         w.add_worker(aid, worker_id)
+            #         logger.debug('Added worker successfully for {}'.format(actor_id))
+            # except Exception:
+            #     logger.debug("METRICS - SOMETHING BROKE: {}".format(Exception))
+
+
+            last_metric.update({actor_id: data})
+
+    def test_metrics(self):
+        logger.debug("METRICS TESTING")
 
 
 class AdminActorsResource(Resource):
