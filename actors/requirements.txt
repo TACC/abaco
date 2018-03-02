@@ -1,11 +1,13 @@
+# comment the following line when using a local checkout of channelpy
 -e git://github.com/TACC/channelpy.git#egg=channelpy
+
 flask==0.12.2
 Flask-RESTful==0.3.6
 
 flask-cors
 redis==2.10.3
 pika==0.9.13
-docker-py
+docker==2.7.0
 pycrypto==2.6.1
 PyJWT==0.2.3
 gunicorn==19.3.0

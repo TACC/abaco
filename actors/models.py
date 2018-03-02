@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 
+from flask_restful import inputs
 from hashids import Hashids
 
 from agaveflask.utils import RequestParser
@@ -182,11 +183,11 @@ class Actor(AbacoDAO):
         ('name', 'optional', 'name', str, 'User defined name for this actor.', None),
         ('image', 'required', 'image', str, 'Reference to image on docker hub for this actor.', None),
 
-        ('stateless', 'optional', 'stateless', bool, 'Whether the actor stores private state.', False),
+        ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', False),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
-        ('privileged', 'optional', 'privileged', bool, 'Whether this actor runs in privileged mode.', False),
-        ('use_container_uid', 'optional', 'use_container_uid', bool, 'Whether this actor runs as the UID set in the container image.', False),
-        ('default_environment', 'optional', 'default_environment', dict, 'Default environmental variables and values.', {}),
+        ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
+        ('use_container_uid', 'optional', 'use_container_uid', inputs.boolean, 'Whether this actor runs as the UID set in the container image.', False),
+        ('default_environment', 'optional', 'default_environment', dict, 'A dictionary of default environmental variables and values.', {}),
         ('status', 'optional', 'status', str, 'Current status of the actor.', SUBMITTED),
         ('status_message', 'optional', 'status_message', str, 'Explanation of status.', ''),
         ('executions', 'optional', 'executions', dict, 'Executions for this actor.', {}),
@@ -475,13 +476,13 @@ class Nonce(AbacoDAO):
             try:
                 nonce = nonces[nonce_id]
             except KeyError:
-                raise PermissionError("Nonce does not exist.")
+                raise errors.PermissionsException("Nonce does not exist.")
             # check if the nonce level is sufficient
             try:
                 if PermissionLevel(nonce['level']) < level:
-                    raise PermissionError("Nonce does not have sufficient permissions level.")
+                    raise errors.PermissionsException("Nonce does not have sufficient permissions level.")
             except KeyError:
-                raise PermissionError("Nonce did not have an associated level.")
+                raise errors.PermissionsException("Nonce did not have an associated level.")
 
             # check if there are remaining uses
             try:
@@ -497,16 +498,16 @@ class Nonce(AbacoDAO):
                     nonce_store.update(actor_id, nonce_id, nonce)
                 else:
                     logger.debug("nonce did not have at least 1 use remaining.")
-                    raise PermissionError("No remaining uses left for this nonce.")
+                    raise errors.PermissionsException("No remaining uses left for this nonce.")
             except KeyError:
                 logger.debug("nonce did not have a remaining_uses attribute.")
-                raise PermissionError("No remaining uses left for this nonce.")
+                raise errors.PermissionsException("No remaining uses left for this nonce.")
 
         # first, make sure the nonce exists for the actor id:
         try:
             nonce_store[actor_id][nonce_id]
         except KeyError:
-            raise PermissionError("Nonce does not exist.")
+            raise errors.PermissionsException("Nonce does not exist.")
         # atomically, check if the nonce is still valid and add a use if so:
         nonce_store.within_transaction(_transaction, actor_id)
 

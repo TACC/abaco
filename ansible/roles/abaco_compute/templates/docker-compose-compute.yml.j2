@@ -7,6 +7,10 @@ spawner:
         AE_IMAGE: "{{ docker_user }}/core"
         abaco_conf_host_path: ${abaco_path}/abaco.conf
         _abaco_secret: {{ abaco_secret }}
+{% if tas_role_account is defined %}
+        TAS_ROLE_ACCT: {{ tas_role_account }}
+        TAS_ROLE_PASS: {{ tas_role_password }}
+{% endif %}
         mongo_password:
         redis_password:
     volumes:
@@ -19,6 +23,10 @@ health:
     command: /actors/health_check.sh
     environment:
         AE_IMAGE: "{{ docker_user }}/core"
+{% if tas_role_account is defined %}
+        TAS_ROLE_ACCT: {{ tas_role_account }}
+        TAS_ROLE_PASS: {{ tas_role_password }}
+{% endif %}
         mongo_password:
         redis_password:
     volumes:
@@ -36,11 +44,17 @@ clientg:
     environment:
         abaco_conf_host_path: ${abaco_path}/local-dev.conf
         _abaco_secret: {{ abaco_secret }}
+{% if tas_role_account is defined %}
+        TAS_ROLE_ACCT: {{ tas_role_account }}
+        TAS_ROLE_PASS: {{ tas_role_password }}
+{% endif %}
         mongo_password:
         redis_password:
 {% if abaco_env == 'dev' %}
         _abaco_DEV-DEVELOP_username: testotheruser
         _abaco_DEV-DEVELOP_password: testotheruser
+        _abaco_DEV-STAGING_username: testotheruser
+        _abaco_DEV-STAGING_password: testotheruser
 {% endif %}
 {% if abaco_env == 'prod' %}
         _abaco_AGAVE-PROD_username: {{ clientg_username }}

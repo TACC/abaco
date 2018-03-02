@@ -10,6 +10,7 @@
 # docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock abaco/core python3 -u /actors/health.py
 
 import os
+import shutil
 import time
 
 import channelpy
@@ -38,10 +39,45 @@ def check_workers_store(ttl):
     for actor_id, worker in workers_store.items():
         check_worker_health(worker, actor_id, ttl)
 
-def remove_stopped_containers():
-    """Remove all containers that have exited."""
-    # @TODO -- implement
-    pass
+def get_worker(wid):
+    """
+    Check to see if a string `wid` is the id of a worker in the worker store.
+    If so, return it; if not, return None.
+    """
+    for actor_id, value in workers_store.items():
+        for worker_id, worker in value.items():
+            if worker_id == wid:
+                return worker
+    return None
+
+def clean_up_socket_dirs():
+    logger.debug("top of clean_up_socket_dirs")
+    socket_dir = os.path.join('/host/', Config.get('workers', 'socket_host_path_dir').strip('/'))
+    logger.debug("processing socket_dir: {}".format(socket_dir))
+    for p in os.listdir(socket_dir):
+        # check to see if p is a worker
+        worker = get_worker(p)
+        if not worker:
+            path = os.path.join(socket_dir, p)
+            logger.debug("Determined that {} was not a worker; deleting directory: {}.".format(p, path))
+            shutil.rmtree(path)
+
+def clean_up_fifo_dirs():
+    logger.debug("top of clean_up_fifo_dirs")
+    fifo_dir = os.path.join('/host/', Config.get('workers', 'fifo_host_path_dir').strip('/'))
+    logger.debug("processing fifo_dir: {}".format(fifo_dir))
+    for p in os.listdir(fifo_dir):
+        # check to see if p is a worker
+        worker = get_worker(p)
+        if not worker:
+            path = os.path.join(fifo_dir, p)
+            logger.debug("Determined that {} was not a worker; deleting directory: {}.".format(p, path))
+            shutil.rmtree(path)
+
+def clean_up_ipc_dirs():
+    """Remove all directories created for worker sockets and fifos"""
+    clean_up_socket_dirs()
+    clean_up_fifo_dirs()
 
 def check_worker_health(actor_id, worker):
     """Check the specific health of a worker object."""
@@ -80,13 +116,15 @@ def check_workers(actor_id, ttl):
         logger.error("Got exception trying to retrieve workers: {}".format(e))
         return None
     logger.debug("workers: {}".format(workers))
+    host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
+    logger.debug("host_id: {}".format(host_id))
     for _, worker in workers.items():
         # if the worker has only been requested, it will not have a host_id.
         if 'host_id' not in worker:
             # @todo- we will skip for now, but we need something more robust in case the worker is never claimed.
             continue
         # ignore workers on different hosts
-        if not Config.get('spawner', 'host_id') == worker['host_id']:
+        if not host_id == worker['host_id']:
             continue
         # first check if worker is responsive; if not, will need to manually kill
         logger.info("Checking health for worker: {}".format(worker))
@@ -103,8 +141,15 @@ def check_workers(actor_id, ttl):
                 pass
             try:
                 Worker.delete_worker(actor_id, worker_id)
+                logger.info("worker {} deleted from store".format(worker_id))
             except Exception as e:
                 logger.error("Got exception trying to delete worker: {}".format(e))
+            # if the put_sync timed out and we removed the worker, we also need to delete the channel
+            # otherwise the un-acked message will remain.
+            try:
+                ch.delete()
+            except Exception as e:
+                logger.error("Got exception: {} while trying to delete worker channel for worker: {}".format(e, worker_id))
         finally:
             try:
                 ch.close()
@@ -154,8 +199,22 @@ def manage_workers(actor_id):
     workers = Worker.get_workers(actor_id)
     #TODO - implement policy
 
+def shutdown_all_workers():
+    """
+    Utility function for properly shutting down all existing workers.
+    This function is useful when deploying a new version of the worker code.
+    """
+    # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
+    for actor_id, worker in workers_store.items():
+        # call check_workers with ttl = 0 so that all will be shut down:
+        check_workers(actor_id, 0)
+
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
+    try:
+        clean_up_ipc_dirs()
+    except Exception as e:
+        logger.error("Got exception from clean_up_ipc_dirs: {}".format(e))
     try:
         ttl = Config.get('workers', 'worker_ttl')
     except Exception as e:
@@ -176,7 +235,7 @@ def main():
                                       mounts=[],
                                       log_file=log_file)
         except Exception as e:
-            logger.critical("Could not restart spanwer. Exception: {}".format(e))
+            logger.critical("Could not restart spawner. Exception: {}".format(e))
     try:
         ttl = int(ttl)
     except Exception as e:

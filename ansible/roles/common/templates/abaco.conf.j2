@@ -3,7 +3,7 @@ TAG: :{{ abaco_tag }}
 
 
 [logs]
-level: INFO
+level: {{ log_level }}
 
 files: split
 
@@ -78,6 +78,9 @@ use_tas_uid: {{ workers_use_tas_uid }}
 
 # path on the workers host to use for mounting temporary fifo's for processing binary messages.
 fifo_host_path_dir: {{ workers_fifo_host_path_dir }}
+
+# path on the workers host to use for mounting temporary socketes for processing execution results.
+socket_host_path_dir: {{ workers_socket_host_path_dir }}
 
 
 [docker]

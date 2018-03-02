@@ -5,7 +5,7 @@ from flask_cors import CORS
 from agaveflask.utils import AgaveApi, handle_error
 
 from controllers import ActorResource, ActorStateResource, ActorsResource, \
-    ActorExecutionsResource, ActorExecutionResource, \
+    ActorExecutionsResource, ActorExecutionResource, ActorExecutionResultsResource, \
     ActorExecutionLogsResource, ActorNoncesResource, ActorNonceResource
 from auth import authn_and_authz
 from errors import errors
@@ -36,6 +36,7 @@ api.add_resource(ActorResource, '/actors/<string:actor_id>')
 api.add_resource(ActorStateResource, '/actors/<string:actor_id>/state')
 api.add_resource(ActorExecutionsResource, '/actors/<string:actor_id>/executions')
 api.add_resource(ActorExecutionResource, '/actors/<string:actor_id>/executions/<string:execution_id>')
+api.add_resource(ActorExecutionResultsResource, '/actors/<string:actor_id>/executions/<string:execution_id>/results')
 api.add_resource(ActorNoncesResource, '/actors/<string:actor_id>/nonces')
 api.add_resource(ActorNonceResource, '/actors/<string:actor_id>/nonces/<string:nonce_id>')
 api.add_resource(ActorExecutionLogsResource, '/actors/<string:actor_id>/executions/<string:execution_id>/logs')

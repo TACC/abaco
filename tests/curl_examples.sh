@@ -2,7 +2,7 @@
 
 # Some simple examples exercising the APIs with curl
 curl localhost:8000/actors
-curl -X POST --data "name=foo&image=jstubbs/abaco_test" localhost:8000/actors
+curl -X POST --data "name=foo&image=abacosamples/test" localhost:8000/actors
 curl -X POST --data "name=bar&image=bar_image&description=The bar actor" localhost:8000/actors
 curl -X POST --data "name=foo&image=busybox&description=A second foo actor" localhost:8000/actors
 curl localhost:8000/actors/foo_0
@@ -39,6 +39,8 @@ curl -X PUT --data "name=foo&image=jstubbs/abaco_test2" localhost:8000/actors/fo
 # send JSON data as the message
 curl -H "Content-Type: application/json" -d '{"key1": "value1", "key2": "value2" }' -H "Authorization: Bearer $tok" $base/actors/v2/$uuid/messages
 
+# hit the admin endpoint
+curl -H "X-Jwt-Assertion-TACC-PROD: $jwta" localhost:8000/actors/admin
 
 # register a bunch of actors
 for i in {1..20}; do curl -H "X-Jwt-Assertion-AGAVE-PROD: $jwt" -X POST --data "name=test&image=jstubbs/abaco_test" localhost:8000/actors; done

@@ -3,13 +3,13 @@ import configparser
 import requests
 import datetime
 
-from flask import g, request, render_template, Response
+from flask import g, request, render_template, make_response, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data
-from channels import ActorMsgChannel, CommandChannel
+from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
@@ -144,12 +144,15 @@ class ActorsResource(Resource):
     def validate_post(self):
         parser = Actor.request_parser()
         try:
-            return parser.parse_args()
+            args = parser.parse_args()
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
                 msg = e.data.get('message')
+            else:
+                msg = '{}: {}'.format(msg, e)
             raise DAOError("Invalid actor description: {}".format(msg))
+        return args
 
     def post(self):
         logger.info("top of POST to register a new actor.")
@@ -177,6 +180,7 @@ class ActorsResource(Resource):
             args['gid'] = gid
             args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
+        logger.debug("create args: {}".format(args))
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
@@ -279,7 +283,7 @@ class ActorResource(Resource):
             args['gid'] = gid
             args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
-
+        logger.debug("update args: {}".format(args))
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
         logger.info("updated actor {} stored in db.".format(actor_id))
@@ -298,14 +302,26 @@ class ActorResource(Resource):
         # remove since name is only required for POST, not PUT
         parser.remove_argument('name')
         parser.add_argument('force', type=bool, required=False, help="Whether to force an update of the actor image", default=False)
+
+        # if camel case, need to remove fields snake case versions of fields that can be updated
+        if Config.get('web', 'case') == 'camel':
+            actor.pop('use_container_uid')
+            actor.pop('default_environment')
+
         # this update overrides all required and optional attributes
         try:
-            actor.update(parser.parse_args())
+            new_fields = parser.parse_args()
+            logger.debug("new fields from actor PUT: {}".format(new_fields))
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
                 msg = e.data.get('message')
+            else:
+                msg = '{}: {}'.format(msg, e)
             raise DAOError("Invalid actor description: {}".format(msg))
+        if not actor.stateless and new_fields.get('stateless'):
+            raise DAOError("Invalid actor description: an actor that was not stateless cannot be update to be stateless.")
+        actor.update(new_fields)
         return actor
 
 
@@ -332,25 +348,18 @@ class ActorStateResource(Resource):
         if actor.stateless:
             logger.debug("cannot update state for stateless actor: {}".format(actor_id))
             raise ResourceError("actor is stateless.", 404)
-        args = self.validate_post()
+        state = self.validate_post()
         logger.debug("state post params validated: {}".format(actor_id))
-        state = args['state']
         actors_store.update(dbid, 'state', state)
         logger.info("state updated: {}".format(actor_id))
         actor = Actor.from_db(actors_store[dbid])
         return ok(result=actor.display(), msg="State updated successfully.")
 
     def validate_post(self):
-        parser = RequestParser()
-        parser.add_argument('state', type=str, required=True, help="Set the state for this actor.")
-        try:
-            args = parser.parse_args()
-        except BadRequest as e:
-            msg = 'Unable to process the JSON description.'
-            if hasattr(e, 'data'):
-                msg = e.data.get('message')
-            raise DAOError("Invalid actor state description: {}".format(msg))
-        return args
+        json_data = request.get_json()
+        if not json_data:
+            raise DAOError("Invalid actor state description: state must be JSON serializable.")
+        return json_data
 
 
 class ActorExecutionsResource(Resource):
@@ -538,6 +547,43 @@ class ActorExecutionResource(Resource):
         return ok(result=exc.display(), msg="Actor execution retrieved successfully.")
 
 
+class ActorExecutionResultsResource(Resource):
+    def get(self, actor_id, execution_id):
+        logger.debug("top of GET /actors/{}/executions/{}/results".format(actor_id, execution_id))
+        # check that actor exists
+        id = Actor.get_dbid(g.tenant, actor_id)
+        try:
+            Actor.from_db(actors_store[id])
+        except KeyError:
+            logger.debug("did not find actor: {}.".format(actor_id))
+            raise ResourceError(
+                "No actor found with id: {}.".format(actor_id), 404)
+        ch = ExecutionResultsChannel(actor_id=id, execution_id=execution_id)
+        try:
+            result = ch.get(timeout=0.1)
+        except:
+            result = ''
+        response = make_response(result)
+        response.headers['content-type'] = 'application/octet-stream'
+        ch.close()
+        return response
+        # todo -- build support a list of results as a multipart response with boundaries?
+        # perhaps look at the requests toolbelt MultipartEncoder: https://github.com/requests/toolbelt
+        # result = []
+        # num = 0
+        # limit = request.args.get('limit', 1)
+        # logger.debug("limit: {}".format(limit))
+        # while num < limit:
+        #     try:
+        #         result.append(ch.get(timeout=0.1))
+        #         num += 1
+        #     except Exception:
+        #         break
+        # logger.debug("collected {} results".format(num))
+        # ch.close()
+        # return Response(result)
+
+
 class ActorExecutionLogsResource(Resource):
     def get(self, actor_id, execution_id):
         def get_hypermedia(actor, exc):
@@ -593,8 +639,7 @@ class MessagesResource(Resource):
         ch = ActorMsgChannel(actor_id=id)
         result = {'messages': len(ch._queue._queue)}
         ch.close()
-        logger.debug("messages found for actor: {}.".format(id))
-        logger.debug("MESSAGES: {}".format(result['messages']))
+        logger.debug("messages found for actor: {}.".format(actor_id))
         result.update(get_hypermedia(actor))
         return ok(result)
 
@@ -772,20 +817,21 @@ class WorkersResource(Resource):
         if current_number_workers < num:
             logger.debug("There were only {} workers for actor: {} so we're adding more.".format(current_number_workers,
                                                                                                  actor_id))
-            worker_ids = []
             num_to_add = int(num) - len(workers.items())
             logger.info("adding {} more workers for actor {}".format(num_to_add, actor_id))
             for idx in range(num_to_add):
-                worker_ids.append(Worker.request_worker(tenant=g.tenant,
-                                                        actor_id=actor_id))
-            logger.info("New worker ids: {}".format(worker_ids))
-            ch = CommandChannel()
-            ch.put_cmd(actor_id=actor.db_id,
-                       worker_ids=worker_ids,
-                       image=actor.image,
-                       tenant=g.tenant,
-                       num=num_to_add,
-                       stop_existing=False)
+                # send num_to_add messages to add 1 worker so that messages are spread across multiple
+                # spawners.
+                worker_ids = [Worker.request_worker(tenant=g.tenant,
+                                                        actor_id=dbid)]
+                logger.info("New worker id: {}".format(worker_ids[0]))
+                ch = CommandChannel()
+                ch.put_cmd(actor_id=actor.db_id,
+                           worker_ids=worker_ids,
+                           image=actor.image,
+                           tenant=g.tenant,
+                           num=1,
+                           stop_existing=False)
             ch.close()
             logger.info("Message put on command channel for new worker ids: {}".format(worker_ids))
             return ok(result=None, msg="Scheduled {} new worker(s) to start. There were only".format(num_to_add))

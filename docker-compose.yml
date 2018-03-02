@@ -42,12 +42,12 @@ admin:
         service: admin
 
 # uncomment to run the client generation
-#gclient:
-#    extends:
-#        file: docker-compose-local.yml
-#        service: gclient
-#    volumes:
-#        - ./local-dev.conf:/etc/service.conf
+clientg:
+    extends:
+        file: docker-compose-local.yml
+        service: clientg
+    volumes:
+        - ./local-dev.conf:/etc/service.conf
 
 spawner:
     extends:

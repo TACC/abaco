@@ -12,6 +12,11 @@ RUN pip3 install -r /requirements.txt
 
 RUN touch /var/log/abaco.log
 
+# todo -- add/remove to toggle between local channelpy and github instance
+#ADD channelpy /channelpy
+#RUN pip3 install /channelpy
+# ----
+
 ADD actors /actors
 RUN chmod +x /actors/health_check.sh
 

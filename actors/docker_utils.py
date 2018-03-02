@@ -1,7 +1,7 @@
 import configparser
 import json
 import os
-import time
+import socket
 import timeit
 
 import docker
@@ -11,6 +11,7 @@ from requests.exceptions import ReadTimeout, ConnectionError
 from agaveflask.logs import get_logger, get_log_file_strategy
 logger = get_logger(__name__)
 
+from channels import ExecutionResultsChannel
 from config import Config
 from codes import BUSY
 from models import Worker, get_current_utc_time
@@ -18,10 +19,17 @@ from models import Worker, get_current_utc_time
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
 AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
 
+# timeout (in seconds) for the socket server
+RESULTS_SOCKET_TIMEOUT = 0.1
+
+# max frame size, in bytes, for a single result
+MAX_RESULT_FRAME_SIZE = 131072
+
 max_run_time = int(Config.get('workers', 'max_run_time'))
 
 dd = Config.get('docker', 'dd')
-host_id = Config.get('spawner', 'host_id')
+host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
+logger.debug("host_id: {}".format(host_id))
 host_ip = Config.get('spawner', 'host_ip')
 
 
@@ -41,7 +49,7 @@ def rm_container(cid):
     :param cid:
     :return:
     """
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd, version="auto")
     try:
         rsp = cli.remove_container(cid, force=True)
     except Exception as e:
@@ -56,7 +64,7 @@ def pull_image(image):
     :return:
     """
     logger.debug("top of pull_image()")
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd, version="auto")
     try:
         rsp = cli.pull(repository=image)
     except Exception as e:
@@ -77,7 +85,7 @@ def pull_image(image):
 
 def list_all_containers():
     """Returns a list of all containers """
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd, version="auto")
 
 def container_running(image=None, name=None):
     """Check if there is a running container for an image.
@@ -90,7 +98,7 @@ def container_running(image=None, name=None):
         filters['name'] = name
     if image:
         filters['image'] = image
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd, version="auto")
     try:
         containers = cli.containers(filters=filters)
     except Exception as e:
@@ -100,13 +108,19 @@ def container_running(image=None, name=None):
     logger.debug("found containers: {}".format(containers))
     return len(containers) > 0
 
-def run_container_with_docker(image, command, name=None, environment={}, mounts=[], log_file='service.log'):
+def run_container_with_docker(image,
+                              command,
+                              name=None,
+                              environment={},
+                              mounts=[],
+                              log_file='service.log',
+                              auto_remove=False):
     """
     Run a container with docker mounted in it.
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().
     """
     logger.debug("top of run_container_with_docker().")
-    cli = docker.AutoVersionClient(base_url=dd)
+    cli = docker.APIClient(base_url=dd, version="auto")
 
     # bind the docker socket as r/w since this container gets docker.
     volumes = ['/var/run/docker.sock']
@@ -142,7 +156,7 @@ def run_container_with_docker(image, command, name=None, environment={}, mounts=
         logs_host_dir = os.path.dirname(abaco_conf_host_path)
     binds['{}/{}'.format(logs_host_dir, log_file)] = {'bind': '/var/log/service.log', 'rw': True}
 
-    host_config = cli.create_host_config(binds=binds)
+    host_config = cli.create_host_config(binds=binds, auto_remove=auto_remove)
     logger.debug("binds: {}".format(binds))
 
     # create and start the container
@@ -189,14 +203,39 @@ def run_worker(image, worker_id):
                    'format': 'rw'}]
     else:
         mounts = []
-    logger.info("Final fifo_host_path_dir: {}".format(fifo_host_path_dir))
+
+    # mount the directory on the host for creating result sockets
+    try:
+        socket_host_path_dir = Config.get('workers', 'socket_host_path_dir')
+        logger.info("Using socket_host_path_dir: {}".format(socket_host_path_dir))
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        logger.error("Got exception trying to look up fifo_host_path_dir. Setting to None. Exception: {}".format(e))
+        socket_host_path_dir = None
+    if socket_host_path_dir:
+        mounts.append({'host_path': os.path.join(socket_host_path_dir, worker_id),
+                       'container_path': os.path.join(socket_host_path_dir, worker_id),
+                       'format': 'rw'})
+
+    logger.info("Final fifo_host_path_dir: {}; socket_host_path_dir: {}".format(fifo_host_path_dir,
+                                                                                socket_host_path_dir))
+    try:
+        auto_remove = Config.get('workers', 'auto_remove')
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        logger.debug("no auto_remove in the workers stanza.")
+        auto_remove = True
+    if hasattr(auto_remove, 'lower'):
+        if auto_remove.lower() == 'false':
+            auto_remove = False
+    elif not auto_remove == True:
+        auto_remove = False
     container = run_container_with_docker(image=AE_IMAGE,
                                           command=command,
                                           environment={'image': image,
                                                        'worker_id': worker_id,
                                                        '_abaco_secret': os.environ.get('_abaco_secret')},
                                           mounts=mounts,
-                                          log_file=log_file)
+                                          log_file=log_file,
+                                          auto_remove=auto_remove)
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
     logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))
@@ -213,7 +252,7 @@ def run_worker(image, worker_id):
 
 def execute_actor(actor_id,
                   worker_id,
-                  worker_ch,
+                  execution_id,
                   image,
                   msg,
                   user=None,
@@ -221,14 +260,15 @@ def execute_actor(actor_id,
                   privileged=False,
                   mounts=[],
                   leave_container=False,
-                  fifo_host_path=None):
+                  fifo_host_path=None,
+                  socket_host_path=None):
     """
     Creates and runs an actor container and supervises the execution, collecting statistics about resource consumption
     from the Docker daemon.
 
     :param actor_id: the dbid of the actor; for updating worker status
     :param worker_id: the worker id; also for updating worker status
-    :param worker_ch: NO LONGER USED.
+    :param execution_id: the id of the execution.
     :param image: the actor's image; worker must have already downloaded this image to the local docker registry.
     :param msg: the message being passed to the actor.
     :param user: string in the form {uid}:{gid} representing the uid and gid to run the command as.
@@ -237,7 +277,8 @@ def execute_actor(actor_id,
     docker daemon mounted.
     :param mounts: list of dictionaries representing the mounts to add; each dictionary mount should have 3 keys:
     host_path, container_path and format (which should have value 'ro' or 'rw').
-    :param fifo_host_path: If not None, a string representing a path on the host to a FIFO used for passing binary data to the actor:
+    :param fifo_host_path: If not None, a string representing a path on the host to a FIFO used for passing binary data to the actor.
+    :param socket_host_path: If not None, a string representing a path on the host to a socket used for collecting results from the actor.
     :return: result (dict), logs (str) - `result`: statistics about resource consumption; `logs`: output from docker logs.
     """
     logger.debug("top of execute_actor()")
@@ -246,11 +287,12 @@ def execute_actor(actor_id,
     result = {'cpu': 0,
               'io': 0,
               'runtime': 0 }
-    cli = docker.AutoVersionClient(base_url=dd)
+
+    # instantiate docker client
+    cli = docker.APIClient(base_url=dd, version="auto")
 
     # don't try to pass binary messages through the environment as these can cause
-    # broken pipe errors. the binary data will be passed through the FIFO after the container
-    # is started.
+    # broken pipe errors. the binary data will be passed through the FIFO momentarily.
     if not fifo_host_path:
         d['MSG'] = msg
     binds = {}
@@ -271,6 +313,28 @@ def execute_actor(actor_id,
                                      'ro': m.get('format') == 'ro'}
         volumes.append(m.get('host_path'))
     host_config = cli.create_host_config(binds=binds, privileged=privileged)
+
+    # write binary data to FIFO if it exists:
+    if fifo_host_path:
+        try:
+            fifo = os.open(fifo_host_path, os.O_RDWR)
+            os.write(fifo, msg)
+        except Exception as e:
+            logger.error("Error writing the FIFO. Exception: {}".format(e))
+            os.remove(fifo_host_path)
+            raise DockerStartContainerError("Error writing to fifo: {}".format(e))
+
+    # set up results socket
+    try:
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        server.bind(socket_host_path)
+        server.settimeout(RESULTS_SOCKET_TIMEOUT)
+    except Exception as e:
+        logger.error("could not instantiate or bind socket. Exception: {}".format(e))
+        raise e
+
+    # instantiate the results channel:
+    results_ch = ExecutionResultsChannel(actor_id, execution_id)
 
     # create and start the container
     logger.debug("Final container environment: {}".format(d))
@@ -293,21 +357,8 @@ def execute_actor(actor_id,
     Worker.update_worker_status(actor_id, worker_id, BUSY)
     running = True
 
-    # write binary data to FIFO if it exists:
-    if fifo_host_path:
-        try:
-            fifo = os.open(fifo_host_path, os.O_RDWR)
-            os.write(fifo, msg)
-            time.sleep(2)
-            os.close(fifo)
-        except Exception as e:
-            logger.error("Error writing the FIFO. Exception: {}".format(e))
-            os.remove(fifo_host_path)
-            cli.stop(container.get('Id'))
-            raise DockerStartContainerError("Error writing to fifo: {}".format(e))
-
     # create a separate cli for checking stats objects since these should be fast and we don't want to wait
-    stats_cli = docker.AutoVersionClient(base_url=dd, timeout=1)
+    stats_cli = docker.APIClient(base_url=dd, timeout=1, version="auto")
 
     #@todo - is it possible to simplify this stats collection code? perhaps replace with docker events or just
     #        the State object set by docker at the end of the container run.. It's likely waiting for the timeout adds
@@ -322,6 +373,18 @@ def execute_actor(actor_id,
         result['runtime'] = 1
         return result
     while running:
+        datagram = None
+        try:
+            datagram = server.recv(MAX_RESULT_FRAME_SIZE)
+        except socket.timeout:
+            pass
+        except Exception as e:
+            logger.error("got exception from server.recv: {}".format(e))
+        if datagram:
+            try:
+                results_ch.put(datagram)
+            except Exception as e:
+                logger.error("Error trying to put datagram on results channel. Exception: {}".format(e))
         try:
             logger.debug("waiting on a stats obj: {}".format(timeit.default_timer()))
             stats = next(stats_obj)
@@ -386,6 +449,24 @@ def execute_actor(actor_id,
     # get logs from container
     logs = cli.logs(container.get('Id'))
 
+    # get any additional results from the execution:
+    while True:
+        datagram = None
+        try:
+            datagram = server.recv(MAX_RESULT_FRAME_SIZE)
+        except socket.timeout:
+            break
+        except Exception as e:
+            logger.error("Got exception from server.recv: {}".format(e))
+        if datagram:
+            try:
+                results_ch.put(datagram)
+            except Exception as e:
+                logger.error("Error trying to put datagram on results channel. Exception: {}".format(e))
+    if socket_host_path:
+        server.close()
+        os.remove(socket_host_path)
+
     # remove container, ignore errors
     if not leave_container:
         try:
@@ -393,5 +474,10 @@ def execute_actor(actor_id,
             logger.info("Container removed.")
         except Exception as e:
             logger.error("Exception trying to remove actor: {}".format(e))
+    else:
+        logger.debug("leaving actor container since leave_container was True.")
+    if fifo_host_path:
+        os.close(fifo)
+        os.remove(fifo_host_path)
     result['runtime'] = int(stop - start)
     return result, logs, container_state, exit_code, start_time

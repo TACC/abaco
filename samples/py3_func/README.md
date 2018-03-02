@@ -34,3 +34,10 @@ header as `application/octet-stream``:
 
     ```
 
+4. Capture the execution id returned from the response and retrieve the result:
+    ```shell
+    >>> ex_id = rsp.json().get('result').get('executionId')
+    >>> r_url = 'https://{}/actors/v2/{}/executions/{}/results'.format(base_url, actor_id, ex_id)
+    >>> rsp = requests.get(r_url, headers=headers)
+    >>> result = cloudpickle.loads(rsp.content)
+    ```

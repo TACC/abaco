@@ -10,7 +10,7 @@ def main():
         print("key: {}. value: {}".format(k,v))
 
     print("Contents of env: {}".format(os.environ))
-    cli = docker.AutoVersionClient(base_url='unix://var/run/docker.sock')
+    cli = docker.APIClient(base_url='unix://var/run/docker.sock')
     print("Containers: {}".format(cli.containers()))
 
 

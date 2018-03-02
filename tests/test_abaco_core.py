@@ -37,14 +37,15 @@ sys.path.append(os.path.split(os.getcwd())[0])
 sys.path.append('/actors')
 import time
 
+import cloudpickle
 import pytest
 import requests
 import json
 
-from actors import models, codes
+from actors import health, models, codes, stores
 from util import headers, base_url, case, test_remove_initial_actors, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-    execute_actor
+    execute_actor, get_tenant
 
 
 
@@ -88,6 +89,12 @@ def test_list_actors(headers):
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert len(result) == 0
+
+def test_invalid_method_list_actors(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_list_nonexistent_actor(headers):
     url = '{}/{}'.format(base_url, '/actors/bad_actor_id')
@@ -159,6 +166,25 @@ def test_register_actor_default_env(headers):
     assert result['name'] == 'abaco_test_suite_default_env'
     assert result['id'] is not None
 
+def test_register_actor_func(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/py3_func:dev', 'name': 'abaco_test_suite_func'}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testuser'
+    assert result['image'] == 'abacosamples/py3_func:dev'
+    assert result['name'] == 'abaco_test_suite_func'
+    assert result['id'] is not None
+
+def test_invalid_method_get_actor(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
 
 def test_list_actor(headers):
     actor_id = get_actor_id(headers)
@@ -183,7 +209,7 @@ def test_list_actor_state(headers):
 def test_update_actor_state_string(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/state'.format(base_url, actor_id)
-    rsp = requests.post(url, headers=headers, data={'state': 'abc'})
+    rsp = requests.post(url, headers=headers, json='abc')
     result = basic_response_checks(rsp)
     assert 'state' in result
     assert result['state'] == 'abc'
@@ -192,13 +218,13 @@ def test_update_actor_state_dict(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/state'.format(base_url, actor_id)
     # update the state
-    rsp = requests.post(url, headers=headers, json={'state': {'foo': 'abc', 'bar': 1, 'baz': True}})
+    rsp = requests.post(url, headers=headers, json={'foo': 'abc', 'bar': 1, 'baz': True})
     result = basic_response_checks(rsp)
     # retrieve the actor's state:
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert 'state' in result
-    assert ast.literal_eval(result['state']) == {'foo': 'abc', 'bar': 1, 'baz': True}
+    assert result['state'] == {'foo': 'abc', 'bar': 1, 'baz': True}
 
 # invalid requests
 def test_register_without_image(headers):
@@ -209,6 +235,54 @@ def test_register_without_image(headers):
     data = json.loads(rsp.content.decode('utf-8'))
     message = data['message']
     assert 'image' in message
+
+def test_register_with_invalid_stateless(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': "abcd",
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert 'stateless' in message
+
+def test_register_with_invalid_container_uid(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'use_container_uid'
+    if case == 'camel':
+        field = 'useContainerUid'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': False,
+            field: "abcd"
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert field in message
+
+def test_register_with_invalid_def_env(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'default_environment'
+    if case == 'camel':
+        field = 'defaultEnvironment'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': False,
+            field: "abcd"
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert field in message
+
 
 # This test currectly fails due to a known issue with the error handling with
 # flask-restful
@@ -251,6 +325,10 @@ def test_default_env_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_default_env')
     check_actor_is_ready(headers, actor_id)
 
+def test_func_actor_is_ready(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_func')
+    check_actor_is_ready(headers, actor_id)
+
 def test_executions_empty_list(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
@@ -271,12 +349,26 @@ def test_list_executions(headers):
     result = basic_response_checks(rsp)
     assert len(result.get('ids')) == 0
 
+def test_invalid_method_list_executions(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/executions'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
 def test_list_messages(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/messages'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert result.get('messages') == 0
+
+def test_invalid_method_list_messages(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/messages'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_cors_list_messages(headers):
     actor_id = get_actor_id(headers)
@@ -341,6 +433,23 @@ def test_execute_default_env_actor(headers):
     assert 'default_env_value1' in logs
     assert 'default_env_value1' in logs
 
+def test_execute_func_actor(headers):
+    # toy function and list to send as a message:
+    def f(a, b, c=1):
+        return a+b+c
+    l = [5, 7]
+    message = cloudpickle.dumps({'func': f, 'args': l, 'kwargs': {'c': 5}})
+    headers['Content-Type'] = 'application/octet-stream'
+    actor_id = get_actor_id(headers, name='abaco_test_suite_func')
+    result = execute_actor(headers, actor_id, binary=message)
+    exec_id = result['id']
+    headers.pop('Content-Type')
+    url = '{}/actors/{}/executions/{}/results'.format(base_url, actor_id, exec_id)
+    rsp = requests.get(url, headers=headers)
+    result = cloudpickle.loads(rsp.content)
+    assert result == 17
+
+
 
 def test_list_execution_details(headers):
     actor_id = get_actor_id(headers)
@@ -366,6 +475,29 @@ def test_list_execution_details(headers):
     assert 'status' in result
     assert result['status'] == 'COMPLETE'
     assert result['id'] == exec_id
+
+def test_invalid_method_get_execution(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/executions'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    exec_id = result.get('ids')[0]
+    url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exec_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
+
+def test_invalid_method_get_execution_logs(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/executions'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    exec_id = result.get('ids')[0]
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, actor_id, exec_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 
 def test_list_execution_logs(headers):
@@ -500,6 +632,13 @@ def test_list_nonces(headers):
     # should now have 2 nonces
     assert len(result) == 2
 
+def test_invalid_method_list_nonces(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/nonces'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
 def test_redeem_unlimited_nonce(headers):
     actor_id = get_actor_id(headers)
     # first, get the nonce id:
@@ -596,6 +735,18 @@ def test_redeem_limited_nonce(headers):
     check_nonce_fields(result, actor_id=actor_id, level='READ',
                        max_uses=3, current_uses=3, remaining_uses=0)
 
+def test_invalid_method_get_nonce(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/nonces'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    nonce_id = result[0].get('id')
+    url = '{}/actors/{}/nonces/{}'.format(base_url, actor_id, nonce_id)
+    rsp = requests.post(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
+
+
 
 # ################
 # admin API
@@ -627,6 +778,13 @@ def test_list_workers(headers):
     # get the first worker
     worker = result[0]
     check_worker_fields(worker)
+
+def test_invalid_method_list_workers(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/workers'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_cors_list_workers(headers):
     actor_id = get_actor_id(headers)
@@ -672,8 +830,6 @@ def test_ensure_two_worker(headers):
     result = basic_response_checks(rsp, check_tenant=False)
     assert len(result) == 2
 
-
-
 def test_delete_worker(headers):
     # get the list of workers
     actor_id = get_actor_id(headers)
@@ -695,12 +851,25 @@ def test_delete_worker(headers):
     result = basic_response_checks(rsp, check_tenant=False)
     assert len(result) == 1
 
+    # check the workers store:
+    dbid = models.Actor.get_dbid(get_tenant(headers), actor_id)
+    workers = stores.workers_store.get(dbid)
+    for k,v in workers.items():
+        assert not k == id
+
 def test_list_permissions(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/permissions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert len(result) == 1
+
+def test_invalid_method_list_permissions(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}/permissions'.format(base_url, actor_id)
+    rsp = requests.put(url, headers=headers)
+    assert rsp.status_code == 405
+    response_format(rsp)
 
 def test_add_permissions(headers):
     actor_id = get_actor_id(headers)
@@ -909,3 +1078,6 @@ def test_tenant_remove_final_actors(headers):
         url = '{}/actors/{}'.format(base_url, act.get('id'))
         rsp = requests.delete(url, headers=headers)
         result = basic_response_checks(rsp)
+
+def test_clean_up_ipc_dirs():
+    health.clean_up_ipc_dirs()

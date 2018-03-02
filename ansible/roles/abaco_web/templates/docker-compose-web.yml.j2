@@ -16,6 +16,10 @@ reg:
 #        server: gunicorn
         server: {{ web_server_type }}
         api: reg
+{% if tas_role_account is defined %}
+        TAS_ROLE_ACCT: {{ tas_role_account }}
+        TAS_ROLE_PASS: {{ tas_role_password }}
+{% endif %}
         mongo_password:
         redis_password:
     volumes:
@@ -30,6 +34,10 @@ mes:
 #        server: gunicorn
         server: {{ web_server_type }}
         api: mes
+{% if tas_role_account is defined %}
+        TAS_ROLE_ACCT: {{ tas_role_account }}
+        TAS_ROLE_PASS: {{ tas_role_password }}
+{% endif %}
         mongo_password:
         redis_password:
     volumes:
@@ -44,6 +52,10 @@ admin:
 #        server: gunicorn
         server: {{ web_server_type }}
         api: admin
+{% if tas_role_account is defined %}
+        TAS_ROLE_ACCT: {{ tas_role_account }}
+        TAS_ROLE_PASS: {{ tas_role_password }}
+{% endif %}
         mongo_password:
         redis_password:
     volumes:

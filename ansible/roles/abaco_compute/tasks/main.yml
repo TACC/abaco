@@ -8,6 +8,14 @@
   sudo: yes
   sudo_user: "{{ linux_user }}"
 
+- name: ensure ipc directories exist
+  file: path={{ item }} state=directory
+  with_items:
+    - '{{ workers_fifo_host_path_dir }}'
+    - '{{ workers_socket_host_path_dir }}'
+  sudo: yes
+  sudo_user: "{{ linux_user }}"
+
 - name: Compile start_spawner.sh template
   template: src=start_spawner.sh.j2 dest={{ base_dir }}/start_spawner.sh
   sudo: yes

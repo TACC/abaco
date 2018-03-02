@@ -38,7 +38,7 @@ workers_global_mounts: /home/apim/data1:/_abaco_data1:ro,/home/apim/data2:/_abac
 workers_leave_containers: False
 workers_use_tas_uid: False
 workers_fifo_host_path_dir: /home/apim/_abaco_fifos
-
+workers_socket_host_path_dir: /home/apim/_abaco_sockets
 
 # ---
 # web

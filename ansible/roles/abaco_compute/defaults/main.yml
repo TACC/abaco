@@ -7,3 +7,6 @@ base_dir: /home/apim
 
 # user on remote host
 linux_user: apim
+
+workers_fifo_host_path_dir: /home/apim/_abaco_fifos
+workers_socket_host_path_dir: /home/apim/_abaco_sockets

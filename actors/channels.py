@@ -1,10 +1,10 @@
 import time
 
-from channelpy import Channel, RabbitConnection
+from channelpy import BasicChannel, Channel, RabbitConnection
 from channelpy.chan import checking_events
 from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 import cloudpickle
-
+import rabbitpy
 
 from config import Config
 
@@ -92,14 +92,8 @@ class CommandChannel(Channel):
         self.put(msg)
 
 
-class ActorMsgChannel(Channel):
-    """Work with messages sent to a specific actor.
-    """
-    def __init__(self, actor_id):
-        self.uri = Config.get('rabbit', 'uri')
-        super().__init__(name='actor_msg_{}'.format(actor_id),
-                         connection_type=RabbitConnection,
-                         uri=self.uri)
+class BinaryChannel(BasicChannel):
+    """Override BaseChannel methods to handle binary messages."""
 
     @checking_events
     def put(self, value):
@@ -125,6 +119,16 @@ class ActorMsgChannel(Channel):
                 raise ChannelTimeoutException()
             time.sleep(self.POLL_FREQUENCY)
 
+
+class ActorMsgChannel(BinaryChannel):
+    """Work with messages sent to a specific actor.
+    """
+    def __init__(self, actor_id):
+        self.uri = Config.get('rabbit', 'uri')
+        super().__init__(name='actor_msg_{}'.format(actor_id),
+                         connection_type=RabbitConnection,
+                         uri=self.uri)
+
     def put_msg(self, message, d={}, **kwargs):
         """Pass a message to an actor's inbox, thereby invoking it. `message` is the request
         body msg parameter; `d` is a dictionary built from the request query parameters;
@@ -134,3 +138,39 @@ class ActorMsgChannel(Channel):
         for k, v in kwargs:
             d[k] = v
         self.put(d)
+
+
+class FiniteRabbitConnection(RabbitConnection):
+    """Override the channelpy.connections.RabbitConnection to provide TTL functionality,"""
+
+    def create_queue(self, name=None, expires=1200000):
+    # def create_queue(self, name=None, expires=100000):
+        """Create queue for messages.
+        :type name: str
+        :type expires: int (time, in milliseconds, for queue to expire) 
+        :rtype: queue
+        """
+        _queue = rabbitpy.Queue(self._ch, name=name, durable=True, expires=expires)
+        _queue.declare()
+        return _queue
+
+
+class ExecutionResultsChannel(BinaryChannel):
+    """Work with the results for a specific actor execution.
+    """
+    def __init__(self, actor_id, execution_id):
+        self.uri = Config.get('rabbit', 'uri')
+        super().__init__(name='results_{}_{}'.format(actor_id, execution_id),
+                         connection_type=FiniteRabbitConnection,
+                         uri=self.uri)
+
+
+class ExecutionJSONResultsChannel(Channel):
+    """Work with the results for a specific actor execution when actor type==json.
+    """
+    def __init__(self, actor_id, execution_id):
+        self.uri = Config.get('rabbit', 'uri')
+        super().__init__(name='results_{}_{}'.format(actor_id, execution_id),
+                         connection_type=FiniteRabbitConnection,
+                         uri=self.uri)
+
