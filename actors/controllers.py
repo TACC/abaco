@@ -17,6 +17,7 @@ from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Wo
     set_permission
 
 from mounts import get_all_mounts
+from codes import REQUESTED
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 
@@ -70,7 +71,6 @@ class MetricsResource(Resource):
                 'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
                 'time': datetime.datetime.utcnow().isoformat() + "Z"
             }
-            logger.debug("METRICS QUERY: {}".format(query))
             r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
             data = json.loads(r.text)['data']['result']
             change_rate = 0
@@ -80,24 +80,25 @@ class MetricsResource(Resource):
                     change_rate = int(previous_data[0]['value'][1]) - int(data[0]['value'][1])
                 except:
                     logger.debug("Could not calculate change rate.")
-                logger.debug(
-                    'METRICS CHECK PREV DATA {} AND CURRENT DATA {}'.format(previous_data, data))
             except:
                 logger.info("Creating Metrics for new actor {}".format(actor_id))
             logger.debug('METRICS CHECK CHANGE RATE: {}'.format(change_rate))
-
+            #
             # try:
             #     logger.debug('METRICS value {}'.format(int(data[0]['value'][1]) == 100 and change_rate == 0))
-            #     if int(data[0]['value'][1] == 100) and change_rate == 0:
-            #         tenant, aid = actor_id.split('_')
-            #         logger.debug('Attempting to create a new worker for {}'.format(actor_id))
-            #         w = Worker()
-            #         worker_id = w.request_worker(tenant, aid)
-            #         w.add_worker(aid, worker_id)
-            #         logger.debug('Added worker successfully for {}'.format(actor_id))
-            # except Exception:
-            #     logger.debug("METRICS - SOMETHING BROKE: {}".format(Exception))
-
+            #     if (int(data[0]['value'][1]) >= 1) and (change_rate == 1):
+            #         tenant, aid = actor_id.decode('utf8').split('_')
+            #         logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
+            #         try:
+            #             worker_id = Worker.request_worker(tenant=tenant, actor_id=aid)
+            #             worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id}
+            #             Worker.add_worker(aid, worker)
+            #             logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
+            #         except Exception as e:
+            #             logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
+            # except Exception as e:
+            #     logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
+            #
 
             last_metric.update({actor_id: data})
 
