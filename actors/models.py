@@ -184,6 +184,7 @@ class Actor(AbacoDAO):
         ('image', 'required', 'image', str, 'Reference to image on docker hub for this actor.', None),
 
         ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', False),
+        ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
         ('use_container_uid', 'optional', 'use_container_uid', inputs.boolean, 'Whether this actor runs as the UID set in the container image.', False),
@@ -759,10 +760,22 @@ class Worker(AbacoDAO):
         ('cid', 'optional', 'cid', str, 'The container ID of this worker.', None),
         ('host_id', 'optional', 'host_id', str, 'id of the host where worker is running.', None),
         ('host_ip', 'optional', 'host_ip', str, 'ip of the host where worker is running.', None),
+        ('create_time', 'derived', 'create_time', str, "Time (UTC) that this actor was created.", {}),
         ('last_execution_time', 'optional', 'last_execution_time', str, 'Last time the worker executed an actor container.', None),
         ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the worker had a health check.',
          None),
         ]
+
+    def get_derived_value(self, name, d):
+        """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
+        # first, see if the attribute is already in the object:
+        if hasattr(self, name):
+            return
+        # time fields
+        if name == 'create_time':
+            time_str = get_current_utc_time()
+            self.create_time = time_str
+            return time_str
 
     @classmethod
     def get_uuid(cls):
@@ -885,8 +898,10 @@ class Worker(AbacoDAO):
         """Return a representation fit for display."""
         last_execution_time_str = self.pop('last_execution_time')
         last_health_check_time_str = self.pop('last_health_check_time')
+        create_time_str = self.pop('create_time')
         self['last_execution_time'] = display_time(last_execution_time_str)
         self['last_health_check_time'] = display_time(last_health_check_time_str)
+        self['create_time'] = display_time(create_time_str)
         return self.case()
 
 class Client(AbacoDAO):
