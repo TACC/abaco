@@ -30,6 +30,7 @@ health:
         mongo_password:
         redis_password:
     volumes:
+        - /:/host
         - /var/run/docker.sock:/var/run/docker.sock
         - ./abaco.conf:/etc/service.conf
         - /home/apim/logs/health.log:/var/log/service.log
