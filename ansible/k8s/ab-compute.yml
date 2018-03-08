@@ -1,0 +1,94 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: abaco
+  labels:
+    app: abaco
+spec:
+  replicas: 8
+  template:
+    metadata:
+      labels:
+        app: abaco
+    spec:
+      volumes:
+      - name: abaco-cf
+        configMap:
+          name: abconfig
+      - name: docker-sock
+        hostPath:
+          path: /var/run
+      - name: abaco-host
+        hostPath:
+          path: /
+      - name: abaco-logs
+        hostPath:
+          path: /home/apim/logs
+      containers:
+      - name: spawner
+        image: abaco/core:dev
+        imagePullPolicy: Always
+        command:
+          - python3
+          - -u
+          - /actors/spawner.py
+        volumeMounts:
+        - name: abaco-cf
+          mountPath: /etc/service.conf
+          subPath: service.conf
+        - name: docker-sock
+          mountPath: /var/run
+        - name: abaco-host
+          mountPath: /host
+        - name: abaco-logs
+          mountPath: /var/log
+        env:
+          - name: AE_IMAGE
+            value: "abaco/core"
+          - name: abaco_conf_host_path
+            value: /home/apim/service.conf
+          - name: _abaco_secret
+            value: secret
+          - name: TAS_ROLE_ACCT
+            value: tas-account
+          - name: TAS_ROLE_PASS
+            value: password
+          - name: SPAWNER_HOST_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: mongo_password
+            value:
+          - name: redis_password
+            value:
+      - name: health
+        image: abaco/core:dev
+        imagePullPolicy: Always
+        command:
+          - /actors/health_check.sh
+        volumeMounts:
+        - name: abaco-cf
+          mountPath: /etc/service.conf
+          subPath: service.conf
+        - name: docker-sock
+          mountPath: /var/run
+        - name: abaco-host
+          mountPath: /host
+        - name: abaco-logs
+          mountPath: /var/log
+        env:
+          - name: AE_IMAGE
+            value: "abaco/core"
+          - name: TAS_ROLE_ACCT
+            value: tas-account
+          - name: TAS_ROLE_PASS
+            value: password
+          - name: SPAWNER_HOST_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: mongo_password
+            value:
+          - name: redis_password
+            value:
