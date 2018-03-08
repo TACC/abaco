@@ -1,6 +1,24 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 0.6.0 - 2018-03-08
+### Added
+- Add support for binary messages through a FIFO mount to the actor.
+- Add support for a "results" endpoint associated with each execution. Results are read from a Unix Domain socket mounted into the actor container and streamed to a Results queue specific to the execution.
+- Read host id from the environment to support dynamic assignment such as when deploying with kubernetes.
+- Add create_time attribute to workers and fix issue with health agents shutting down new workers too quickly if the worker had not processed an execution.
+- An actor's state object can now be an arbitrary JSON-serializable object (not just a dictionary).
+
+### Changed
+- Messages to add multiple new workers are now sent as multiple messages to the command queue to add 1 worker. This distributed commands across multiple spawners better.
+- Default expiration time for Results channels has been increased from 100s to 20 minutes.
+- Fixed a bug in the auth check that caused certain POST requests to fail with "not authorized" errors when the payload was not a JSON-dictionary.
+- Fixed an issue preventing an actor's state object from being updated correctly.
+
+### Removed
+- No change.
+
+
 ## 0.5.2 - 2018-01-26
 ### Added
 - Fixed issue where permissions errors were giving a confusing message about "unrecognized exception".
