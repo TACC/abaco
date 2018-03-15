@@ -27,7 +27,8 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
-gauges = {}
+message_gauges = {}
+rate_gauges = {}
 last_metric = {}
 
 
@@ -35,6 +36,7 @@ class MetricsResource(Resource):
     def get(self):
         actor_ids = self.get_metrics()
         self.check_metrics(actor_ids)
+        # self.add_workers(actor_ids)
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
     def get_metrics(self):
@@ -48,14 +50,14 @@ class MetricsResource(Resource):
         logger.debug("ACTOR IDS: {}".format(actor_ids))
         if actor_ids:
             for actor_id in actor_ids:
-                if actor_id not in gauges.keys():
+                if actor_id not in message_gauges.keys():
                     g = Gauge(
                         'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
                         'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
                     )
-                    gauges.update({actor_id: g})
+                    message_gauges.update({actor_id: g})
                 else:
-                    g = gauges[actor_id]
+                    g = message_gauges[actor_id]
 
                 ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
                 result = {'messages': len(ch._queue._queue)}
@@ -67,41 +69,84 @@ class MetricsResource(Resource):
     def check_metrics(self, actor_ids):
         for actor_id in actor_ids:
             logger.debug("TOP OF CHECK METRICS")
+
             query = {
                 'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
                 'time': datetime.datetime.utcnow().isoformat() + "Z"
             }
             r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
             data = json.loads(r.text)['data']['result']
+
             change_rate = 0
             try:
                 previous_data = last_metric[actor_id]
                 try:
-                    change_rate = int(previous_data[0]['value'][1]) - int(data[0]['value'][1])
+                    change_rate = int(data[0]['value'][1]) - int(previous_data[0]['value'][1])
                 except:
                     logger.debug("Could not calculate change rate.")
             except:
-                logger.info("Creating Metrics for new actor {}".format(actor_id))
-            logger.debug('METRICS CHECK CHANGE RATE: {}'.format(change_rate))
-            #
-            # try:
-            #     logger.debug('METRICS value {}'.format(int(data[0]['value'][1]) == 100 and change_rate == 0))
-            #     if (int(data[0]['value'][1]) >= 1) and (change_rate == 1):
-            #         tenant, aid = actor_id.decode('utf8').split('_')
-            #         logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
-            #         try:
-            #             worker_id = Worker.request_worker(tenant=tenant, actor_id=aid)
-            #             worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id}
-            #             Worker.add_worker(aid, worker)
-            #             logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
-            #         except Exception as e:
-            #             logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
-            # except Exception as e:
-            #     logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
-            #
+                logger.info("No previous data yet for new actor {}".format(actor_id))
 
             last_metric.update({actor_id: data})
+            # Add a worker if message count reaches a given number
+            try:
+                logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
+                if int(data[0]['value'][1]) >= 1 and change_rate > 0:
+                    tenant, aid = actor_id.decode('utf8').split('_')
+                    logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
+                    try:
+                        # create a worker & add to this actor
+                        actor = Actor.from_db(actors_store[actor_id])
+                        worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
+                        logger.info("New worker id: {}".format(worker_ids[0]))
+                        ch = CommandChannel()
+                        ch.put_cmd(actor_id=actor.db_id,
+                                   worker_ids=worker_ids,
+                                   image=actor.image,
+                                   tenant=tenant,
+                                   num=1,
+                                   stop_existing=False)
+                        ch.close()
+                        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
+                    except Exception as e:
+                        logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
+                elif int(data[0]['value'][1]) <= 1:
+                    logger.debug("METRICS made it to scale down block")
+                    # Check the number of workers for this actor before deciding to scale down
+                    workers = Worker.get_workers(actor_id)
+                    try:
+                        if len(workers) == 1:
+                            logger.debug('METRICS made it to number of workers check')
+                        else:
+                            while len(workers) > 0:
+                                logger.debug('METRICS made it STATUS check')
+                                worker = workers.popitem()[1]
+                                logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
+                                # check status of the worker is ready
+                                if worker['status'] == 'READY':
+                                    logger.debug("METRICS I MADE IT")
+                                    # scale down
+                                    try:
+                                        shutdown_worker(worker['id'])
+                                        continue
+                                    except Exception as e:
+                                        logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
+                                    logger.debug('METRICS shut down worker {}'.format(worker['id']))
 
+                    except IndexError:
+                        logger.debug('METRICS only one worker found for actor {}. '
+                                     'Will not scale down'.format(actor_id))
+                    except Exception as e:
+                        logger.debug("METRICS SCALE UP FAILED: {}".format(e))
+
+
+            except Exception as e:
+                logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
+
+
+            #TODO first try with just the number of msgs in the queue
+
+           
     def test_metrics(self):
         logger.debug("METRICS TESTING")
 
