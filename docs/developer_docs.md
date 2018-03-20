@@ -217,7 +217,7 @@ Using the following commands, a new Abaco instance can be installed on Centos7 V
 Install dependencies on the hosts (e.g., Docker, docker-compose, etc):
 
 ```shell
-$ docker run --rm -v ~/.ssh/cic-iu.pem:/root/.ssh/cic-iu.pem -v $(pwd)/ansible/dev/hosts:/deploy/hosts agaveapi/deployer -i /deploy/hosts /deploy/docker_host.plbk -e update_docker_version=True -e update_docker_compose_version=True -e docker_version=1.12.6-1.el7.centos
+$ docker run --rm -v ~/.ssh/cic-iu.pem:/root/.ssh/cic-iu.pem -v /:/host -v $(pwd)/ansible/dev/hosts:/deploy/hosts agaveapi/deployer -i /deploy/hosts /deploy/docker_host.plbk -e update_docker_version=True -e update_docker_compose_version=True -e docker_version=1.12.6-1.el7.centos
 ```
 
 Deploy Abaco:
