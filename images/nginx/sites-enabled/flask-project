@@ -8,6 +8,10 @@ server {
         root /;
     }
 
+    location /metrics {
+        proxy_pass http://172.17.0.1:5004/metrics;
+    }
+
     location ~* ^/actors/admin(.*) {
         proxy_pass http://172.17.0.1:5003/actors/admin$1$is_args$args;
     }
