@@ -31,10 +31,10 @@ mes:
         file: docker-compose-local.yml
         service: mes
 
-metrics:
-    extends:
-        file: docker-compose-local.yml
-        service: metrics
+#metrics:
+#    extends:
+#        file: docker-compose-local.yml
+#        service: metrics
 
 admin:
     extends:
