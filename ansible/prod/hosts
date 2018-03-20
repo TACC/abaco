@@ -1,7 +1,7 @@
 
 [db]
 # ab-core-prod-vmware ansible_ssh_host=129.114.60.250 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
-ab-compute1-tacc-prod-js ansible_ssh_host=129.114.18.5 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+ab-compute1-tacc-prod-js ansible_ssh_host=129.114.104.9 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 
 
 [compute]
@@ -13,7 +13,7 @@ ab-compute3-tacc-prod-js ansible_ssh_host=129.114.104.9 ansible_ssh_private_key_
 
 [web]
 # ab-web-prod-vmware ansible_ssh_host=129.114.60.211 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
-# ab-web-tacc-prod-js ansible_ssh_host=129.114.18.5 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+ab-web-tacc-prod-js ansible_ssh_host=129.114.18.5 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 
 
 [db:vars]
