@@ -91,7 +91,7 @@ class MetricsResource(Resource):
             # Add a worker if message count reaches a given number
             try:
                 logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                if int(data[0]['value'][1]) >= 1 and change_rate > 0:
+                if int(data[0]['value'][1]) >= 1:
                     tenant, aid = actor_id.decode('utf8').split('_')
                     logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
                     try:
@@ -114,9 +114,10 @@ class MetricsResource(Resource):
                     logger.debug("METRICS made it to scale down block")
                     # Check the number of workers for this actor before deciding to scale down
                     workers = Worker.get_workers(actor_id)
+                    logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
                     try:
                         if len(workers) == 1:
-                            logger.debug('METRICS made it to number of workers check')
+                            logger.debug("METRICS only one worker, won't scale down")
                         else:
                             while len(workers) > 0:
                                 logger.debug('METRICS made it STATUS check')
@@ -144,9 +145,6 @@ class MetricsResource(Resource):
                 logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
 
 
-            #TODO first try with just the number of msgs in the queue
-
-           
     def test_metrics(self):
         logger.debug("METRICS TESTING")
 
