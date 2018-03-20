@@ -241,7 +241,7 @@ Deployment checklist:
 
 - change the tag in the compose and abaco.conf files on each production host
 - pull the image (abaco/core:$TAG)
-- update the TAG valus in the abaco.conf file (e.g. TAG: 0.5.1)
+- update the TAG value in the abaco.conf file (e.g. TAG: 0.5.1)
 
 - prep the env:
 
