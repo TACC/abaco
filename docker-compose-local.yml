@@ -39,20 +39,20 @@ mes:
         TAS_ROLE_ACCT:
         TAS_ROLE_PASS:
 
-metrics:
-    image: abaco/core$TAG
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    ports:
-        - "5004:5000"
-    environment:
-        server: dev
-        api: metrics
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
+#metrics:
+#    image: abaco/core$TAG
+#    volumes:
+#        - ./local-dev.conf:/etc/service.conf
+#        - ./abaco.log:/var/log/service.log
+#    ports:
+#        - "5004:5000"
+#    environment:
+#        server: dev
+#        api: metrics
+#        mongo_password:
+#        redis_password:
+#        TAS_ROLE_ACCT:
+#        TAS_ROLE_PASS:
 
 
 admin:
