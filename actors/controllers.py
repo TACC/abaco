@@ -48,23 +48,26 @@ class MetricsResource(Resource):
             in actors_store.items()
         ]
         logger.debug("ACTOR IDS: {}".format(actor_ids))
-        if actor_ids:
-            for actor_id in actor_ids:
-                if actor_id not in message_gauges.keys():
-                    g = Gauge(
-                        'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                        'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
-                    )
-                    message_gauges.update({actor_id: g})
-                else:
-                    g = message_gauges[actor_id]
+        try:
+            if actor_ids:
+                for actor_id in actor_ids:
+                    if actor_id not in message_gauges.keys():
+                        g = Gauge(
+                            'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                            'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                        )
+                        message_gauges.update({actor_id: g})
+                    else:
+                        g = message_gauges[actor_id]
 
-                ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
-                result = {'messages': len(ch._queue._queue)}
-                ch.close()
-                g.set(result['messages'])
-                logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
-            return actor_ids
+                    ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
+                    result = {'messages': len(ch._queue._queue)}
+                    ch.close()
+                    g.set(result['messages'])
+                    logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+                return actor_ids
+        except Exception as e:
+            logger.info("Got exception in get_metrics: {}".format(e))
 
     def check_metrics(self, actor_ids):
         for actor_id in actor_ids:
