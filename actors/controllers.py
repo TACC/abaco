@@ -52,15 +52,22 @@ class MetricsResource(Resource):
             if actor_ids:
                 for actor_id in actor_ids:
                     if actor_id not in message_gauges.keys():
-                        g = Gauge(
-                            'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                            'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
-                        )
-                        message_gauges.update({actor_id: g})
+                        try:
+                            g = Gauge(
+                                'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                                'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                            )
+                            message_gauges.update({actor_id: g})
+                        except Exception as e:
+                            logger.info("got exception trying to instantiate the Gauge: {}".format(e))
                     else:
                         g = message_gauges[actor_id]
 
-                    ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
+                    try:
+                        ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
+                    except Exception as e:
+                        logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
+                        raise e
                     result = {'messages': len(ch._queue._queue)}
                     ch.close()
                     g.set(result['messages'])
@@ -68,6 +75,7 @@ class MetricsResource(Resource):
                 return actor_ids
         except Exception as e:
             logger.info("Got exception in get_metrics: {}".format(e))
+            return []
 
     def check_metrics(self, actor_ids):
         for actor_id in actor_ids:
