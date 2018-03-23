@@ -17,6 +17,12 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 
+try:
+    MAX_WORKERS = Config.get("spawner", "max_workers_per_host")
+except:
+    MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_HOST', 20)
+logger.info("Spawner running with MAX_WORKERS = {}".format(MAX_WORKERS))
+
 class SpawnerException(Exception):
     def __init__(self, message):
         Exception.__init__(self, message)
@@ -29,11 +35,37 @@ class Spawner(object):
         self.num_workers = int(Config.get('workers', 'init_count'))
         self.secret = os.environ.get('_abaco_secret')
         self.cmd_ch = CommandChannel()
+        self.tot_workers = 0
+        try:
+            self.host_id = Config.get('spawner', 'host_id')
+        except Exception as e:
+            logger.critical("Spawner not configured with a host_id! Aborting! Exception: {}".format(e))
+            raise e
 
     def run(self):
         while True:
             cmd = self.cmd_ch.get()
             self.process(cmd)
+            while True:
+                if self.overloaded():
+                    logger.critical("SPAWNER FOR HSOT {} OVERLOADED!!!".format(self.host_id))
+                    # self.update_status to OVERLOADED
+                    time.sleep(5)
+                else:
+                    break
+            # check for resource threshold until below
+
+    def get_tot_workers(self):
+        self.tot_workers = 0
+        for k,v in workers_store.items():
+            if v.get('host_id') == self.host_id:
+                self.tot_workers += 1
+        return
+
+    def overloaded(self):
+        self.get_tot_workers()
+        if self.tot_workers > MAX_WORKERS:
+            return True
 
     def stop_workers(self, actor_id, worker_ids):
         """Stop existing workers; used when updating an actor's image."""
