@@ -266,7 +266,7 @@ It can be usefule to run a test container with all of the abaco code as well as 
 when investigating an Abaco host. The following command will create such a container:
 
 ```shell
-$ docker run -v /:/host -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
+$ docker run -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
 ```
 
 Additionally, when investigating a local development stack, consider using leveraging the `util` module from within
