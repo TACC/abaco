@@ -3,13 +3,13 @@
 # print the special MSG variable:
 echo "Contents of MSG: "$MSG
 
-if [ "$MSG" = "fruit" ]
+if [ "$MSG" = "fruit" ] ; then
   echo "apple"
-elif [ "$MSG" = "vegetable" ]
+elif [ "$MSG" = "vegetable" ] ; then
   echo "carrot"
-elif [ "$MSG" = "color" ]
+elif [ "$MSG" = "color" ] ; then
   echo "green"
-elif [ "$MSG" = "month" ]
+elif [ "$MSG" = "month" ] ; then
   echo "december"
 else
   echo "unknown"
