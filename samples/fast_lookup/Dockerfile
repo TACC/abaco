@@ -1,5 +1,5 @@
 # A basic Docker image for testing Abaco.
-# Image: abacosamples/test
+# Image: abacosamples/fast_lookup
 
 from busybox
 add test.sh /test.sh
