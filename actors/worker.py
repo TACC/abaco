@@ -155,8 +155,16 @@ def subscribe(tenant,
     t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag))
     t.start()
     logger.info("Worker subscribing to actor channel.")
+
+    # keep track of whether we need to update the worker's status back to READY; otherwise, we
+    # will hit redis with an UPDATE every time the subscription loop times out (i.e., every 2s)
     update_worker_status = True
+
+    # shared global tracking whether this worker should keep running; shared between this thread and
+    # the "worker channel processing" thread.
     global keep_running
+
+    # main subscription loop -- processing messages from actor's mailbox
     while keep_running:
         if update_worker_status:
             Worker.update_worker_status(actor_id, worker_id, READY)
@@ -281,7 +289,16 @@ def subscribe(tenant,
         logger.info("Added execution logs.")
 
         # Update the worker's last updated and last execution fields:
-        Worker.update_worker_execution_time(actor_id, worker_id)
+        try:
+            Worker.update_worker_execution_time(actor_id, worker_id)
+        except KeyError:
+            # it is possible that this worker was sent a gracful shutdown command in the other thread
+            # and that spawner has already removed this worker from the store.
+            logger.info("worker {} got unexpected key error trying to update its execution time. "
+                        "Worker better be shutting down! keep_running: {}".format(worker_id, keep_running))
+            if keep_running:
+                logger.error("worker couldn't update's its execution time but keep_running is still true!")
+
         logger.info("worker time stamps updated.")
 
 def get_container_user(actor):
