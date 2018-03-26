@@ -888,7 +888,7 @@ class WorkersResource(Resource):
                            stop_existing=False)
             ch.close()
             logger.info("Message put on command channel for new worker ids: {}".format(worker_ids))
-            return ok(result=None, msg="Scheduled {} new worker(s) to start. There were only".format(num_to_add))
+            return ok(result=None, msg="Scheduled {} new worker(s) to start. Previously, there were {} workers.".format(num_to_add, current_number_workers))
         else:
             return ok(result=None, msg="Actor {} already had {} worker(s).".format(actor_id, num))
 
