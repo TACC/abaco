@@ -21,6 +21,7 @@ try:
     MAX_WORKERS = Config.get("spawner", "max_workers_per_host")
 except:
     MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_HOST', 20)
+MAX_WORKERS = int(MAX_WORKERS)
 logger.info("Spawner running with MAX_WORKERS = {}".format(MAX_WORKERS))
 
 class SpawnerException(Exception):
@@ -44,27 +45,33 @@ class Spawner(object):
 
     def run(self):
         while True:
-            cmd = self.cmd_ch.get()
-            self.process(cmd)
+            # check resource threshold before subscribing
             while True:
                 if self.overloaded():
-                    logger.critical("SPAWNER FOR HSOT {} OVERLOADED!!!".format(self.host_id))
+                    logger.critical("SPAWNER FOR HOST {} OVERLOADED!!!".format(self.host_id))
                     # self.update_status to OVERLOADED
                     time.sleep(5)
                 else:
                     break
-            # check for resource threshold until below
+            cmd = self.cmd_ch.get()
+            self.process(cmd)
 
     def get_tot_workers(self):
+        logger.debug("top of get_tot_workers")
         self.tot_workers = 0
+        logger.debug('spawner host_id: {}'.format(self.host_id))
         for k,v in workers_store.items():
-            if v.get('host_id') == self.host_id:
-                self.tot_workers += 1
-        return
+            for wid, worker in v.items():
+                if worker.get('host_id') == self.host_id:
+                    self.tot_workers += 1
+        logger.debug("returning total workers: {}".format(self.tot_workers))
+        return self.tot_workers
 
     def overloaded(self):
+        logger.debug("top of overloaded")
         self.get_tot_workers()
-        if self.tot_workers > MAX_WORKERS:
+        logger.info("total workers for this host: {}".format(self.tot_workers))
+        if self.tot_workers >= MAX_WORKERS:
             return True
 
     def stop_workers(self, actor_id, worker_ids):
