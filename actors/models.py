@@ -681,7 +681,8 @@ class ExecutionsSummary(AbacoDAO):
         ('api_server', 'derived', 'api_server', str, 'Base URL for the tenant that associated actor belongs to.', None),
         ('actor_id', 'derived', 'actor_id', str, 'id for the actor.', None),
         ('owner', 'provided', 'owner', str, 'The user who created the associated actor.', None),
-        ('ids', 'derived', 'ids', list, 'List of all execution ids.', None),
+        ('executions', 'dervied', 'executions', list, 'List of all execution ids.', None),
+        # ('ids', 'derived', 'ids', list, 'List of all execution ids.', None),
         ('total_executions', 'derived', 'total_executions', str, 'Total number of execution.', None),
         ('total_io', 'derived', 'total_io', str,
          'Block I/O usage, in number of 512-byte sectors read from and written to, by all executions.', None),
@@ -702,13 +703,19 @@ class ExecutionsSummary(AbacoDAO):
                'total_cpu': 0,
                'total_io': 0,
                'total_runtime': 0,
-               'ids': []}
+               'executions': []}
         try:
             executions = executions_store[dbid]
         except KeyError:
             executions = {}
         for id, val in executions.items():
-            tot['ids'].append(id)
+            execution = {'id': id,
+                         'status': val.get('status'),
+                         'start_time': val.get('start_time'),
+                         'message_received_time': val.get('message_received_time')}
+            if val.get('final_state'):
+                execution['finish_time'] = val.get('final_state').get('FinishedAt')
+            tot['executions'].append(execution)
             tot['total_executions'] += 1
             tot['total_cpu'] += int(val['cpu'])
             tot['total_io'] += int(val['io'])
@@ -741,6 +748,13 @@ class ExecutionsSummary(AbacoDAO):
     def display(self):
         self.update(self.get_hypermedia())
         self.pop('db_id')
+        for e in self['executions']:
+            if e.get('start_time'):
+                start_time_str = e.pop('start_time')
+                e['start_time'] = display_time(start_time_str)
+            if e.get('message_received_time'):
+                message_received_time_str = e.pop('message_received_time')
+                e['message_received_time'] = display_time(message_received_time_str)
         return self.case()
 
 
