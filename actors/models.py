@@ -884,7 +884,11 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_execution_time().")
         now = get_current_utc_time()
-        workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
+        try:
+            workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
+        except KeyError as e:
+            logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+            raise e
         logger.info("worker execution time updated. worker_id: {}".format(worker_id))
 
     @classmethod
