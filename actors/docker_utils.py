@@ -358,7 +358,7 @@ def execute_actor(actor_id,
         logger.info("Got exception starting actor container: {}".format(e))
         raise DockerStartContainerError("Could not start container {}. Exception {}".format(container.get('Id'), str(e)))
 
-    Worker.update_worker_status(actor_id, worker_id, BUSY)
+    # local bool tracking whether the actor container is still running
     running = True
 
     logger.debug("right before creating stats_cli: {}".format(timeit.default_timer()))

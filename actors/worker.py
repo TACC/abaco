@@ -169,6 +169,7 @@ def subscribe(tenant,
             logger.info("Channel closed, worker exiting...")
             keep_running = False
             sys.exit()
+        Worker.update_worker_status(actor_id, worker_id, BUSY)
         update_worker_status = True
         logger.info("Received message {}. Starting actor container...".format(msg))
         # the msg object is a dictionary with an entry called message and an arbitrary
