@@ -43,10 +43,13 @@ import requests
 import json
 
 from actors import health, models, codes, stores
-from util import headers, base_url, case, test_remove_initial_actors, \
+# from util import headers, base_url, case, test_remove_initial_actors, \
+#     response_format, basic_response_checks, get_actor_id, check_execution_details, \
+#     execute_actor, get_tenant
+
+from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
     execute_actor, get_tenant
-
 
 
 # #################
@@ -334,8 +337,8 @@ def test_executions_empty_list(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert 'ids' in result
-    assert len(result['ids']) == 0
+    assert 'executions' in result
+    assert len(result['executions']) == 0
 
 
 # ###################
@@ -347,7 +350,7 @@ def test_list_executions(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result.get('ids')) == 0
+    assert len(result.get('executions')) == 0
 
 def test_invalid_method_list_executions(headers):
     actor_id = get_actor_id(headers)
@@ -449,15 +452,13 @@ def test_execute_func_actor(headers):
     result = cloudpickle.loads(rsp.content)
     assert result == 17
 
-
-
 def test_list_execution_details(headers):
     actor_id = get_actor_id(headers)
     # get execution id
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exec_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -481,7 +482,7 @@ def test_invalid_method_get_execution(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exec_id)
     rsp = requests.post(url, headers=headers)
     assert rsp.status_code == 405
@@ -493,7 +494,7 @@ def test_invalid_method_get_execution_logs(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}/logs'.format(base_url, actor_id, exec_id)
     rsp = requests.post(url, headers=headers)
     assert rsp.status_code == 405
@@ -507,7 +508,7 @@ def test_list_execution_logs(headers):
     rsp = requests.get(url, headers=headers)
     # we don't check tenant because it could (and often does) appear in the logs
     result = basic_response_checks(rsp, check_tenant=False)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}/logs'.format(base_url, actor_id, exec_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp, check_tenant=False)
@@ -754,7 +755,7 @@ def test_invalid_method_get_nonce(headers):
 
 def check_worker_fields(worker):
     assert worker.get('image') == 'jstubbs/abaco_test'
-    assert worker.get('status') == 'READY'
+    assert worker.get('status') in ['READY', 'BUSY']
     assert worker.get('location')
     assert worker.get('cid')
     assert worker.get('tenant')
@@ -1033,7 +1034,7 @@ def test_tenant_list_executions(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result.get('ids')) == 0
+    assert len(result.get('executions')) == 0
 
 def test_tenant_list_messages(headers):
     headers = switch_tenant_in_header(headers)
@@ -1056,9 +1057,9 @@ def test_tenant_list_workers(headers):
     check_worker_fields(worker)
 
 
-# ##############
+##############
 # Clean up
-# ##############
+##############
 
 def test_remove_final_actors(headers):
     url = '{}/actors'.format(base_url)
