@@ -178,6 +178,11 @@ def check_workers(actor_id, ttl):
             if last_execution == 0:
                 last_execution = worker.get('create_time', 0)
             logger.debug("using last_execution: {}".format(last_execution))
+            try:
+                last_execution = int(float(last_execution))
+            except:
+                logger.error("Could not case last_execution {} to int(float()".format(last_execution))
+                last_execution = 0
             if last_execution + ttl < time.time():
                 # shutdown worker
                 logger.info("Shutting down worker beyond ttl.")
