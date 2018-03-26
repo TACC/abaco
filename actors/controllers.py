@@ -796,7 +796,7 @@ class MessagesResource(Resource):
         # make sure at least one worker is available
         actor = Actor.from_db(actors_store[dbid])
         actor.ensure_one_worker()
-        logger.debug("ensure_one_actor() called. id: {}.".format(actor_id))
+        logger.debug("ensure_one_worker() called. id: {}.".format(actor_id))
         if args.get('_abaco_Content_Type') == 'application/octet-stream':
             result = {'execution_id': exc, 'msg': 'binary - omitted'}
         else:
