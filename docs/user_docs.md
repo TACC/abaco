@@ -2,7 +2,7 @@
 
 Welcome to the Abaco user documentation. Three higher-level capabilities are being developed on top of the Abaco web
 service and computing platform; *reactors* for event-driven programming, *asynchronous executors* for scaling out
-function calls within running applications and *data adapters* for creating rationalized microservices from disparate
+function calls within running applications, and *data adapters* for creating rationalized microservices from disparate
 and heterogeneous sources of data. These capabilities are under active development: as features become available
 the documentation below will be updated accordingly.
 
@@ -401,13 +401,13 @@ sweeps. Currently, asynchronous executors are only available in Python 3.
 Working with an Abaco asynchronous executor is similar to using a Threadpool or Processpool executor, but instead of
 the executions running in separate threads or processes, they run on the Abaco cluster. When an Abaco asynchronous
 executor is instantiated, an actor is registered with a special image. The methods that invoke remote executions do so
-by sending a binary message to the registered actor; the message consists of the callable and data. When the actor
-receives the message, it deserializes it back into the callable and data, executes the callable, and registers the
-return as a result for the actor.
+by sending a binary message to the registered actor; the message consists of a binary serialization of the callable and
+data. When the actor receives the message, it deserializes it back into the callable and data, executes the callable,
+and registers the return as a result for the actor.
 
-The first step to using Abaco asynchronous executors is to import the AbacoExecutor class and instantiate it;
-instantiating an AbacoExecutor requires an authenticated Agave client, so that should be instantiated first. For
-example:
+The first step to using Abaco asynchronous executors is to import the `AbacoExecutor` class and instantiate it;
+instantiating an `AbacoExecutor` requires an authenticated `agavepy.Agave` client, so that should be instantiated first.
+For example:
 ```
 from agavepy.agave import Agave
 from agavepy.actors import AbacoExecutor
@@ -417,18 +417,21 @@ ex = AbacoExecutor(ag, image='abacosamples/py3_sci_base_func')
 ```
 
 The `image` attribute is optional; if no image is passed, the Abaco library will provide a default. The key is that
-the image used contains all dependencies (packages, libraries, etc.) needed for the function to be executed.
+the image used must contain all dependencies (Python packages, extensions, etc.) needed for the function to be executed.
+If your function uses a custom code or library, you will need to build a Docker image containing the dependencies as
+well as the Abaco executor library for processing messages and responses. A set of base images exist as starting points,
+and the Abaco development team can help build any custom images needed.
 
 Instantaiting the executor can take several seconds as it registers an actor and waits for it to be ready behind the
 scenes. Once the executor is instantiated we have both blocking and non-blocking methods for launching remote executions:
 
 ## Blocking Calls ##
 
-The simplest way to use the AbacoExecutor is with the `blocking_call` method. This launches the exetion on the Abaco
+The simplest way to use the AbacoExecutor is with the `blocking_call()` method. This launches the execution on the Abaco
 cluster and blocks until the result is ready. Once the result is ready, it fetches it from the actor's result endpoint
 and returns.
 
-For example, we have the following function, `f`, defined below. We can use `blocking_call` as follows to execute
+For example, if we have the following function, `f`, defined below, we can use `blocking_call()` as follows to execute
 `f` in the cloud.
 ```
 def f(x):
@@ -437,14 +440,14 @@ def f(x):
 ex = AbacoExecutor(ag)
 ex.blocking_call(f, 3)
 # ...blocks until result is ready..
-Out[]: [7]
+Out[]: [14]
 
 ```
 
 ## Nonblocking Calls ##
 
-To invoke a function once in a nonblocking manner, use the `submit` method. For example, suppose we have the
-following function, `f`, defined below. We can use submit as follows to execute `f` in the cloud.
+To invoke a function once in a nonblocking manner, use the `submit()` method. For example, suppose we have the
+following function, `f`, defined below. We can use `submit()` as follows to execute `f` in the cloud.
 ```
 def f(x):
     return 3*x + 5
@@ -458,13 +461,14 @@ The `submit()` method returns an `AbacoAsyncResponse` object immediately. This d
  finished, but we can use the `arsp` object to check the status of the execution and, eventually, retrieve the result:
 ```
 # use done() to check the status; are we done?
-aprs.done()
+arsp.done()
+# .. returns True or False immediately..
 Out[]: True
 
 # Now that the execution is done, use result() to retrieve the result (if not done, this method blocks until the result
 # is ready)
 arsp.result()
-Out[]: [11]
+Out[]: [20]
 ```
 
 Finally, we can use the executor's `map()` method to map a function over a set of input data. The `map()` call will
