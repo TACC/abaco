@@ -229,7 +229,7 @@ class ActorsResource(Resource):
             logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
         logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
         if use_tas and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user)
+            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
             args['uid'] = uid
             args['gid'] = gid
             args['tasdir'] = tasdir
@@ -332,7 +332,7 @@ class ActorResource(Resource):
             logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
         logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
         if use_tas and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user)
+            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
             args['uid'] = uid
             args['gid'] = gid
             args['tasdir'] = tasdir
