@@ -18,6 +18,8 @@ from codes import BUSY
 from models import Worker, get_current_utc_time
 
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
+if not TAG[0] == ':':
+    TAG = ':{}',format(TAG)
 AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
 
 # timeout (in seconds) for the socket server

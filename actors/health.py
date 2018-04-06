@@ -23,7 +23,10 @@ from channels import CommandChannel, WorkerChannel
 from stores import actors_store, workers_store
 from worker import shutdown_worker
 
-AE_IMAGE = os.environ.get('AE_IMAGE', 'abaco/core')
+TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
+if not TAG[0] == ':':
+    TAG = ':{}',format(TAG)
+AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
 
 from agaveflask.logs import get_logger, get_log_file_strategy
 logger = get_logger(__name__)
