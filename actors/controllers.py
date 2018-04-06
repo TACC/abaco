@@ -8,7 +8,7 @@ from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
-from auth import check_permissions, get_tas_data
+from auth import check_permissions, get_tas_data, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
@@ -228,7 +228,7 @@ class ActorsResource(Resource):
         else:
             logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
         logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
-        if use_tas and not use_container_uid:
+        if use_tas and tenant_can_use_tas(g.tenant) and not use_container_uid:
             uid, gid, tasdir = get_tas_data(g.user, g.tenant)
             args['uid'] = uid
             args['gid'] = gid

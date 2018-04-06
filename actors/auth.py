@@ -284,8 +284,15 @@ def get_tenants():
             'TACC-PROD',
             'VDJSERVER-ORG']
 
-
-
+def tenant_can_use_tas(tenant):
+    """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
+    the TACC IdP"""
+    if tenant == 'DESIGNSAFE' or \
+       tenant == 'SD2E' or \
+       tenant == 'TACC-PROD':
+        return True
+    # all other tenants use some other IdP so username will not be a TAS account:
+    return False
 
 # TAS configuration:
 # base URL for TAS API.
@@ -312,10 +319,13 @@ def get_tas_data(username, tenant):
     logger.debug("Top of get_tas_data for username: {}; tenant: {}".format(username, tenant))
     if not TAS_ROLE_ACCT:
         logger.error("No TAS_ROLE_ACCT configured. Aborting.")
-        return
+        return None, None, None
     if not TAS_ROLE_PASS:
         logger.error("No TAS_ROLE_PASS configured. Aborting.")
-        return
+        return None, None, None
+    if not tenant_can_use_tas(tenant):
+        logger.debug("Tenant {} cannot use TAS".format(tenant))
+        return None, None, None
     url = '{}/users/username/{}'.format(TAS_URL_BASE, username)
     headers = {'Content-type': 'application/json',
                'Accept': 'application/json'
@@ -327,20 +337,20 @@ def get_tas_data(username, tenant):
     except Exception as e:
         logger.error("Got an exception from TAS API. "
                        "Exception: {}. url: {}. TAS_ROLE_ACCT: {}".format(e, url, TAS_ROLE_ACCT))
-        return
+        return None, None, None
     try:
         data = rsp.json()
     except Exception as e:
         logger.error("Did not get JSON from TAS API. rsp: {}"
                        "Exception: {}. url: {}. TAS_ROLE_ACCT: {}".format(rsp, e, url, TAS_ROLE_ACCT))
-        return
+        return None, None, None
     try:
         tas_uid = data['result']['uid']
         tas_homedir = data['result']['homeDirectory']
     except Exception as e:
         logger.error("Did not get attributes from TAS API. rsp: {}"
                        "Exception: {}. url: {}. TAS_ROLE_ACCT: {}".format(rsp, e, url, TAS_ROLE_ACCT))
-        return
+        return None, None, None
 
     # first look for an "extended profile" record in agave metadata. such a record might have the
     # gid to use for this user. to do this search we need a service client for the tenant:
