@@ -14,6 +14,7 @@ from agaveflask.auth import authn_and_authz as agaveflask_az, get_api_server
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
+from agave import Agave
 from config import Config
 import codes
 from models import Actor, get_permissions, Nonce
