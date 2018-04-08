@@ -133,6 +133,7 @@ def check_workers(actor_id, ttl):
         logger.info("Checking health for worker: {}".format(worker))
         ch = WorkerChannel(worker_id=worker['id'])
         worker_id = worker.get('id')
+        result = None
         try:
             logger.debug("Issuing status check to channel: {}".format(worker['ch_name']))
             result = ch.put_sync('status', timeout=5)
