@@ -14,7 +14,7 @@ from agaveflask.auth import authn_and_authz as agaveflask_az, get_api_server
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
-from agave import Agave
+from agavepy.agave import Agave
 from config import Config
 import codes
 from models import Actor, get_permissions, Nonce
@@ -310,8 +310,7 @@ def get_service_client(tenant):
     verify = get_tenant_verify(tenant)
     # generate an Agave client with the service token
     logger.info("Attempting to generate an agave client.")
-    return api_server,\
-           Agave(api_server=api_server,
+    return Agave(api_server=api_server,
                  token=service_token,
                  verify=verify)
 
@@ -386,7 +385,7 @@ def get_tas_data(username, tenant):
             return tas_uid, tas_gid, tas_homedir
 
     # if we are here, we didn't get a TAS_GID from the extended profile.
-    logger.debug("did not get a service client.")
+    logger.debug("did not get an extended profile.")
     # if the instance has a configured TAS_GID to use we will use that; otherwise,
     # we fall back on using the user's uid as the gid, which is (almost) always safe)
     tas_gid = os.environ.get('TAS_GID', tas_uid)
