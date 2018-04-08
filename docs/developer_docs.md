@@ -241,7 +241,7 @@ Deployment checklist:
 
 - change the tag in the compose and abaco.conf files on each production host
 - pull the image (abaco/core:$TAG)
-- update the TAG valus in the abaco.conf file (e.g. TAG: 0.5.1)
+- update the TAG value in the abaco.conf file (e.g. TAG: 0.5.1)
 
 - prep the env:
 
@@ -263,10 +263,11 @@ Debug container
 ---------------
 
 It can be usefule to run a test container with all of the abaco code as well as iPython installed
-when investigating an Abaco host. The following command will create such a container:
+when investigating an Abaco host. The following command will create such a container. NOTE: make sure
+to update the SPAWNER_HOST_ID when using the health.py module in the test container.
 
 ```shell
-$ docker run -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
+$ docker run -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -it -e case=camel -e SPAWNER_HOST_ID=0 -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
 ```
 
 Additionally, when investigating a local development stack, consider using leveraging the `util` module from within
