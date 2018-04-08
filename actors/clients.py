@@ -8,7 +8,7 @@ import rabbitpy
 
 from agaveflask.auth import get_api_server
 
-from agave import Agave
+from aga import Agave
 from auth import get_tenants, get_tenant_verify
 from channels import ClientsChannel
 from models import Actor, Client, Worker

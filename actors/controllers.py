@@ -230,9 +230,11 @@ class ActorsResource(Resource):
         logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
         if use_tas and tenant_can_use_tas(g.tenant) and not use_container_uid:
             uid, gid, tasdir = get_tas_data(g.user, g.tenant)
-            args['uid'] = uid
-            args['gid'] = gid
-            args['tasdir'] = tasdir
+            if uid and gid:
+                args['uid'] = uid
+                args['gid'] = gid
+            if tasdir:
+                args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
@@ -333,9 +335,11 @@ class ActorResource(Resource):
         logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
         if use_tas and not use_container_uid:
             uid, gid, tasdir = get_tas_data(g.user, g.tenant)
-            args['uid'] = uid
-            args['gid'] = gid
-            args['tasdir'] = tasdir
+            if uid and gid:
+                args['uid'] = uid
+                args['gid'] = gid
+            if tasdir:
+                args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
         logger.debug("update args: {}".format(args))
         actor = Actor(**args)

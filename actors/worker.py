@@ -6,7 +6,7 @@ import time
 
 import channelpy
 import configparser
-from agave import Agave
+from aga import Agave
 
 from auth import get_tenant_verify
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
