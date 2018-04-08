@@ -11,9 +11,10 @@ store_rabbit_host_ip: 10.10.10.7
 store_rabbit_port: 5972
 
 workers_worker_ttl: 1800
+workers_generate_clients: True
+workers_use_tas_uid: True
 
 log_level: DEBUG
 
-workers_generate_clients: True
 
 web_user_role: Internal/everyone
