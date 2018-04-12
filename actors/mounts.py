@@ -59,14 +59,22 @@ def process_mount_strs(mount_strs, actor):
 
 def get_global_mounts(actor):
     """
-    Read and parse the global_mounts config.
+    Read and parse the global_mounts configs.
     Returns a list of dictionaries containing host_path, container_path and mode.
     """
+    # first look for a tenant-specific global_mounts config:
+    tenant = actor['tenant']
+    mount_strs = None
     try:
-        mount_strs = Config.get("workers", "global_mounts")
+        mount_strs = Config.get("workers", "{}_global_mounts".format(tenant.lower()))
+        logger.debug("foung a tenant-specific global mounts config for tenant {}".format(tenant.lower()))
     except configparser.NoOptionError:
-        logger.info("No workers.global_mounts config. Skipping.")
-        mount_strs = None
+        logger.info("No workers.{}_global_mounts config. Will look for general global_mounts.".format(tenant.lower()))
+    if not mount_strs:
+        try:
+            mount_strs = Config.get("workers", "global_mounts")
+        except configparser.NoOptionError:
+            logger.info("No workers.global_mounts config. Skipping.")
     return process_mount_strs(mount_strs, actor)
 
 
