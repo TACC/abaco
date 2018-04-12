@@ -19,8 +19,8 @@ import codes
 from config import Config
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
 from models import Actor, Worker
-from channels import CommandChannel, WorkerChannel
-from stores import actors_store, workers_store
+from channels import ClientsChannel, CommandChannel, WorkerChannel
+from stores import actors_store, clients_store, workers_store
 from worker import shutdown_worker
 
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
@@ -81,6 +81,50 @@ def clean_up_ipc_dirs():
     """Remove all directories created for worker sockets and fifos"""
     clean_up_socket_dirs()
     clean_up_fifo_dirs()
+
+def clean_up_clients_store():
+    logger.debug("top of clean_up_clients_store")
+    secret = os.environ.get('_abaco_secret')
+    if not secret:
+        logger.error("health.py not configured with _abaco_secret. exiting clean_up_clients_store.")
+        return None
+    for k, client in clients_store.items():
+        wid = client.get('worker_id')
+        if not wid:
+            logger.error("client object in clients_store without worker_id. client: {}".format(client))
+            continue
+        tenant = client.get('tenant')
+        if not tenant:
+            logger.error("client object in clients_store without tenant. client: {}".format(client))
+            continue
+        actor_id = client.get('actor_id')
+        if not actor_id:
+            logger.error("client object in clients_store without actor_id. client: {}".format(client))
+            continue
+        client_key = client.get('client_key')
+        if not client_key:
+            logger.error("client object in clients_store without client_key. client: {}".format(client))
+            continue
+        # check to see if the wid is the id of an actual worker:
+        worker = get_worker(wid)
+        if not worker:
+            logger.info("worker {} is gone. deleting client {}.".format(wid, client))
+            clients_ch = ClientsChannel()
+            msg = clients_ch.request_delete_client(tenant=tenant,
+                                                   actor_id=actor_id,
+                                                   worker_id=wid,
+                                                   client_id=client_key,
+                                                   secret=secret)
+            if msg['status'] == 'ok':
+                logger.info("Client delete request completed successfully for "
+                            "worker_id: {}, client_id: {}.".format(wid, client_key))
+            else:
+                logger.error("Error deleting client for "
+                             "worker_id: {}, client_id: {}. Message: {}".format(wid, msg['message'], client_key, msg))
+
+        else:
+            logger.info("worker {} still here. ignoring client {}.".format(wid, client))
+
 
 def check_worker_health(actor_id, worker):
     """Check the specific health of a worker object."""
