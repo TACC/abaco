@@ -14,7 +14,7 @@ from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS,
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
-    set_permission
+    set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
 from codes import REQUESTED
@@ -305,6 +305,7 @@ class ActorResource(Resource):
                 "No actor found with id: {}.".format(actor_id), 404)
         previous_image = actor.image
         previous_status = actor.status
+        previous_owner = actor.owner
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant
@@ -319,7 +320,9 @@ class ActorResource(Resource):
             args['status'] = SUBMITTED
             logger.debug("new image is different. updating actor.")
         args['api_server'] = g.api_server
-        args['owner'] = g.user
+
+        # we do not allow a PUT to override the owner in case the PUT is issued by another user
+        args['owner'] = previous_owner
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
@@ -341,6 +344,7 @@ class ActorResource(Resource):
             if tasdir:
                 args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
+        args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
@@ -351,6 +355,9 @@ class ActorResource(Resource):
             ch.put_cmd(actor_id=actor.db_id, worker_ids=worker_ids, image=actor.image, tenant=args['tenant'])
             ch.close()
             logger.debug("put new command on command channel to update actor.")
+        # put could have been issued by a user with
+        if not previous_owner == g.user:
+            set_permission(g.user, actor.db_id, UPDATE)
         return ok(result=actor.display(),
                   msg="Actor updated successfully.")
 
