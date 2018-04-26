@@ -54,10 +54,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
     global keep_running
     logger.info("Worker subscribing to worker channel...")
     while True:
-        try:
-            msg = worker_ch.get(timeout=2)
-        except channelpy.ChannelTimeoutException:
-            continue
+        msg = worker_ch.get_one()
         logger.debug("Received message in worker channel: {}".format(msg))
         logger.debug("Type(msg)={}".format(type(msg)))
         if type(msg) == dict:
@@ -170,9 +167,7 @@ def subscribe(tenant,
             Worker.update_worker_status(actor_id, worker_id, READY)
             update_worker_status = False
         try:
-            msg = actor_ch.get(timeout=2)
-        except channelpy.ChannelTimeoutException:
-            continue
+            msg = actor_ch.get_one()
         except channelpy.ChannelClosedException:
             logger.info("Channel closed, worker exiting...")
             keep_running = False

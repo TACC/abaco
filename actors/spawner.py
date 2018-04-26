@@ -53,7 +53,7 @@ class Spawner(object):
                     time.sleep(5)
                 else:
                     break
-            cmd = self.cmd_ch.get()
+            cmd = self.cmd_ch.get_one()
             self.process(cmd)
 
     def get_tot_workers(self):
