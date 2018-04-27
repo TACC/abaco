@@ -49,7 +49,7 @@ from actors import health, models, codes, stores
 
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-    execute_actor, get_tenant
+    execute_actor, get_tenant, priv_headers
 
 
 # #################
@@ -539,6 +539,36 @@ def test_update_actor(headers):
     assert result['name'] == 'abaco_test_suite'
     assert result['id'] is not None
 
+def test_update_actor_other_user(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    orig_actor = basic_response_checks(rsp)
+
+    # give other user UPDATE access
+    user = 'testshareuser'
+    url = '{}/actors/{}/permissions'.format(base_url, actor_id)
+    data = {'user': user, 'level': 'UPDATE'}
+    rsp = requests.post(url, data=data, headers=headers)
+    basic_response_checks(rsp)
+
+    # now, update the actor with another user:
+    data = {'image': 'jstubbs/abaco_test2'}
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    rsp = requests.put(url, data=data, headers=priv_headers())
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert result['image'] == 'jstubbs/abaco_test2'
+    assert result['name'] == 'abaco_test_suite'
+    assert result['id'] is not None
+    # make sure owner has not changed
+    assert result['owner'] == orig_actor['owner']
+    # make sure update time has changed
+    if case == 'snake':
+        assert not result['last_update_time'] == orig_actor['last_update_time']
+    else:
+        assert not result['lastUpdateTime'] == orig_actor['lastUpdateTime']
+
 
 # ################
 # nonce API
@@ -863,7 +893,7 @@ def test_list_permissions(headers):
     url = '{}/actors/{}/permissions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result) == 1
+    assert len(result) == 2
 
 def test_invalid_method_list_permissions(headers):
     actor_id = get_actor_id(headers)
@@ -880,7 +910,7 @@ def test_add_permissions(headers):
     basic_response_checks(rsp)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result) == 2
+    assert len(result) == 3
 
 def test_modify_user_perissions(headers):
     actor_id = get_actor_id(headers)
@@ -892,7 +922,7 @@ def test_modify_user_perissions(headers):
     result = basic_response_checks(rsp)
     # should still only have 2 results; previous call should have
     # modified the user's permission to READ
-    assert len(result) == 2
+    assert len(result) == 3
 
 
 
@@ -973,7 +1003,7 @@ def test_priv_user_can_create_priv_actor():
 
 def switch_tenant_in_header(headers):
     jwt = headers.get('X-Jwt-Assertion-DEV-DEVELOP')
-    return {'X-Jwt-Assertion-TACC-PROD': jwt}
+    return {'X-Jwt-Assertion-DEV-STAGING': jwt}
 
 
 def test_tenant_list_actors(headers):
