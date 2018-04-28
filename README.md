@@ -191,7 +191,7 @@ Quickstart
 
     The response will look something like:
 
-    > ```json
+    ```json
     {
       "message": "Actor execution retrieved successfully.",
       "result": {
@@ -229,7 +229,7 @@ Quickstart
       "status": "success",
       "version": ":dev"
     }
-    > ```
+    ```
 
 6.  You can also retrieve the logs (as in docker logs) for any execution:
 
