@@ -908,7 +908,10 @@ class Worker(AbacoDAO):
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_status().")
-        workers_store.update_subfield(actor_id, worker_id, 'status', status)
+        try:
+            workers_store.update_subfield(actor_id, worker_id, 'status', status)
+        except Exception as e:
+            logger.error("Got exception trying to update worker subfield; e: {}".format(e))
         logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
 
     def get_uuid_code(self):
