@@ -2,6 +2,7 @@ import os
 import shutil
 import sys
 import threading
+import _thread
 import time
 
 import channelpy
@@ -71,9 +72,16 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                 # NOT doing this for now -- deleting entire anon channel instead (see above)
                 # clean up the event queue on this anonymous channel. this should be fixed in channelpy.
                 # ch._queue._event_queue
-        elif msg == 'stop':
+        elif msg == 'stop' or msg == 'stop-no-delete':
             logger.info("Worker with worker_id: {} (actor_id: {}) received stop message, "
                         "stopping worker...".format(worker_id, actor_id))
+
+            # when an actor's image is updated, old workers are deleted while new workers are
+            # created. Deleting the actor msg channel in this case leads to race conditions
+            delete_actor_ch = True
+            if msg == 'stop-no-delete':
+                logger.info("Got stop-no-delete; will not delete actor_ch.")
+                delete_actor_ch = False
             # first, delete an associated client
             # its possible this worker was not passed a client,
             # but if so, we need to delete it before shutting down.
@@ -105,11 +113,14 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                             "Exception: {}".format(worker_id, e))
             keep_running = False
             # delete associated channels:
-            actor_ch.delete()
+            if delete_actor_ch:
+                actor_ch.delete()
             worker_ch.delete()
             logger.info("WorkerChannel deleted and ActorMsgChannel closed for actor: {} worker_id: {}".format(actor_id, worker_id))
             logger.info("Worker with worker_id: {} is now exiting.".format(worker_id))
-            sys.exit()
+            _thread.interrupt_main()
+            logger.info("main thread interruptted.")
+            os._exit()
 
 
 def subscribe(tenant,
@@ -172,7 +183,16 @@ def subscribe(tenant,
             logger.info("Channel closed, worker exiting...")
             keep_running = False
             sys.exit()
-        Worker.update_worker_status(actor_id, worker_id, BUSY)
+        logger.info("worker {} processing new msg.".format(worker_id))
+        try:
+            Worker.update_worker_status(actor_id, worker_id, BUSY)
+        except Exception as e:
+            logger.error("unexpected exception from call to update_worker_status."
+                         "actor_id: {}; worker_id: {}; status: {}; exception: {}".format(actor_id,
+                                                                                         worker_id,
+                                                                                         BUSY,
+                                                                                         e))
+            raise e
         update_worker_status = True
         logger.info("Received message {}. Starting actor container...".format(msg))
         # the msg object is a dictionary with an entry called message and an arbitrary
