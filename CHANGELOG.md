@@ -1,6 +1,36 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
+## 0.8.0 - 2018-05-10
+### Added
+- Added support for a tenant-specific global_mounts config.
+
+### Changed
+- Changed RabbitMQ connection handling across all channel objects to greatly reduce cpu load on RabbitMQ server as well as on worker nodes in the cluster.
+- Implemented a stop-no-delete command on the command channel to prevent a race condition when updating an actor's image that could cause the new worker to be killed.
+- Fixed an issue where Docker fails to report container execution finish time when the compute server is under heavy load. In this case, we note return finish_time as computed from the start_time and the run_time (calculated by Abaco).
+- Fixed issues with Actor update: 1) owner can no longer change in case a different user from the original owner updates the actor image, 2) last_update_time is always updated, and 3) ensure updater has permanent permissions for the actor.
+
+### Removed
+- No change
+
+## 0.7.0 - 2018-04-08
+### Added
+- Added support for setting max_workers_per_host to prevent overloading.
+- Added support for retrieving the TAS GID on a per user basis from the extended profile within Metadata.
+- Initial implementation of autoscaling via Prometheus added.
+- Additional fields for each execution are now returned in the executions summary.
+
+### Changed
+- The routines used when executing an actor container have been simplified to provide better performance and to prevent some issues such as stats collection generating a UnixHTTPConnectionPool Readtime when compute server is under load.
+- Added several safety guards to the health checker code to prevent crashes of the health checker when working with unexpected data (e.g. when a worker's last_execution is not defined)
+- Fixed bug due to message formatting issue in message returned from a POST to the /workers endpoint.
+
+### Removed
+- The 'ids' collection has been removed from the executions endpoint response in favor of an 'executions' collections providing additional fields for each execution.
+
+
 ## 0.6.0 - 2018-03-08
 ### Added
 - Add support for binary messages through a FIFO mount to the actor.
