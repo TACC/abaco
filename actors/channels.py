@@ -119,6 +119,15 @@ class BinaryChannel(BasicChannel):
                 raise ChannelTimeoutException()
             time.sleep(self.POLL_FREQUENCY)
 
+    def get_one(self):
+        """Blocking method to get a single message without polling."""
+        if self._queue is None:
+            raise ChannelClosedException()
+        for msg in self._queue._queue:
+            msg.ack()
+            return self._process(msg.body)
+
+
 
 class ActorMsgChannel(BinaryChannel):
     """Work with messages sent to a specific actor.

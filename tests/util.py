@@ -11,7 +11,13 @@ case = os.environ.get('case', 'snake')
 
 @pytest.fixture(scope='session')
 def headers():
-    with open('/tests/jwt-abaco_admin', 'r') as f:
+    return get_jwt_headers()
+
+def priv_headers():
+    return get_jwt_headers('/tests/jwt-abaco_privileged')
+
+def get_jwt_headers(file_path='/tests/jwt-abaco_admin'):
+    with open(file_path, 'r') as f:
         jwt_default = f.read()
     jwt = os.environ.get('jwt', jwt_default)
     if jwt:
@@ -21,6 +27,7 @@ def headers():
         token = os.environ.get('token', '')
         headers = {'Authorization': 'Bearer {}'.format(token)}
     return headers
+
 
 def get_tenant(headers):
     for k, v in headers.items():

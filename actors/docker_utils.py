@@ -2,6 +2,7 @@ import configparser
 import json
 import os
 import socket
+import time
 import timeit
 
 import docker
@@ -17,6 +18,8 @@ from codes import BUSY
 from models import Worker, get_current_utc_time
 
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
+if not TAG[0] == ':':
+    TAG = ':{}',format(TAG)
 AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
 
 # timeout (in seconds) for the socket server
@@ -86,6 +89,7 @@ def pull_image(image):
 def list_all_containers():
     """Returns a list of all containers """
     cli = docker.APIClient(base_url=dd, version="auto")
+    # todo -- finish
 
 def container_running(image=None, name=None):
     """Check if there is a running container for an image.
@@ -344,7 +348,11 @@ def execute_actor(actor_id,
                                      user=user,
                                      volumes=volumes,
                                      host_config=host_config)
+    # get the URC time stampe
     start_time = get_current_utc_time()
+    # start the timer to track total execution time.
+    start = timeit.default_timer()
+    logger.debug("right before cli.start: {}".format(start))
     try:
         cli.start(container=container.get('Id'))
     except Exception as e:
@@ -352,26 +360,30 @@ def execute_actor(actor_id,
         logger.info("Got exception starting actor container: {}".format(e))
         raise DockerStartContainerError("Could not start container {}. Exception {}".format(container.get('Id'), str(e)))
 
-    # start the timer to track total execution time.
-    start = timeit.default_timer()
-    Worker.update_worker_status(actor_id, worker_id, BUSY)
+    # local bool tracking whether the actor container is still running
     running = True
 
+    logger.debug("right before creating stats_cli: {}".format(timeit.default_timer()))
     # create a separate cli for checking stats objects since these should be fast and we don't want to wait
     stats_cli = docker.APIClient(base_url=dd, timeout=1, version="auto")
+    logger.debug("right after creating stats_cli: {}".format(timeit.default_timer()))
 
-    #@todo - is it possible to simplify this stats collection code? perhaps replace with docker events or just
-    #        the State object set by docker at the end of the container run.. It's likely waiting for the timeout adds
-    #        latency to the execution time.  .
-    try:
-        stats_obj = stats_cli.stats(container=container.get('Id'), decode=True)
-    except ReadTimeout:
-        # if the container execution is so fast that the initial stats object cannot be created,
-        # we skip the running loop and return a minimal stats object
-        logger.info("Got ReadTimeout before collecting any stats for container: {}".format(container.get('Id')))
-        result['cpu'] = 1
-        result['runtime'] = 1
-        return result
+    # under load, we can see UnixHTTPConnectionPool ReadTimeout's trying to create the stats_obj
+    # so here we are trying up to 3 times to create the stats object for a possible total of 3s
+    # timeouts
+    ct = 0
+    while ct < 3:
+        try:
+            stats_obj = stats_cli.stats(container=container.get('Id'), decode=True)
+            break
+        except ReadTimeout:
+            ct += 1
+        except Exception as e:
+            logger.error("Unexpected exception creating stats_obj. Exception: {}".format(e))
+            # in this case, we need to kill the container since we cannot collect stats;
+            running = False
+    logger.debug("right after creating stats_obj: {}".format(timeit.default_timer()))
+
     while running:
         datagram = None
         try:
@@ -380,14 +392,17 @@ def execute_actor(actor_id,
             pass
         except Exception as e:
             logger.error("got exception from server.recv: {}".format(e))
+        logger.debug("right after try/except datagram block: {}".format(timeit.default_timer()))
         if datagram:
             try:
                 results_ch.put(datagram)
             except Exception as e:
                 logger.error("Error trying to put datagram on results channel. Exception: {}".format(e))
+        logger.debug("right after results ch.put: {}".format(timeit.default_timer()))
         try:
             logger.debug("waiting on a stats obj: {}".format(timeit.default_timer()))
             stats = next(stats_obj)
+            logger.debug("got the stats obj: {}".format(timeit.default_timer()))
         except ReadTimeoutError:
             # this is a ReadTimeoutError from docker, not requests. container is finished.
             logger.debug("next(stats) just timed out: {}".format(timeit.default_timer()))
@@ -396,38 +411,46 @@ def execute_actor(actor_id,
             break
         try:
             result['cpu'] += stats['cpu_stats']['cpu_usage']['total_usage']
-            result['io'] += stats['network']['rx_bytes']
         except KeyError as e:
-            # as of docker 1.9, the stats object returns bytes that must be decoded
-            # and the network key is now 'networks' with multiple subkeys.
-            logger.info("Got a KeyError trying to fetch the cpu or io object: {}".format(e))
-            if type(stats) == bytes:
-                stats = json.loads(stats.decode("utf-8"))
-            result['cpu'] += stats['cpu_stats']['cpu_usage']['total_usage']
-            # even running docker 1.9, there seems to be a race condition where the 'networks' key doesn't
-            # always get populated.
-            try:
-                result['io'] += stats['networks']['eth0']['rx_bytes']
-            except KeyError as e:
-                # grab and log the exception but don't let it break processing.
-                logger.info("Got KeyError exception trying to grab the io object. Exception: {}".format(e))
-
-        # if container is still running, use the cli.wait function with a 1 second timeout to let the container
-        # run for up to another second before trying to collect the next stats object
+            logger.info("Got a KeyError trying to fetch the cpu object: {}".format(e))
+        try:
+            result['io'] += stats['networks']['eth0']['rx_bytes']
+        except KeyError as e:
+            logger.info("Got KeyError exception trying to grab the io object. running: {}; Exception: {}".format(running, e))
         if running:
-            try:
-                logger.debug("waiting on cli.wait: {}".format(timeit.default_timer()))
-                cli.wait(container=container.get('Id'), timeout=1)
-                logger.info("container finished: {}".format(timeit.default_timer()))
+            logger.debug("about to check container status: {}".format(timeit.default_timer()))
+            # we need to wait for the container id to be available
+            i = 0
+            while i < 10:
+                try:
+                    c = cli.containers(all=True, filters={'id': container.get('Id')})[0]
+                    break
+                except IndexError:
+                    logger.error("Got an IndexError trying to get the container object.")
+                    time.sleep(0.1)
+                    i += 1
+            logger.debug("done checking status: {}; i: {}".format(timeit.default_timer(), i))
+            if i == 10:
+                logger.error("Never could retrieve the container object! container id: {}".format(container.get('Id')))
+                try:
+                    cli.stop(container.get('Id'))
+                except Exception as e:
+                    logger.error("Got another exception trying to stop the actor container. Exception: {}".format(e))
+                finally:
+                    running = False
+                continue
+            state = c.get('State')
+            if not state == 'running':
+                logger.debug("container finished, final state: {}".format(state))
                 running = False
-            except (ReadTimeout, ConnectionError):
-                logger.debug("cli.wait just timed out: {}".format(timeit.default_timer()))
-                # the wait timed out so check if we are beyond the max_run_time
+            else:
+                # container still running; check if we are beyond the max_run_time
                 runtime = timeit.default_timer() - start
                 if max_run_time > 0 and max_run_time < runtime:
                     logger.info("hit runtime limit: {}".format(timeit.default_timer()))
                     cli.stop(container.get('Id'))
                     running = False
+            logger.debug("right after checking container state: {}".format(timeit.default_timer()))
     logger.info("container stopped:{}".format(timeit.default_timer()))
     stop = timeit.default_timer()
     # get info from container execution, including exit code
@@ -446,8 +469,10 @@ def execute_actor(actor_id,
     except docker.errors.APIError as e:
         logger.error("Could not inspect container {}. e: {}".format(container.get('Id'), e))
 
+    logger.debug("right after getting container_info: {}".format(timeit.default_timer()))
     # get logs from container
     logs = cli.logs(container.get('Id'))
+    logger.debug("right after getting container logs: {}".format(timeit.default_timer()))
 
     # get any additional results from the execution:
     while True:
@@ -463,9 +488,11 @@ def execute_actor(actor_id,
                 results_ch.put(datagram)
             except Exception as e:
                 logger.error("Error trying to put datagram on results channel. Exception: {}".format(e))
+    logger.debug("right after getting last execution results from datagram socket: {}".format(timeit.default_timer()))
     if socket_host_path:
         server.close()
         os.remove(socket_host_path)
+    logger.debug("right after removing socket: {}".format(timeit.default_timer()))
 
     # remove container, ignore errors
     if not leave_container:
@@ -476,8 +503,11 @@ def execute_actor(actor_id,
             logger.error("Exception trying to remove actor: {}".format(e))
     else:
         logger.debug("leaving actor container since leave_container was True.")
+    logger.debug("right after removing actor container: {}".format(timeit.default_timer()))
+
     if fifo_host_path:
         os.close(fifo)
         os.remove(fifo_host_path)
     result['runtime'] = int(stop - start)
+    logger.debug("right after removing fifo; about to return: {}".format(timeit.default_timer()))
     return result, logs, container_state, exit_code, start_time

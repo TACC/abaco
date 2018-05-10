@@ -17,6 +17,13 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 
+try:
+    MAX_WORKERS = Config.get("spawner", "max_workers_per_host")
+except:
+    MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_HOST', 20)
+MAX_WORKERS = int(MAX_WORKERS)
+logger.info("Spawner running with MAX_WORKERS = {}".format(MAX_WORKERS))
+
 class SpawnerException(Exception):
     def __init__(self, message):
         Exception.__init__(self, message)
@@ -29,11 +36,43 @@ class Spawner(object):
         self.num_workers = int(Config.get('workers', 'init_count'))
         self.secret = os.environ.get('_abaco_secret')
         self.cmd_ch = CommandChannel()
+        self.tot_workers = 0
+        try:
+            self.host_id = Config.get('spawner', 'host_id')
+        except Exception as e:
+            logger.critical("Spawner not configured with a host_id! Aborting! Exception: {}".format(e))
+            raise e
 
     def run(self):
         while True:
-            cmd = self.cmd_ch.get()
+            # check resource threshold before subscribing
+            while True:
+                if self.overloaded():
+                    logger.critical("SPAWNER FOR HOST {} OVERLOADED!!!".format(self.host_id))
+                    # self.update_status to OVERLOADED
+                    time.sleep(5)
+                else:
+                    break
+            cmd = self.cmd_ch.get_one()
             self.process(cmd)
+
+    def get_tot_workers(self):
+        logger.debug("top of get_tot_workers")
+        self.tot_workers = 0
+        logger.debug('spawner host_id: {}'.format(self.host_id))
+        for k,v in workers_store.items():
+            for wid, worker in v.items():
+                if worker.get('host_id') == self.host_id:
+                    self.tot_workers += 1
+        logger.debug("returning total workers: {}".format(self.tot_workers))
+        return self.tot_workers
+
+    def overloaded(self):
+        logger.debug("top of overloaded")
+        self.get_tot_workers()
+        logger.info("total workers for this host: {}".format(self.tot_workers))
+        if self.tot_workers >= MAX_WORKERS:
+            return True
 
     def stop_workers(self, actor_id, worker_ids):
         """Stop existing workers; used when updating an actor's image."""
@@ -58,8 +97,10 @@ class Spawner(object):
                 # don't stop the new workers:
                 if worker['id'] not in worker_ids:
                     ch = WorkerChannel(worker_id=worker['id'])
-                    ch.put('stop')
-                    logger.info("Sent 'stop' message to worker channel: {}".format(ch))
+                    # since this is an update, there are new workers being started, so
+                    # don't delete the actor msg channel:
+                    ch.put('stop-no-delete')
+                    logger.info("Sent 'stop-no-delete' message to worker_id: {}".format(worker['id']))
                     ch.close()
         else:
             logger.info("No workers to stop.")

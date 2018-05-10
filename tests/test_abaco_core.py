@@ -43,10 +43,13 @@ import requests
 import json
 
 from actors import health, models, codes, stores
-from util import headers, base_url, case, test_remove_initial_actors, \
-    response_format, basic_response_checks, get_actor_id, check_execution_details, \
-    execute_actor, get_tenant
+# from util import headers, base_url, case, test_remove_initial_actors, \
+#     response_format, basic_response_checks, get_actor_id, check_execution_details, \
+#     execute_actor, get_tenant
 
+from util import headers, base_url, case, \
+    response_format, basic_response_checks, get_actor_id, check_execution_details, \
+    execute_actor, get_tenant, priv_headers
 
 
 # #################
@@ -334,8 +337,8 @@ def test_executions_empty_list(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert 'ids' in result
-    assert len(result['ids']) == 0
+    assert 'executions' in result
+    assert len(result['executions']) == 0
 
 
 # ###################
@@ -347,7 +350,7 @@ def test_list_executions(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result.get('ids')) == 0
+    assert len(result.get('executions')) == 0
 
 def test_invalid_method_list_executions(headers):
     actor_id = get_actor_id(headers)
@@ -449,15 +452,13 @@ def test_execute_func_actor(headers):
     result = cloudpickle.loads(rsp.content)
     assert result == 17
 
-
-
 def test_list_execution_details(headers):
     actor_id = get_actor_id(headers)
     # get execution id
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exec_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -481,7 +482,7 @@ def test_invalid_method_get_execution(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exec_id)
     rsp = requests.post(url, headers=headers)
     assert rsp.status_code == 405
@@ -493,7 +494,7 @@ def test_invalid_method_get_execution_logs(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}/logs'.format(base_url, actor_id, exec_id)
     rsp = requests.post(url, headers=headers)
     assert rsp.status_code == 405
@@ -507,7 +508,7 @@ def test_list_execution_logs(headers):
     rsp = requests.get(url, headers=headers)
     # we don't check tenant because it could (and often does) appear in the logs
     result = basic_response_checks(rsp, check_tenant=False)
-    exec_id = result.get('ids')[0]
+    exec_id = result.get('executions')[0].get('id')
     url = '{}/actors/{}/executions/{}/logs'.format(base_url, actor_id, exec_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp, check_tenant=False)
@@ -537,6 +538,36 @@ def test_update_actor(headers):
     assert result['image'] == 'jstubbs/abaco_test2'
     assert result['name'] == 'abaco_test_suite'
     assert result['id'] is not None
+
+def test_update_actor_other_user(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    rsp = requests.get(url, headers=headers)
+    orig_actor = basic_response_checks(rsp)
+
+    # give other user UPDATE access
+    user = 'testshareuser'
+    url = '{}/actors/{}/permissions'.format(base_url, actor_id)
+    data = {'user': user, 'level': 'UPDATE'}
+    rsp = requests.post(url, data=data, headers=headers)
+    basic_response_checks(rsp)
+
+    # now, update the actor with another user:
+    data = {'image': 'jstubbs/abaco_test2'}
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    rsp = requests.put(url, data=data, headers=priv_headers())
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert result['image'] == 'jstubbs/abaco_test2'
+    assert result['name'] == 'abaco_test_suite'
+    assert result['id'] is not None
+    # make sure owner has not changed
+    assert result['owner'] == orig_actor['owner']
+    # make sure update time has changed
+    if case == 'snake':
+        assert not result['last_update_time'] == orig_actor['last_update_time']
+    else:
+        assert not result['lastUpdateTime'] == orig_actor['lastUpdateTime']
 
 
 # ################
@@ -754,7 +785,7 @@ def test_invalid_method_get_nonce(headers):
 
 def check_worker_fields(worker):
     assert worker.get('image') == 'jstubbs/abaco_test'
-    assert worker.get('status') == 'READY'
+    assert worker.get('status') in ['READY', 'BUSY']
     assert worker.get('location')
     assert worker.get('cid')
     assert worker.get('tenant')
@@ -862,7 +893,7 @@ def test_list_permissions(headers):
     url = '{}/actors/{}/permissions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result) == 1
+    assert len(result) == 2
 
 def test_invalid_method_list_permissions(headers):
     actor_id = get_actor_id(headers)
@@ -879,7 +910,7 @@ def test_add_permissions(headers):
     basic_response_checks(rsp)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result) == 2
+    assert len(result) == 3
 
 def test_modify_user_perissions(headers):
     actor_id = get_actor_id(headers)
@@ -891,7 +922,7 @@ def test_modify_user_perissions(headers):
     result = basic_response_checks(rsp)
     # should still only have 2 results; previous call should have
     # modified the user's permission to READ
-    assert len(result) == 2
+    assert len(result) == 3
 
 
 
@@ -972,7 +1003,7 @@ def test_priv_user_can_create_priv_actor():
 
 def switch_tenant_in_header(headers):
     jwt = headers.get('X-Jwt-Assertion-DEV-DEVELOP')
-    return {'X-Jwt-Assertion-TACC-PROD': jwt}
+    return {'X-Jwt-Assertion-DEV-STAGING': jwt}
 
 
 def test_tenant_list_actors(headers):
@@ -1033,7 +1064,7 @@ def test_tenant_list_executions(headers):
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert len(result.get('ids')) == 0
+    assert len(result.get('executions')) == 0
 
 def test_tenant_list_messages(headers):
     headers = switch_tenant_in_header(headers)
@@ -1056,9 +1087,9 @@ def test_tenant_list_workers(headers):
     check_worker_fields(worker)
 
 
-# ##############
+##############
 # Clean up
-# ##############
+##############
 
 def test_remove_final_actors(headers):
     url = '{}/actors'.format(base_url)

@@ -8,7 +8,7 @@ import rabbitpy
 
 from agaveflask.auth import get_api_server
 
-from agave import Agave
+from aga import Agave
 from auth import get_tenants, get_tenant_verify
 from channels import ClientsChannel
 from models import Actor, Client, Worker
@@ -60,7 +60,7 @@ class ClientGenerator(object):
         to send an anonymous channel together with the actual client request command.
         """
         while True:
-            message = self.ch.get()
+            message = self.ch.get_one()
             logger.info("cleintg processing message: {}".format(message))
             anon_ch = message['reply_to']
             cmd = message['value']

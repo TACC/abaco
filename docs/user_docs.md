@@ -1,6 +1,17 @@
-# Reactors Service Documentation #
+# Abaco User Documentation #
 
-Welcome to the TACC Reactors Documentation! This documentation is aimed at end users of the Reactors service. Here we cover the basics of creating your own reactor Docker images and working with the Reactors service to register, execute and retrieve data about your reactors.
+Welcome to the Abaco user documentation. Three higher-level capabilities are being developed on top of the Abaco web
+service and computing platform; *reactors* for event-driven programming, *asynchronous executors* for scaling out
+function calls within running applications, and *data adapters* for creating rationalized microservices from disparate
+and heterogeneous sources of data. These capabilities are under active development: as features become available
+the documentation below will be updated accordingly.
+
+
+# Reactors Documentation #
+
+Abaco reactors enable developers to implement event-driven programming models that are well integrated into the TACC
+ecosystem. Here we cover the basics of creating your own reactor Docker images and working with the Reactors service to
+register, execute and retrieve data about your reactors.
 
 A TACC reactor is a Docker image that can be executed by making a POST request to its assigned inbox URL. When a reactor is executed, the service injects the contents of the POST message as well as authentication tokens and other data to help reactor containers accomplish computational tasks on behalf of the user or application that registered it.
 
@@ -380,3 +391,127 @@ The equivalent request in Python looks like:
 ```
 >>> ag.actors.getExecutionLogs(actorId=aid, executionId=exid)
 ```
+
+
+# Asynchronous Executors #
+Abaco asynchronous executors enable developers to asynchronously execute functions on the Abaco cluster from
+directly within a running application; for example, when scaling out pleasantly parallel workloads such as parameter
+sweeps. Currently, asynchronous executors are only available in Python 3.
+
+Working with an Abaco asynchronous executor is similar to using a Threadpool or Processpool executor, but instead of
+the executions running in separate threads or processes, they run on the Abaco cluster. When an Abaco asynchronous
+executor is instantiated, an actor is registered with a special image. The methods that invoke remote executions do so
+by sending a binary message to the registered actor; the message consists of a binary serialization of the callable and
+data. When the actor receives the message, it deserializes it back into the callable and data, executes the callable,
+and registers the return as a result for the actor.
+
+The first step to using Abaco asynchronous executors is to import the `AbacoExecutor` class and instantiate it;
+instantiating an `AbacoExecutor` requires an authenticated `agavepy.Agave` client, so that should be instantiated first.
+For example:
+```
+from agavepy.agave import Agave
+from agavepy.actors import AbacoExecutor
+
+ag = Agave(api_server='https://api.tacc.cloud', token='my_token')
+ex = AbacoExecutor(ag, image='abacosamples/py3_sci_base_func')
+```
+
+The `image` attribute is optional; if no image is passed, the Abaco library will provide a default. The key is that
+the image used must contain all dependencies (Python packages, extensions, etc.) needed for the function to be executed.
+If your function uses a custom code or library, you will need to build a Docker image containing the dependencies as
+well as the Abaco executor library for processing messages and responses. A set of base images exist as starting points,
+and the Abaco development team can help build any custom images needed.
+
+Instantaiting the executor can take several seconds as it registers an actor and waits for it to be ready behind the
+scenes. Once the executor is instantiated we have both blocking and non-blocking methods for launching remote executions:
+
+## Blocking Calls ##
+
+The simplest way to use the AbacoExecutor is with the `blocking_call()` method. This launches the execution on the Abaco
+cluster and blocks until the result is ready. Once the result is ready, it fetches it from the actor's result endpoint
+and returns.
+
+For example, if we have the following function, `f`, defined below, we can use `blocking_call()` as follows to execute
+`f` in the cloud.
+```
+def f(x):
+    return 3*x + 5
+
+ex = AbacoExecutor(ag)
+ex.blocking_call(f, 3)
+# ...blocks until result is ready..
+Out[]: [14]
+
+```
+
+## Nonblocking Calls ##
+
+To invoke a function once in a nonblocking manner, use the `submit()` method. For example, suppose we have the
+following function, `f`, defined below. We can use `submit()` as follows to execute `f` in the cloud.
+```
+def f(x):
+    return 3*x + 5
+
+ex = AbacoExecutor(ag)
+# ..returns an AbacoAsynchronousResponse object immediately
+arsp = ex.submit(f, 5)
+```
+
+The `submit()` method returns an `AbacoAsyncResponse` object immediately. This does not mean our function execution has
+ finished, but we can use the `arsp` object to check the status of the execution and, eventually, retrieve the result:
+```
+# use done() to check the status; are we done?
+arsp.done()
+# .. returns True or False immediately..
+Out[]: True
+
+# Now that the execution is done, use result() to retrieve the result (if not done, this method blocks until the result
+# is ready)
+arsp.result()
+Out[]: [20]
+```
+
+Finally, we can use the executor's `map()` method to map a function over a set of input data. The `map()` call will
+return a list of `AbacoAsyncResponse` objects, one for each execution. The results can then be retrieved individually.
+
+In the following example, we make a single nonblocking call to the function `g` to compute the product of two two
+square numpy arrays:
+```
+import numpy as np
+def g(std_dev, size):
+    A = np.random.normal(0, std_dev, (size, size))
+    B = np.random.normal(0, std_dev, (size, size))
+    C = np.dot(A, B)
+    return C[0]
+
+arsp = ex.submit(g, 100, 4096)
+arsp.result()
+Out[]:
+[array([ -54028.76305778,  106760.76856284, -242740.05860707, ...,
+         125689.34792646,  309953.84157049,  554118.2633921 ])]
+```
+
+
+Here, we use `map()` to submit 8 such executions. We also add time the execution and add some error handling:
+```
+import time
+start=time.time()
+arsp = ex.map(g, [[100, 1024] for i in range(8)])
+for a in arsp:
+    try:
+        print(a.result())
+    except Exception:
+        print("error for execution: {}".format(a.execution_id))
+end=time.time()
+```
+When done, executors should be deleted to remove the actor and supporting resources on the Abaco cluster:
+```
+ex.delete()
+```
+
+In a future release, Abaco will automatically remove actors represetning executors that have been idle for more than
+12 hours.
+
+
+# Data Adapters #
+The data adpaters functionality is still in early development stages.

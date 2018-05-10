@@ -681,7 +681,7 @@ class ExecutionsSummary(AbacoDAO):
         ('api_server', 'derived', 'api_server', str, 'Base URL for the tenant that associated actor belongs to.', None),
         ('actor_id', 'derived', 'actor_id', str, 'id for the actor.', None),
         ('owner', 'provided', 'owner', str, 'The user who created the associated actor.', None),
-        ('ids', 'derived', 'ids', list, 'List of all execution ids.', None),
+        ('executions', 'derived', 'executions', list, 'List of all executions with summary fields.', None),
         ('total_executions', 'derived', 'total_executions', str, 'Total number of execution.', None),
         ('total_io', 'derived', 'total_io', str,
          'Block I/O usage, in number of 512-byte sectors read from and written to, by all executions.', None),
@@ -702,13 +702,25 @@ class ExecutionsSummary(AbacoDAO):
                'total_cpu': 0,
                'total_io': 0,
                'total_runtime': 0,
-               'ids': []}
+               'executions': []}
         try:
             executions = executions_store[dbid]
         except KeyError:
             executions = {}
         for id, val in executions.items():
-            tot['ids'].append(id)
+            execution = {'id': id,
+                         'status': val.get('status'),
+                         'start_time': val.get('start_time'),
+                         'message_received_time': val.get('message_received_time')}
+            if val.get('final_state'):
+                execution['finish_time'] = val.get('final_state').get('FinishedAt')
+                # we rely completely on docker for the final_state object which includes the FinishedAt time stamp;
+                # under heavy load, we have seen docker fail to set this time correctly and instead set it to 1/1/0001.
+                # in that case, we should use the total_runtime to back into it.
+                if execution['finish_time'].startswith('0001-01-01'):
+                    finish_time = float(val.get('start_time')) + float(val['runtime'])
+                    execution['finish_time'] = display_time(str(finish_time))
+            tot['executions'].append(execution)
             tot['total_executions'] += 1
             tot['total_cpu'] += int(val['cpu'])
             tot['total_io'] += int(val['io'])
@@ -741,6 +753,13 @@ class ExecutionsSummary(AbacoDAO):
     def display(self):
         self.update(self.get_hypermedia())
         self.pop('db_id')
+        for e in self['executions']:
+            if e.get('start_time'):
+                start_time_str = e.pop('start_time')
+                e['start_time'] = display_time(start_time_str)
+            if e.get('message_received_time'):
+                message_received_time_str = e.pop('message_received_time')
+                e['message_received_time'] = display_time(message_received_time_str)
         return self.case()
 
 
@@ -870,7 +889,11 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_execution_time().")
         now = get_current_utc_time()
-        workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
+        try:
+            workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
+        except KeyError as e:
+            logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+            raise e
         logger.info("worker execution time updated. worker_id: {}".format(worker_id))
 
     @classmethod
@@ -885,7 +908,10 @@ class Worker(AbacoDAO):
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_status().")
-        workers_store.update_subfield(actor_id, worker_id, 'status', status)
+        try:
+            workers_store.update_subfield(actor_id, worker_id, 'status', status)
+        except Exception as e:
+            logger.error("Got exception trying to update worker subfield; e: {}".format(e))
         logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
 
     def get_uuid_code(self):

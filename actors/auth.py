@@ -14,11 +14,12 @@ from agaveflask.auth import authn_and_authz as agaveflask_az, get_api_server
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
+from agavepy.agave import Agave
 from config import Config
 import codes
 from models import Actor, get_permissions, Nonce
 
-from errors import ResourceError, PermissionsException
+from errors import ClientException, ResourceError, PermissionsException
 
 
 jwt.verify_methods['SHA256WITHRSA'] = (
@@ -284,6 +285,15 @@ def get_tenants():
             'TACC-PROD',
             'VDJSERVER-ORG']
 
+def tenant_can_use_tas(tenant):
+    """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
+    the TACC IdP"""
+    if tenant == 'DESIGNSAFE' or \
+       tenant == 'SD2E' or \
+       tenant == 'TACC-PROD':
+        return True
+    # all other tenants use some other IdP so username will not be a TAS account:
+    return False
 
 # TAS configuration:
 # base URL for TAS API.
@@ -291,16 +301,31 @@ TAS_URL_BASE = os.environ.get('TAS_URL_BASE', 'https://tas.tacc.utexas.edu/api/v
 TAS_ROLE_ACCT = os.environ.get('TAS_ROLE_ACCT', 'tas-jetstream')
 TAS_ROLE_PASS = os.environ.get('TAS_ROLE_PASS')
 
+def get_service_client(tenant):
+    """Returns the service client for a specific tenant."""
+    service_token = os.environ.get('_abaco_{}_service_token'.format(tenant))
+    if not service_token:
+        raise ClientException("No service token configured for tenant: {}".format(tenant))
+    api_server = get_api_server(tenant)
+    verify = get_tenant_verify(tenant)
+    # generate an Agave client with the service token
+    logger.info("Attempting to generate an agave client.")
+    return Agave(api_server=api_server,
+                 token=service_token,
+                 verify=verify)
 
-def get_tas_data(username):
+def get_tas_data(username, tenant):
     """Get the TACC uid, gid and homedir for this user from the TAS API."""
-    logger.debug("Top of get_tas_data for username: {}".format(username))
+    logger.debug("Top of get_tas_data for username: {}; tenant: {}".format(username, tenant))
     if not TAS_ROLE_ACCT:
         logger.error("No TAS_ROLE_ACCT configured. Aborting.")
-        return
+        return None, None, None
     if not TAS_ROLE_PASS:
         logger.error("No TAS_ROLE_PASS configured. Aborting.")
-        return
+        return None, None, None
+    if not tenant_can_use_tas(tenant):
+        logger.debug("Tenant {} cannot use TAS".format(tenant))
+        return None, None, None
     url = '{}/users/username/{}'.format(TAS_URL_BASE, username)
     headers = {'Content-type': 'application/json',
                'Accept': 'application/json'
@@ -312,20 +337,57 @@ def get_tas_data(username):
     except Exception as e:
         logger.error("Got an exception from TAS API. "
                        "Exception: {}. url: {}. TAS_ROLE_ACCT: {}".format(e, url, TAS_ROLE_ACCT))
-        return
+        return None, None, None
     try:
         data = rsp.json()
     except Exception as e:
         logger.error("Did not get JSON from TAS API. rsp: {}"
                        "Exception: {}. url: {}. TAS_ROLE_ACCT: {}".format(rsp, e, url, TAS_ROLE_ACCT))
-        return
+        return None, None, None
     try:
         tas_uid = data['result']['uid']
         tas_homedir = data['result']['homeDirectory']
     except Exception as e:
         logger.error("Did not get attributes from TAS API. rsp: {}"
                        "Exception: {}. url: {}. TAS_ROLE_ACCT: {}".format(rsp, e, url, TAS_ROLE_ACCT))
-        return
+        return None, None, None
+
+    # first look for an "extended profile" record in agave metadata. such a record might have the
+    # gid to use for this user. to do this search we need a service client for the tenant:
+    ag = None
+    tas_gid = None
+    try:
+        ag = get_service_client(tenant)
+    except ClientException as e:
+        logger.info("got ClientException trying to generate the service client; e: {}".format(e))
+    except Exception as e:
+        logger.error("Unexpected exception trying to generate service client; e: {}".format(e))
+    # if we get a service client, try to look up extended profile:
+    if ag:
+        meta_name = 'profile.{}.{}'.format(tenant.lower(), username)
+        q = "{'name': '" + meta_name + "'}"
+        logger.debug("using query: {}".format(q))
+        try:
+            rsp = ag.meta.listMetadata(q=q)
+        except Exception as e:
+            logger.error("Got an exception trying to retrieve the extended profile. Exception: {}".format(e))
+        try:
+            tas_gid = rsp[0].value['posix_gid']
+        except IndexError:
+            logger.info("Got an index error - returning None. response: {}".format(rsp))
+            tas_gid = None
+        except Exception as e:
+            logger.error("Got an exception trying to retrieve the gid from the extended profile. Exception: {}".format(e))
+        if tas_gid:
+            logger.debug("Got a tas gid from the extended profile.")
+            logger.info("Setting the following TAS data: uid:{} gid:{} homedir:{}".format(tas_uid,
+                                                                                          tas_gid,
+                                                                                          tas_homedir))
+            return tas_uid, tas_gid, tas_homedir
+        else:
+            logger.error("got a valid response but did not get a tas_gid. Full rsp: {}".format(rsp))
+    # if we are here, we didn't get a TAS_GID from the extended profile.
+    logger.debug("did not get an extended profile.")
     # if the instance has a configured TAS_GID to use we will use that; otherwise,
     # we fall back on using the user's uid as the gid, which is (almost) always safe)
     tas_gid = os.environ.get('TAS_GID', tas_uid)

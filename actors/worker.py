@@ -2,11 +2,12 @@ import os
 import shutil
 import sys
 import threading
+import _thread
 import time
 
 import channelpy
 import configparser
-from agave import Agave
+from aga import Agave
 
 from auth import get_tenant_verify
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
@@ -54,10 +55,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
     global keep_running
     logger.info("Worker subscribing to worker channel...")
     while True:
-        try:
-            msg = worker_ch.get(timeout=2)
-        except channelpy.ChannelTimeoutException:
-            continue
+        msg = worker_ch.get_one()
         logger.debug("Received message in worker channel: {}".format(msg))
         logger.debug("Type(msg)={}".format(type(msg)))
         if type(msg) == dict:
@@ -74,9 +72,16 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                 # NOT doing this for now -- deleting entire anon channel instead (see above)
                 # clean up the event queue on this anonymous channel. this should be fixed in channelpy.
                 # ch._queue._event_queue
-        elif msg == 'stop':
+        elif msg == 'stop' or msg == 'stop-no-delete':
             logger.info("Worker with worker_id: {} (actor_id: {}) received stop message, "
                         "stopping worker...".format(worker_id, actor_id))
+
+            # when an actor's image is updated, old workers are deleted while new workers are
+            # created. Deleting the actor msg channel in this case leads to race conditions
+            delete_actor_ch = True
+            if msg == 'stop-no-delete':
+                logger.info("Got stop-no-delete; will not delete actor_ch.")
+                delete_actor_ch = False
             # first, delete an associated client
             # its possible this worker was not passed a client,
             # but if so, we need to delete it before shutting down.
@@ -108,11 +113,14 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                             "Exception: {}".format(worker_id, e))
             keep_running = False
             # delete associated channels:
-            actor_ch.delete()
+            if delete_actor_ch:
+                actor_ch.delete()
             worker_ch.delete()
             logger.info("WorkerChannel deleted and ActorMsgChannel closed for actor: {} worker_id: {}".format(actor_id, worker_id))
             logger.info("Worker with worker_id: {} is now exiting.".format(worker_id))
-            sys.exit()
+            _thread.interrupt_main()
+            logger.info("main thread interruptted.")
+            os._exit()
 
 
 def subscribe(tenant,
@@ -155,20 +163,36 @@ def subscribe(tenant,
     t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag))
     t.start()
     logger.info("Worker subscribing to actor channel.")
+
+    # keep track of whether we need to update the worker's status back to READY; otherwise, we
+    # will hit redis with an UPDATE every time the subscription loop times out (i.e., every 2s)
     update_worker_status = True
+
+    # shared global tracking whether this worker should keep running; shared between this thread and
+    # the "worker channel processing" thread.
     global keep_running
+
+    # main subscription loop -- processing messages from actor's mailbox
     while keep_running:
         if update_worker_status:
             Worker.update_worker_status(actor_id, worker_id, READY)
             update_worker_status = False
         try:
-            msg = actor_ch.get(timeout=2)
-        except channelpy.ChannelTimeoutException:
-            continue
+            msg = actor_ch.get_one()
         except channelpy.ChannelClosedException:
             logger.info("Channel closed, worker exiting...")
             keep_running = False
             sys.exit()
+        logger.info("worker {} processing new msg.".format(worker_id))
+        try:
+            Worker.update_worker_status(actor_id, worker_id, BUSY)
+        except Exception as e:
+            logger.error("unexpected exception from call to update_worker_status."
+                         "actor_id: {}; worker_id: {}; status: {}; exception: {}".format(actor_id,
+                                                                                         worker_id,
+                                                                                         BUSY,
+                                                                                         e))
+            raise e
         update_worker_status = True
         logger.info("Received message {}. Starting actor container...".format(msg))
         # the msg object is a dictionary with an entry called message and an arbitrary
@@ -280,7 +304,16 @@ def subscribe(tenant,
         logger.info("Added execution logs.")
 
         # Update the worker's last updated and last execution fields:
-        Worker.update_worker_execution_time(actor_id, worker_id)
+        try:
+            Worker.update_worker_execution_time(actor_id, worker_id)
+        except KeyError:
+            # it is possible that this worker was sent a gracful shutdown command in the other thread
+            # and that spawner has already removed this worker from the store.
+            logger.info("worker {} got unexpected key error trying to update its execution time. "
+                        "Worker better be shutting down! keep_running: {}".format(worker_id, keep_running))
+            if keep_running:
+                logger.error("worker couldn't update's its execution time but keep_running is still true!")
+
         logger.info("worker time stamps updated.")
 
 def get_container_user(actor):

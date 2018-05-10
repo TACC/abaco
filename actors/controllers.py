@@ -1,25 +1,164 @@
 import json
 import configparser
+import requests
+import datetime
 
-from flask import g, request, make_response, Response
+from flask import g, request, render_template, make_response, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
-from auth import check_permissions, get_tas_data
+from auth import check_permissions, get_tas_data, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
-    set_permission
+    set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
+from codes import REQUESTED
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 
+from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
+
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
+CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
+PROMETHEUS_URL = 'http://172.17.0.1:9090'
+message_gauges = {}
+rate_gauges = {}
+last_metric = {}
+
+
+class MetricsResource(Resource):
+    def get(self):
+        actor_ids = self.get_metrics()
+        self.check_metrics(actor_ids)
+        # self.add_workers(actor_ids)
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    def get_metrics(self):
+        logger.debug("top of get in MetricResource")
+
+        actor_ids = [
+            db_id
+            for db_id, _
+            in actors_store.items()
+        ]
+        logger.debug("ACTOR IDS: {}".format(actor_ids))
+        try:
+            if actor_ids:
+                for actor_id in actor_ids:
+                    if actor_id not in message_gauges.keys():
+                        try:
+                            g = Gauge(
+                                'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                                'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                            )
+                            message_gauges.update({actor_id: g})
+                        except Exception as e:
+                            logger.info("got exception trying to instantiate the Gauge: {}".format(e))
+                    else:
+                        g = message_gauges[actor_id]
+
+                    try:
+                        ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
+                    except Exception as e:
+                        logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
+                        raise e
+                    result = {'messages': len(ch._queue._queue)}
+                    ch.close()
+                    g.set(result['messages'])
+                    logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+                return actor_ids
+        except Exception as e:
+            logger.info("Got exception in get_metrics: {}".format(e))
+            return []
+
+    def check_metrics(self, actor_ids):
+        for actor_id in actor_ids:
+            logger.debug("TOP OF CHECK METRICS")
+
+            query = {
+                'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                'time': datetime.datetime.utcnow().isoformat() + "Z"
+            }
+            r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
+            data = json.loads(r.text)['data']['result']
+
+            change_rate = 0
+            try:
+                previous_data = last_metric[actor_id]
+                try:
+                    change_rate = int(data[0]['value'][1]) - int(previous_data[0]['value'][1])
+                except:
+                    logger.debug("Could not calculate change rate.")
+            except:
+                logger.info("No previous data yet for new actor {}".format(actor_id))
+
+            last_metric.update({actor_id: data})
+            # Add a worker if message count reaches a given number
+            try:
+                logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
+                if int(data[0]['value'][1]) >= 1:
+                    tenant, aid = actor_id.decode('utf8').split('_')
+                    logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
+                    try:
+                        # create a worker & add to this actor
+                        actor = Actor.from_db(actors_store[actor_id])
+                        worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
+                        logger.info("New worker id: {}".format(worker_ids[0]))
+                        ch = CommandChannel()
+                        ch.put_cmd(actor_id=actor.db_id,
+                                   worker_ids=worker_ids,
+                                   image=actor.image,
+                                   tenant=tenant,
+                                   num=1,
+                                   stop_existing=False)
+                        ch.close()
+                        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
+                    except Exception as e:
+                        logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
+                elif int(data[0]['value'][1]) <= 1:
+                    logger.debug("METRICS made it to scale down block")
+                    # Check the number of workers for this actor before deciding to scale down
+                    workers = Worker.get_workers(actor_id)
+                    logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
+                    try:
+                        if len(workers) == 1:
+                            logger.debug("METRICS only one worker, won't scale down")
+                        else:
+                            while len(workers) > 0:
+                                logger.debug('METRICS made it STATUS check')
+                                worker = workers.popitem()[1]
+                                logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
+                                # check status of the worker is ready
+                                if worker['status'] == 'READY':
+                                    logger.debug("METRICS I MADE IT")
+                                    # scale down
+                                    try:
+                                        shutdown_worker(worker['id'])
+                                        continue
+                                    except Exception as e:
+                                        logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
+                                    logger.debug('METRICS shut down worker {}'.format(worker['id']))
+
+                    except IndexError:
+                        logger.debug('METRICS only one worker found for actor {}. '
+                                     'Will not scale down'.format(actor_id))
+                    except Exception as e:
+                        logger.debug("METRICS SCALE UP FAILED: {}".format(e))
+
+
+            except Exception as e:
+                logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
+
+
+    def test_metrics(self):
+        logger.debug("METRICS TESTING")
+
 
 class AdminActorsResource(Resource):
     def get(self):
@@ -46,6 +185,7 @@ class ActorsResource(Resource):
 
     def get(self):
         logger.debug("top of GET /actors")
+
         actors = []
         for k, v in actors_store.items():
             if v['tenant'] == g.tenant:
@@ -88,11 +228,13 @@ class ActorsResource(Resource):
         else:
             logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
         logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
-        if use_tas and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user)
-            args['uid'] = uid
-            args['gid'] = gid
-            args['tasdir'] = tasdir
+        if use_tas and tenant_can_use_tas(g.tenant) and not use_container_uid:
+            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
+            if uid and gid:
+                args['uid'] = uid
+                args['gid'] = gid
+            if tasdir:
+                args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
@@ -163,6 +305,7 @@ class ActorResource(Resource):
                 "No actor found with id: {}.".format(actor_id), 404)
         previous_image = actor.image
         previous_status = actor.status
+        previous_owner = actor.owner
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant
@@ -177,7 +320,9 @@ class ActorResource(Resource):
             args['status'] = SUBMITTED
             logger.debug("new image is different. updating actor.")
         args['api_server'] = g.api_server
-        args['owner'] = g.user
+
+        # we do not allow a PUT to override the owner in case the PUT is issued by another user
+        args['owner'] = previous_owner
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
@@ -192,11 +337,14 @@ class ActorResource(Resource):
             logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
         logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
         if use_tas and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user)
-            args['uid'] = uid
-            args['gid'] = gid
-            args['tasdir'] = tasdir
+            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
+            if uid and gid:
+                args['uid'] = uid
+                args['gid'] = gid
+            if tasdir:
+                args['tasdir'] = tasdir
         args['mounts'] = get_all_mounts(args)
+        args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
@@ -207,6 +355,9 @@ class ActorResource(Resource):
             ch.put_cmd(actor_id=actor.db_id, worker_ids=worker_ids, image=actor.image, tenant=args['tenant'])
             ch.close()
             logger.debug("put new command on command channel to update actor.")
+        # put could have been issued by a user with
+        if not previous_owner == g.user:
+            set_permission(g.user, actor.db_id, UPDATE)
         return ok(result=actor.display(),
                   msg="Actor updated successfully.")
 
@@ -551,7 +702,7 @@ class MessagesResource(Resource):
             raise ResourceError(
                 "No actor found with id: {}.".format(actor_id), 404)
         ch = ActorMsgChannel(actor_id=id)
-        result={'messages': len(ch._queue._queue)}
+        result = {'messages': len(ch._queue._queue)}
         ch.close()
         logger.debug("messages found for actor: {}.".format(actor_id))
         result.update(get_hypermedia(actor))
@@ -656,7 +807,7 @@ class MessagesResource(Resource):
         # make sure at least one worker is available
         actor = Actor.from_db(actors_store[dbid])
         actor.ensure_one_worker()
-        logger.debug("ensure_one_actor() called. id: {}.".format(actor_id))
+        logger.debug("ensure_one_worker() called. id: {}.".format(actor_id))
         if args.get('_abaco_Content_Type') == 'application/octet-stream':
             result = {'execution_id': exc, 'msg': 'binary - omitted'}
         else:
@@ -748,7 +899,7 @@ class WorkersResource(Resource):
                            stop_existing=False)
             ch.close()
             logger.info("Message put on command channel for new worker ids: {}".format(worker_ids))
-            return ok(result=None, msg="Scheduled {} new worker(s) to start. There were only".format(num_to_add))
+            return ok(result=None, msg="Scheduled {} new worker(s) to start. Previously, there were {} workers.".format(num_to_add, current_number_workers))
         else:
             return ok(result=None, msg="Actor {} already had {} worker(s).".format(actor_id, num))
 

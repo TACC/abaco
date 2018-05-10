@@ -217,7 +217,7 @@ Using the following commands, a new Abaco instance can be installed on Centos7 V
 Install dependencies on the hosts (e.g., Docker, docker-compose, etc):
 
 ```shell
-$ docker run --rm -v ~/.ssh/cic-iu.pem:/root/.ssh/cic-iu.pem -v $(pwd)/ansible/dev/hosts:/deploy/hosts agaveapi/deployer -i /deploy/hosts /deploy/docker_host.plbk -e update_docker_version=True -e update_docker_compose_version=True -e docker_version=1.12.6-1.el7.centos
+$ docker run --rm -v ~/.ssh/cic-iu.pem:/root/.ssh/cic-iu.pem -v /:/host -v $(pwd)/ansible/dev/hosts:/deploy/hosts agaveapi/deployer -i /deploy/hosts /deploy/docker_host.plbk -e update_docker_version=True -e update_docker_compose_version=True -e docker_version=1.12.6-1.el7.centos
 ```
 
 Deploy Abaco:
@@ -263,10 +263,11 @@ Debug container
 ---------------
 
 It can be usefule to run a test container with all of the abaco code as well as iPython installed
-when investigating an Abaco host. The following command will create such a container:
+when investigating an Abaco host. The following command will create such a container. NOTE: make sure
+to update the SPAWNER_HOST_ID when using the health.py module in the test container.
 
 ```shell
-$ docker run -v /:/host -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
+$ docker run -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -it -e case=camel -e SPAWNER_HOST_ID=0 -e base_url=http://172.17.0.1:8000 -v $(pwd)/abaco.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
 ```
 
 Additionally, when investigating a local development stack, consider using leveraging the `util` module from within

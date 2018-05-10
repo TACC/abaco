@@ -6,14 +6,18 @@ ab-staging-compute-js ansible_ssh_host=129.114.104.149 ansible_ssh_private_key_f
 ab-staging-compute-js ansible_ssh_host=129.114.104.149 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 # abaco-dev-2-js-iu ansible_ssh_host=149.165.168.92 ansible_ssh_private_key_file=~/.ssh/cic-iu.pem ansible_ssh_user=centos
 
+[metrics]
+ab-staging-metrics-js ansible_ssh_host=129.114.17.58 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+
 [web]
 ab-staging-web-js ansible_ssh_host=129.114.17.31 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 # abaco-dev-1-js-iu ansible_ssh_host=149.165.168.230 ansible_ssh_private_key_file=~/.ssh/cic-iu.pem ansible_ssh_user=centos
 
 # all hosts are docker_hosts
 [docker_hosts]
-ab-staging-compute-js ansible_ssh_host=129.114.104.149 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
-ab-staging-web-js ansible_ssh_host=129.114.17.31 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+#ab-staging-compute-js ansible_ssh_host=129.114.104.149 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+#ab-staging-web-js ansible_ssh_host=129.114.17.31 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+ab-staging-metrics-js ansible_ssh_host=129.114.17.58 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 
 # abaco-dev-1-js-iu ansible_ssh_host=149.165.168.230 ansible_ssh_private_key_file=~/.ssh/cic-iu.pem ansible_ssh_user=centos
 # abaco-dev-2-js-iu ansible_ssh_host=149.165.168.92 ansible_ssh_private_key_file=~/.ssh/cic-iu.pem ansible_ssh_user=centos

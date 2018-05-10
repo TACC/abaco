@@ -20,6 +20,18 @@ reg:
         TAS_ROLE_ACCT: {{ tas_role_account }}
         TAS_ROLE_PASS: {{ tas_role_password }}
 {% endif %}
+{% if abaco_TACC-PROD_service_token is defined %}
+        _abaco_TACC-PROD_service_token: {{ abaco_TACC-PROD_service_token }}
+{% endif %}
+{% if abaco_TACC-PROD_service_token is defined %}
+        _abaco_TACC-PROD_service_token: {{ abaco_TACC-PROD_service_token }}
+{% endif %}
+{% if abaco_SD2E_service_token is defined %}
+        _abaco_SD2E_service_token: {{ abaco_SD2E_service_token }}
+{% endif %}
+{% if abaco_DESIGNSAFE_service_token is defined %}
+        _abaco_DESIGNSAFE_service_token: {{ abaco_DESIGNSAFE_service_token }}
+{% endif %}
         mongo_password:
         redis_password:
     volumes:
