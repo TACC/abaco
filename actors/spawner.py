@@ -244,7 +244,19 @@ class Spawner(object):
     def start_worker(self, image, tenant, worker_id):
         ch = SpawnerWorkerChannel(worker_id=worker_id)
         # start an actor executor container and wait for a confirmation that image was pulled.
-        worker_dict = run_worker(image, worker_id)
+        while True:
+            try:
+                worker_dict = run_worker(image, worker_id)
+            except DockerError as e:
+                logger.error("Spawner got a docker exception from run_worker; Exception: {}".format(e))
+                if 'read timeout' in e.message:
+                    logger.info("Exception was a read timeout; trying run_worker again..")
+                    time.sleep(5)
+                    continue
+                else:
+                    logger.info("Exception was NOT a read timeout; quiting on this worker.")
+                    break
+            break
         worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)
         worker = Worker(tenant=tenant, **worker_dict)
         logger.info("worker started successfully, waiting on ack that image was pulled...")
