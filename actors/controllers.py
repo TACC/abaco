@@ -20,7 +20,7 @@ from mounts import get_all_mounts
 from codes import REQUESTED
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
-
+import metrics_utils
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
 from agaveflask.logs import get_logger
@@ -35,7 +35,8 @@ last_metric = {}
 class MetricsResource(Resource):
     def get(self):
         actor_ids = self.get_metrics()
-        self.check_metrics(actor_ids)
+        if len(actor_ids) > 0:
+            self.check_metrics(actor_ids)
         # self.add_workers(actor_ids)
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
@@ -47,32 +48,17 @@ class MetricsResource(Resource):
             for db_id, _
             in actors_store.items()
         ]
-        logger.debug("ACTOR IDS: {}".format(actor_ids))
-        try:
-            if actor_ids:
-                for actor_id in actor_ids:
-                    if actor_id not in message_gauges.keys():
-                        try:
-                            g = Gauge(
-                                'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                                'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
-                            )
-                            message_gauges.update({actor_id: g})
-                        except Exception as e:
-                            logger.info("got exception trying to instantiate the Gauge: {}".format(e))
-                    else:
-                        g = message_gauges[actor_id]
 
-                    try:
-                        ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
-                    except Exception as e:
-                        logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
-                        raise e
-                    result = {'messages': len(ch._queue._queue)}
-                    ch.close()
-                    g.set(result['messages'])
-                    logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
-                return actor_ids
+        logger.debug("ACTOR IDS: {}".format(actor_ids))
+
+        try:
+            assert len(actor_ids) > 0  # does this work?
+
+            # Create a gauge for each actor id
+            metrics_utils.create_gauges(actor_ids)
+
+            #return the actor_ids so we can use them again for check_metrics
+            return actor_ids
         except Exception as e:
             logger.info("Got exception in get_metrics: {}".format(e))
             return []
@@ -81,76 +67,36 @@ class MetricsResource(Resource):
         for actor_id in actor_ids:
             logger.debug("TOP OF CHECK METRICS")
 
-            query = {
-                'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                'time': datetime.datetime.utcnow().isoformat() + "Z"
-            }
-            r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
-            data = json.loads(r.text)['data']['result']
+            data = metrics_utils.query_message_count_for_actor(actor_id)
+            current_message_count = int(data[0]['value'][1])
 
-            change_rate = 0
-            try:
-                previous_data = last_metric[actor_id]
-                try:
-                    change_rate = int(data[0]['value'][1]) - int(previous_data[0]['value'][1])
-                except:
-                    logger.debug("Could not calculate change rate.")
-            except:
-                logger.info("No previous data yet for new actor {}".format(actor_id))
-
+            change_rate = metrics_utils.calc_change_rate(
+                data,
+                last_metric,
+                actor_id
+            )
             last_metric.update({actor_id: data})
+
+            # Add a worker if actor has 0 workers
+            workers = Worker.get_workers(actor_id)
+            logger.debug('NUMBER OF WORKERS: {}'.format(workers))
+            try:
+                if len(workers) == 0:
+                    metrics_utils.scale_up(actor_id)
+                    logger.debug('ADDING WORKER SINCE THERE WERE NONE')
+            except:
+                logger.debug("METRICS - Error scaling up: {} - {} - {}".format(type(e), e, e.args))
+
             # Add a worker if message count reaches a given number
             try:
-                logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                if int(data[0]['value'][1]) >= 1:
-                    tenant, aid = actor_id.decode('utf8').split('_')
-                    logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
-                    try:
-                        # create a worker & add to this actor
-                        actor = Actor.from_db(actors_store[actor_id])
-                        worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
-                        logger.info("New worker id: {}".format(worker_ids[0]))
-                        ch = CommandChannel()
-                        ch.put_cmd(actor_id=actor.db_id,
-                                   worker_ids=worker_ids,
-                                   image=actor.image,
-                                   tenant=tenant,
-                                   num=1,
-                                   stop_existing=False)
-                        ch.close()
-                        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
-                    except Exception as e:
-                        logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
-                elif int(data[0]['value'][1]) <= 1:
-                    logger.debug("METRICS made it to scale down block")
+                logger.debug("METRICS current message count: {}".format(current_message_count))
+                if current_message_count >= 1:
+                    metrics_utils.scale_up(actor_id)
+
+                elif current_message_count <= 1:
                     # Check the number of workers for this actor before deciding to scale down
-                    workers = Worker.get_workers(actor_id)
-                    logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
-                    try:
-                        if len(workers) == 1:
-                            logger.debug("METRICS only one worker, won't scale down")
-                        else:
-                            while len(workers) > 0:
-                                logger.debug('METRICS made it STATUS check')
-                                worker = workers.popitem()[1]
-                                logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
-                                # check status of the worker is ready
-                                if worker['status'] == 'READY':
-                                    logger.debug("METRICS I MADE IT")
-                                    # scale down
-                                    try:
-                                        shutdown_worker(worker['id'])
-                                        continue
-                                    except Exception as e:
-                                        logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
-                                    logger.debug('METRICS shut down worker {}'.format(worker['id']))
-
-                    except IndexError:
-                        logger.debug('METRICS only one worker found for actor {}. '
-                                     'Will not scale down'.format(actor_id))
-                    except Exception as e:
-                        logger.debug("METRICS SCALE UP FAILED: {}".format(e))
-
+                    metrics_utils.scale_down(actor_id)
+                    logger.debug("METRICS made it to scale down block")
 
             except Exception as e:
                 logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
