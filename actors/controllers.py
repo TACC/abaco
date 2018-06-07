@@ -21,6 +21,7 @@ from codes import REQUESTED
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
+
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
 from agaveflask.logs import get_logger
@@ -35,8 +36,7 @@ last_metric = {}
 class MetricsResource(Resource):
     def get(self):
         actor_ids = self.get_metrics()
-        if len(actor_ids) > 0:
-            self.check_metrics(actor_ids)
+        self.check_metrics(actor_ids)
         # self.add_workers(actor_ids)
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
@@ -53,12 +53,12 @@ class MetricsResource(Resource):
 
         try:
             assert len(actor_ids) > 0  # does this work?
+            if actor_ids:
+                # Create a gauge for each actor id
+                actor_ids = metrics_utils.create_gauges(actor_ids)
 
-            # Create a gauge for each actor id
-            metrics_utils.create_gauges(actor_ids)
-
-            #return the actor_ids so we can use them again for check_metrics
-            return actor_ids
+                # return the actor_ids so we can use them again for check_metrics
+                return actor_ids
         except Exception as e:
             logger.info("Got exception in get_metrics: {}".format(e))
             return []
@@ -68,7 +68,10 @@ class MetricsResource(Resource):
             logger.debug("TOP OF CHECK METRICS")
 
             data = metrics_utils.query_message_count_for_actor(actor_id)
-            current_message_count = int(data[0]['value'][1])
+            try:
+                current_message_count = int(data[0]['value'][1])
+            except:
+                logger.info("No current message count for actor {}".format(actor_id))
 
             change_rate = metrics_utils.calc_change_rate(
                 data,
@@ -79,27 +82,31 @@ class MetricsResource(Resource):
 
             # Add a worker if actor has 0 workers
             workers = Worker.get_workers(actor_id)
-            logger.debug('NUMBER OF WORKERS: {}'.format(workers))
+            logger.debug('NUMBER OF WORKERS: {}'.format(len(workers)))
             try:
                 if len(workers) == 0:
                     metrics_utils.scale_up(actor_id)
                     logger.debug('ADDING WORKER SINCE THERE WERE NONE')
+                else:
+                    logger.debug('METRICS: workers are not 0')
             except:
                 logger.debug("METRICS - Error scaling up: {} - {} - {}".format(type(e), e, e.args))
 
-            # Add a worker if message count reaches a given number
-            try:
-                logger.debug("METRICS current message count: {}".format(current_message_count))
-                if current_message_count >= 1:
-                    metrics_utils.scale_up(actor_id)
+            # # Add a worker if message count reaches a given number
+            # try:
+            #     logger.debug("METRICS current message count: {}".format(current_message_count))
+            #     if current_message_count >= 1:
+            #         metrics_utils.scale_up(actor_id)
+            #
+            #     elif current_message_count <= 1:
+            #         # Check the number of workers for this actor before deciding to scale down
+            #         metrics_utils.scale_down(actor_id)
+            #         logger.debug("METRICS made it to scale down block")
+            #
+            # except Exception as e:
+            #     logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
 
-                elif current_message_count <= 1:
-                    # Check the number of workers for this actor before deciding to scale down
-                    metrics_utils.scale_down(actor_id)
-                    logger.debug("METRICS made it to scale down block")
 
-            except Exception as e:
-                logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
 
 
     def test_metrics(self):

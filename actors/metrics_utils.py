@@ -16,6 +16,7 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 
 
 def create_gauges(actor_ids):
+    logger.debug("METRICS: Made it to create_gauges")
     for actor_id in actor_ids:
         if actor_id not in message_gauges.keys():
             try:
@@ -24,6 +25,7 @@ def create_gauges(actor_ids):
                     'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
                 )
                 message_gauges.update({actor_id: g})
+                logger.debug('Created gauge {}'.format(g))
             except Exception as e:
                 logger.info("got exception trying to instantiate the Gauge: {}".format(e))
         else:
@@ -38,7 +40,7 @@ def create_gauges(actor_ids):
         ch.close()
         g.set(result['messages'])
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
-
+    return actor_ids
 
 def query_message_count_for_actor(actor_id):
     query = {
@@ -48,6 +50,7 @@ def query_message_count_for_actor(actor_id):
     r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
     data = json.loads(r.text)['data']['result']
     logger.debug('DATA: {}'.format(data))
+    return data
 
 
 def calc_change_rate(data, last_metric, actor_id):
@@ -63,7 +66,7 @@ def calc_change_rate(data, last_metric, actor_id):
             logger.debug("Could not calculate change rate.")
     except:
         logger.info("No previous data yet for new actor {}".format(actor_id))
-
+    return change_rate
 
 def scale_up(actor_id):
     tenant, aid = actor_id.decode('utf8').split('_')
