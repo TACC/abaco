@@ -6,6 +6,7 @@ import re
 from Crypto.Signature import PKCS1_v1_5
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
+import configparser
 from flask import g, request
 import jwt
 import requests
@@ -273,7 +274,8 @@ def get_tenant_verify(tenant):
 
 def get_tenants():
     """Return a list of tenants"""
-    return ['AGAVE-PROD',
+    return ['3DEM',
+            'AGAVE-PROD',
             'ARAPORT-ORG',
             'DESIGNSAFE',
             'DEV-DEVELOP',
@@ -395,3 +397,65 @@ def get_tas_data(username, tenant):
                                                                                   tas_gid,
                                                                                   tas_homedir))
     return tas_uid, tas_gid, tas_homedir
+
+def get_uid_gid_homedir(actor, user, tenant):
+    """
+    Determines the uid and gid that should be used to run an actor's container. This function does
+    not need to be called if the user is a privileges user
+    :param actor:
+    :param tenant:
+    :return:
+    """
+    # first, determine if this tenant is using tas:
+    try:
+        use_tas = Config.get('workers', '{}_use_tas_uid'.format(tenant))
+    except configparser.NoOptionError:
+        logger.debug("no use_tas_uid config.")
+        use_tas = False
+    if hasattr(use_tas, 'lower'):
+        use_tas = use_tas.lower() == 'true'
+    else:
+        logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
+    if use_tas and tenant_can_use_tas(tenant):
+        return get_tas_data(user, tenant)
+
+    # next, look for a tenant-specific uid and gid:
+    try:
+        uid = Config.get('workers', '{}_actor_uid'.format(tenant))
+        gid = Config.get('workers', '{}_actor_gid'.format(tenant))
+        found_config = True
+        # the homr_dir is optional
+        try:
+            home_dir = Config.get('workers', '{}_actor_homedir'.format(tenant))
+        except:
+            home_dir = None
+        return uid, gid, home_dir
+    except configparser.NoOptionError:
+        logger.debug("no tenant uid or gid config.")
+
+    # next, look for a global use_tas config
+    try:
+        use_tas = Config.get('workers', 'use_tas_uid')
+        found_config = True
+    except configparser.NoOptionError:
+        logger.debug("no use_tas_uid config.")
+        use_tas = False
+    if use_tas and tenant_can_use_tas(tenant):
+        return get_tas_data(user, tenant)
+
+    # finally, look for a global uid and gid:
+    try:
+        uid = Config.get('workers', 'actor_uid'.format(tenant))
+        gid = Config.get('workers', 'actor_gid'.format(tenant))
+        found_config = True
+        # the homr_dir is optional
+        try:
+            home_dir = Config.get('workers', 'actor_homedir'.format(tenant))
+        except:
+            home_dir = None
+        return uid, gid, home_dir
+    except configparser.NoOptionError:
+        logger.debug("no global uid or gid config.")
+
+    # otherwise, run using the uid and gid set in the container
+    return None, None, None
