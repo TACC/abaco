@@ -8,7 +8,7 @@ from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
-from auth import check_permissions, get_tas_data, tenant_can_use_tas
+from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
@@ -218,23 +218,14 @@ class ActorsResource(Resource):
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
-        try:
-            use_tas = Config.get('workers', 'use_tas_uid')
-        except configparser.NoOptionError:
-            logger.debug("no use_tas_uid config.")
-            use_tas = False
-        if hasattr(use_tas, 'lower'):
-            use_tas = use_tas.lower() == 'true'
-        else:
-            logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
-        logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
-        if use_tas and tenant_can_use_tas(g.tenant) and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
-            if uid and gid:
+        if not use_container_uid:
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.user, g.tenant)
+            if uid:
                 args['uid'] = uid
+            if gid:
                 args['gid'] = gid
-            if tasdir:
-                args['tasdir'] = tasdir
+            if home_dir:
+                args['tasdir'] = home_dir
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
@@ -323,26 +314,18 @@ class ActorResource(Resource):
 
         # we do not allow a PUT to override the owner in case the PUT is issued by another user
         args['owner'] = previous_owner
+
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
-        try:
-            use_tas = Config.get('workers', 'use_tas_uid')
-        except configparser.NoOptionError:
-            logger.debug("no use_tas_uid config.")
-            use_tas = False
-        if hasattr(use_tas, 'lower'):
-            use_tas = use_tas.lower() == 'true'
-        else:
-            logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
-        logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
-        if use_tas and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
-            if uid and gid:
+        if not use_container_uid:
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.user, g.tenant)
+            if uid:
                 args['uid'] = uid
+            if gid:
                 args['gid'] = gid
-            if tasdir:
-                args['tasdir'] = tasdir
+            if home_dir:
+                args['tasdir'] = home_dir
         args['mounts'] = get_all_mounts(args)
         args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
