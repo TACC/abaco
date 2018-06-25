@@ -72,6 +72,7 @@ class MetricsResource(Resource):
                 current_message_count = int(data[0]['value'][1])
             except:
                 logger.info("No current message count for actor {}".format(actor_id))
+                current_message_count = 0
 
             change_rate = metrics_utils.calc_change_rate(
                 data,
@@ -80,31 +81,35 @@ class MetricsResource(Resource):
             )
             last_metric.update({actor_id: data})
 
-            # Add a worker if actor has 0 workers
+            # Add a worker if actor has 0 workers & a message in the Q
+            #TODO check number of messages in this actor's Q
+            # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
             workers = Worker.get_workers(actor_id)
-            logger.debug('NUMBER OF WORKERS: {}'.format(len(workers)))
+            logger.debug('METRICS: NUMBER OF WORKERS: {}'.format(len(workers)))
+            logger.debug('METRICS: number of messages: {}'.format(current_message_count))
             try:
-                if len(workers) == 0:
+                if len(workers) == 0 and current_message_count >= 1:
                     metrics_utils.scale_up(actor_id)
-                    logger.debug('ADDING WORKER SINCE THERE WERE NONE')
+                    logger.debug('METICS: ADDING WORKER SINCE THERE WERE NONE')
                 else:
-                    logger.debug('METRICS: workers are not 0')
-            except:
+                    logger.debug('METRICS: worker creation criteria not met')
+            except Exception as e:
                 logger.debug("METRICS - Error scaling up: {} - {} - {}".format(type(e), e, e.args))
 
-            # # Add a worker if message count reaches a given number
-            # try:
-            #     logger.debug("METRICS current message count: {}".format(current_message_count))
-            #     if current_message_count >= 1:
-            #         metrics_utils.scale_up(actor_id)
-            #
-            #     elif current_message_count <= 1:
-            #         # Check the number of workers for this actor before deciding to scale down
-            #         metrics_utils.scale_down(actor_id)
-            #         logger.debug("METRICS made it to scale down block")
-            #
-            # except Exception as e:
-            #     logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
+            # Add a worker if message count reaches a given number
+            # TODO: see how this process is affected by MAX_WORKERS in spawner.py
+            try:
+                logger.debug("METRICS current message count: {}".format(current_message_count))
+                if current_message_count >= 1:
+                    metrics_utils.scale_up(actor_id)
+
+                elif current_message_count == 0:
+                    # Check the number of workers for this actor before deciding to scale down
+                    metrics_utils.scale_down(actor_id)
+                    logger.debug("METRICS made it to scale down block")
+
+            except Exception as e:
+                logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
 
 
 
