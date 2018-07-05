@@ -124,6 +124,10 @@ def authorization():
         logger.info("Allowing request because of ALL role.")
         return True
 
+    # there is a bug in wso2 that causes the roles claim to sometimes be missing; this should never happen:
+    if not g.roles:
+        g.roles = ['Internal/everyone']
+
     # all other requests require some kind of abaco role:
     if set(g.roles).isdisjoint(codes.roles):
         logger.info("NOT allowing request - user has no abaco role.")
