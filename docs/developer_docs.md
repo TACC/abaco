@@ -208,6 +208,39 @@ These calls are implemented in the docker_utils.py module. Different versions of
 well as the Docker daemon itself present different APIs, and this can impact performance and correctness within
 Abaco. As a result, strict attention to Docker and docker-py versions is necessary.
 
+Developing the Dashboard
+------------------------
+
+The Abaco Dashboard is a web application geared towards administrative users. It is currently based on Django
+and Bootstrap and the source code lives in the `dashboard` directory. Because it leverages TACC OAuth for
+authentication and authorization, the simplest approach to developing the dashboard is to configure it to point
+at a remote instance; for example, the develop or production instance.
+
+Complete these steps before beginning work on the dashboard app:
+
+1. Update the docker-compose-dashboard file with a client key and secret for the remote instance you intend to interact with.
+NOTE: this client myst be subscribed to the Headers api. You can add a subscription to the Headers using the following:
+
+```shell
+$ curl -u <username>:<password> -d "apiName=Headers&apiVersion=v0.1&apiProvider=admin" https://api.tacc.utexas.edu/clients/v2/<client_name>/subscriptions
+```
+2. Modify your local /etc/hosts file to add an entry like this:
+
+```shell
+127.0.0.1 reactors.tacc.cloud
+```
+3. Build the dashboard image by running the following from the project root:
+
+```shell
+$ docker build -t abaco/dashboard -f Dockerfile-dashboard .
+```
+
+4. Start the dashboard app with docker-compose by running the following from the project root:
+
+```shell
+$ docker-compose -f docker-compose-dashboard up -d
+```
+
 
 Remote Deployment
 -----------------
