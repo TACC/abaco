@@ -1,6 +1,17 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 0.9.0 - 2018-07-06
+### Added
+- Extended support for a tenant-specific identity configurations; specifically, enabling use/non-use of
+TAS integration at the tenant level as well as use of global UID and GID.
+
+### Changed
+- Fixed a reliance
+
+### Removed
+- No change
+
 
 ## 0.8.0 - 2018-05-10
 ### Added
