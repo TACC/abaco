@@ -17,8 +17,8 @@ from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Wo
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
-from codes import REQUESTED
-from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
+import codes
+from stores import actors_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
@@ -179,6 +179,53 @@ class AdminActorsResource(Resource):
             actors.append(actor)
         logger.info("actors retrieved.")
         return ok(result=actors, msg="Actors retrieved successfully.")
+
+class AdminWorkersResource(Resource):
+    def get(self):
+        logger.debug("top of GET /admin/workers")
+        workers_result = []
+        summary = {'total_workers': 0,
+                   'ready_workers': 0,
+                   'requested_workers': 0,
+                   'error_workers': 0,
+                   'busy_workers': 0,
+                   'actors_no_workers': 0}
+        case = Config.get('web', 'case')
+        # the workers_store objects have a kev:value structure where the key is the actor_id and
+        # the value it the worker object (iself, a dictionary).
+        for actor_id, workers in workers_store.items():
+            # we keep entries in the store for actors that have no workers, so need to skip those:
+            if not workers:
+                summary['actors_no_workers'] += 1
+                continue
+            # otherwise, we have an actor with workers:
+            for worker_id, worker in workers.items():
+                worker.update({'id': worker_id})
+                w = Worker(**worker)
+                w = w.display()
+                # add additional fields
+                actor_display_id = Actor.get_display_id(worker.get('tenant'), actor_id.decode("utf-8"))
+                w.update({'actor_id': actor_display_id})
+                w.update({'actor_dbid': actor_id.decode("utf-8")})
+                # convert additional fields to case, as needed
+                if case == 'camel':
+                    w = dict_to_camel(w)
+                workers_result.append(w)
+                summary['total_workers'] += 1
+                if worker.get('status') == codes.REQUESTED:
+                    summary['requested_workers'] += 1
+                elif worker.get('status') == codes.READY:
+                    summary['ready_workers'] += 1
+                elif worker.get('status') == codes.ERROR:
+                    summary['error_workers'] += 1
+                elif worker.get('status') == codes.BUSY:
+                    summary['busy_workers'] += 1
+        logger.info("workers retrieved.")
+        if case == 'camel':
+            summary = dict_to_camel(summary)
+        result = {'summary': summary,
+                  'workers': workers_result}
+        return ok(result=result, msg="Workers retrieved successfully.")
 
 
 class ActorsResource(Resource):

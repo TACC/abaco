@@ -4,7 +4,7 @@ from flask_cors import CORS
 from agaveflask.utils import AgaveApi, handle_error
 
 from auth import authn_and_authz
-from controllers import AdminActorsResource, PermissionsResource, WorkersResource, WorkerResource
+from controllers import AdminActorsResource, AdminWorkersResource, PermissionsResource, WorkersResource, WorkerResource
 from dashboard import dashboard
 
 app = Flask(__name__)
@@ -26,6 +26,7 @@ api.add_resource(WorkersResource, '/actors/<string:actor_id>/workers')
 api.add_resource(PermissionsResource, '/actors/<string:actor_id>/permissions')
 api.add_resource(WorkerResource, '/actors/<string:actor_id>/workers/<string:worker_id>')
 api.add_resource(AdminActorsResource, '/actors/admin')
+api.add_resource(AdminWorkersResource, '/actors/admin/workers')
 
 # web app
 @app.route('/admin/dashboard', methods=['POST', 'GET'])
