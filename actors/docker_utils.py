@@ -45,6 +45,8 @@ class DockerError(Exception):
 class DockerStartContainerError(DockerError):
     pass
 
+class DockerStopContainerError(DockerError):
+    pass
 
 def rm_container(cid):
     """
@@ -254,6 +256,24 @@ def run_worker(image, worker_id):
              'last_execution_time': 0,
              'last_health_check_time': get_current_utc_time() }
 
+def stop_container(cli, cid):
+    """
+    Attempt to stop a running container, with retry logic. Should only be called with a running container.
+    :param cli: the docker cli object to use.
+    :param cid: the container id of the container to be stopped.
+    :return:
+    """
+    i = 0
+    while i < 10:
+        try:
+            cli.stop(cid)
+            return True
+        except Exception as e:
+            logger.error("Got another exception trying to stop the actor container. Exception: {}".format(e))
+            i += 1
+            continue
+    raise DockerStopContainerError
+
 def execute_actor(actor_id,
                   worker_id,
                   execution_id,
@@ -348,7 +368,7 @@ def execute_actor(actor_id,
                                      user=user,
                                      volumes=volumes,
                                      host_config=host_config)
-    # get the URC time stampe
+    # get the UTC time stamp
     start_time = get_current_utc_time()
     # start the timer to track total execution time.
     start = timeit.default_timer()
@@ -381,11 +401,15 @@ def execute_actor(actor_id,
         except Exception as e:
             logger.error("Unexpected exception creating stats_obj. Exception: {}".format(e))
             # in this case, we need to kill the container since we cannot collect stats;
-            running = False
-    logger.debug("right after creating stats_obj: {}".format(timeit.default_timer()))
+            # UPDATE - 07-2018: under load, a errors can occur attempting to create the stats object.
+            # the container could still be running; we need to explicitly check the container status
+            # to be sure.
+            stats_obj = None
+    logger.debug("right after attempting to create stats_obj: {}".format(timeit.default_timer()))
 
     while running:
         datagram = None
+        stats = None
         try:
             datagram = server.recv(MAX_RESULT_FRAME_SIZE)
         except socket.timeout:
@@ -405,18 +429,24 @@ def execute_actor(actor_id,
             logger.debug("got the stats obj: {}".format(timeit.default_timer()))
         except ReadTimeoutError:
             # this is a ReadTimeoutError from docker, not requests. container is finished.
-            logger.debug("next(stats) just timed out: {}".format(timeit.default_timer()))
-            # container stopped before another stats record could be read, just ignore and move on
-            running = False
-            break
-        try:
-            result['cpu'] += stats['cpu_stats']['cpu_usage']['total_usage']
-        except KeyError as e:
-            logger.info("Got a KeyError trying to fetch the cpu object: {}".format(e))
-        try:
-            result['io'] += stats['networks']['eth0']['rx_bytes']
-        except KeyError as e:
-            logger.info("Got KeyError exception trying to grab the io object. running: {}; Exception: {}".format(running, e))
+            logger.info("next(stats) just timed out: {}".format(timeit.default_timer()))
+            # UPDATE - 07-2018: under load, a ReadTimeoutError from the attempt to get a stats object
+            # does NOT imply the container has stopped; we need to explicitly check the container status
+            # to be sure.
+
+        # if we got a status object, add it to the results; it is possible stats collection timed out and the object
+        # is None
+        if stats_obj:
+            try:
+                result['cpu'] += stats['cpu_stats']['cpu_usage']['total_usage']
+            except KeyError as e:
+                logger.info("Got a KeyError trying to fetch the cpu object: {}".format(e))
+            try:
+                result['io'] += stats['networks']['eth0']['rx_bytes']
+            except KeyError as e:
+                logger.info("Got KeyError exception trying to grab the io object. running: {}; Exception: {}".format(running, e))
+
+        # checking the container status to see if it is still running ----
         if running:
             logger.debug("about to check container status: {}".format(timeit.default_timer()))
             # we need to wait for the container id to be available
@@ -430,19 +460,27 @@ def execute_actor(actor_id,
                     time.sleep(0.1)
                     i += 1
             logger.debug("done checking status: {}; i: {}".format(timeit.default_timer(), i))
-            if i == 10:
-                logger.error("Never could retrieve the container object! container id: {}".format(container.get('Id')))
-                try:
-                    cli.stop(container.get('Id'))
-                except Exception as e:
-                    logger.error("Got another exception trying to stop the actor container. Exception: {}".format(e))
-                finally:
-                    running = False
+            # if we were never able to get the container object, we need to stop processing and kill this
+            # worker; the docker daemon could be under heavy load, but we need to not launch another
+            # actor container with this worker, because the existing container may still be running,
+            if i == 10 or not c:
+                # we'll try to stop the container
+                logger.error("Never could retrieve the container object! Attempting to stop container; "
+                             "container id: {}".format(container.get('Id')))
+                # stop_container could raise an exception - if so, we let it pass up and have the worker
+                # shut itself down.
+                stop_container(cli, container.get('Id'))
+                logger.info("container {} stopped.".format(container.get('Id')))
+
+                # if we were able to stop the container, we can set running to False and keep the
+                # worker running
+                running = False
                 continue
             state = c.get('State')
             if not state == 'running':
                 logger.debug("container finished, final state: {}".format(state))
                 running = False
+                continue
             else:
                 # container still running; check if we are beyond the max_run_time
                 runtime = timeit.default_timer() - start
@@ -453,7 +491,9 @@ def execute_actor(actor_id,
             logger.debug("right after checking container state: {}".format(timeit.default_timer()))
     logger.info("container stopped:{}".format(timeit.default_timer()))
     stop = timeit.default_timer()
-    # get info from container execution, including exit code
+
+    # get info from container execution, including exit code; Exceptions from any of these commands
+    # should not cause the worker to shutdown or prevent starting subsequent actor containers.
     try:
         container_info = cli.inspect_container(container.get('Id'))
         try:
@@ -472,6 +512,9 @@ def execute_actor(actor_id,
     logger.debug("right after getting container_info: {}".format(timeit.default_timer()))
     # get logs from container
     logs = cli.logs(container.get('Id'))
+    if not logs:
+        # there are issues where container do not have logs associated with them when they should.
+        logger.info("Container id {} had NO logs associated with it.".format(container.get('Id')))
     logger.debug("right after getting container logs: {}".format(timeit.default_timer()))
 
     # get any additional results from the execution:

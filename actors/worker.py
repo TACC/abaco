@@ -13,7 +13,7 @@ from auth import get_tenant_verify
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from codes import ERROR, READY, BUSY, COMPLETE
 from config import Config
-from docker_utils import DockerError, DockerStartContainerError, execute_actor, pull_image
+from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
 from models import Actor, Execution, Worker
 from stores import actors_store, workers_store
@@ -121,7 +121,6 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
             _thread.interrupt_main()
             logger.info("main thread interruptted.")
             os._exit()
-
 
 def subscribe(tenant,
               actor_id,
@@ -291,9 +290,29 @@ def subscribe(tenant,
                                                                             fifo_host_path,
                                                                             socket_host_path)
         except DockerStartContainerError as e:
-            logger.error("Got DockerStartContainerError: {}".format(e))
+            logger.error("Got DockerStartContainerError: {} trying to start actor."
+                         "Putting actor in error status and shutting down worker.".format(e))
             Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
-            continue
+            shutdown_worker(worker_id)
+            # wait for worker to be shutdown..
+            time.sleep(600)
+            break
+        except DockerStopContainerError as e:
+            logger.error("Worker was not able to stop actor: {}. "
+                         "Putting the actor in error status and shutting down worker.".format(e))
+            Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+            shutdown_worker(worker_id)
+            # wait for worker to be shutdown..
+            time.sleep(600)
+            break
+        except Exception as e:
+            logger.error("Worker got an unexpected exception trying to run actor."
+                         "Putting the actor in error status and shutting down worker.".format(e))
+            Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+            shutdown_worker(worker_id)
+            # wait for worker to be shutdown..
+            time.sleep(600)
+            break
         # Add the completed stats to the execution
         logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
         Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)
