@@ -423,20 +423,25 @@ def execute_actor(actor_id,
             except Exception as e:
                 logger.error("Error trying to put datagram on results channel. Exception: {}".format(e))
         logger.debug("right after results ch.put: {}".format(timeit.default_timer()))
-        try:
-            logger.debug("waiting on a stats obj: {}".format(timeit.default_timer()))
-            stats = next(stats_obj)
-            logger.debug("got the stats obj: {}".format(timeit.default_timer()))
-        except ReadTimeoutError:
-            # this is a ReadTimeoutError from docker, not requests. container is finished.
-            logger.info("next(stats) just timed out: {}".format(timeit.default_timer()))
-            # UPDATE - 07-2018: under load, a ReadTimeoutError from the attempt to get a stats object
-            # does NOT imply the container has stopped; we need to explicitly check the container status
-            # to be sure.
 
-        # if we got a status object, add it to the results; it is possible stats collection timed out and the object
-        # is None
+        # only try to collect stats if we have a stats_obj:
         if stats_obj:
+            logger.debug("we have a stats_obj; trying to collect stats.")
+            try:
+                logger.debug("waiting on a stats obj: {}".format(timeit.default_timer()))
+                stats = next(stats_obj)
+                logger.debug("got the stats obj: {}".format(timeit.default_timer()))
+            except ReadTimeoutError:
+                # this is a ReadTimeoutError from docker, not requests. container is finished.
+                logger.info("next(stats) just timed out: {}".format(timeit.default_timer()))
+                # UPDATE - 07-2018: under load, a ReadTimeoutError from the attempt to get a stats object
+                # does NOT imply the container has stopped; we need to explicitly check the container status
+                # to be sure.
+
+        # if we got a stats object, add it to the results; it is possible stats collection timed out and the object
+        # is None
+        if stats:
+            logger.debug("adding stats to results")
             try:
                 result['cpu'] += stats['cpu_stats']['cpu_usage']['total_usage']
             except KeyError as e:

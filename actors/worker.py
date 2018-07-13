@@ -307,7 +307,7 @@ def subscribe(tenant,
             break
         except Exception as e:
             logger.error("Worker got an unexpected exception trying to run actor."
-                         "Putting the actor in error status and shutting down worker.".format(e))
+                         "Putting the actor in error status and shutting down worker. Exception: {}".format(e))
             Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
             shutdown_worker(worker_id)
             # wait for worker to be shutdown..
