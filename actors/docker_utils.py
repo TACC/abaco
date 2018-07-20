@@ -305,7 +305,7 @@ def execute_actor(actor_id,
     :param socket_host_path: If not None, a string representing a path on the host to a socket used for collecting results from the actor.
     :return: result (dict), logs (str) - `result`: statistics about resource consumption; `logs`: output from docker logs.
     """
-    logger.debug("top of execute_actor()")
+    logger.debug("top of execute_actor(); (worker {};{})".format(worker_id, execution_id))
 
     # initial stats object, environment, binds and volumes
     result = {'cpu': 0,
@@ -324,7 +324,7 @@ def execute_actor(actor_id,
 
     # if container is privileged, mount the docker daemon so that additional
     # containers can be started.
-    logger.debug("privileged: {}".format(privileged))
+    logger.debug("privileged: {};(worker {};{})".format(privileged, worker_id, execution_id))
     if privileged:
         binds = {'/var/run/docker.sock':{
                     'bind': '/var/run/docker.sock',
@@ -337,6 +337,7 @@ def execute_actor(actor_id,
                                      'ro': m.get('format') == 'ro'}
         volumes.append(m.get('host_path'))
     host_config = cli.create_host_config(binds=binds, privileged=privileged)
+    logger.debug("host_config object created by (worker {};{}).".format(worker_id, execution_id))
 
     # write binary data to FIFO if it exists:
     if fifo_host_path:
@@ -344,25 +345,75 @@ def execute_actor(actor_id,
             fifo = os.open(fifo_host_path, os.O_RDWR)
             os.write(fifo, msg)
         except Exception as e:
-            logger.error("Error writing the FIFO. Exception: {}".format(e))
+            logger.error("Error writing the FIFO. Exception: {};(worker {};{})".format(e, worker_id, execution_id))
             os.remove(fifo_host_path)
-            raise DockerStartContainerError("Error writing to fifo: {}".format(e))
+            raise DockerStartContainerError("Error writing to fifo: {}; "
+                                            "(worker {};{})".format(e, worker_id, execution_id))
 
-    # set up results socket
+    # set up results socket -----------------------
+    # make sure socket doesn't already exist:
     try:
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        server.bind(socket_host_path)
-        server.settimeout(RESULTS_SOCKET_TIMEOUT)
-    except Exception as e:
-        logger.error("could not instantiate or bind socket. Exception: {}".format(e))
-        raise e
+        os.unlink(socket_host_path)
+    except OSError as e:
+        if os.path.exists(socket_host_path):
+            logger.error("socket at {} already exists; Exception: {}; (worker {};{})".format(socket_host_path, e,
+                                                                                             worker_id, execution_id))
+            raise e
+    # try:
+    #     server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    #     server.bind(socket_host_path)
+    #     server.settimeout(RESULTS_SOCKET_TIMEOUT)
+    # except Exception as e:
+    #     logger.error("could not instantiate or bind socket at {}. Exception: {}".format(socket_host_path, e))
+    #     raise e
+
+    # use retry logic since, when the compute node is under load, we see errors initially trying to create the socket
+    # server object.
+    keep_trying = True
+    count = 0
+    server = None
+    while keep_trying and count < 10:
+        keep_trying = False
+        count = count + 1
+        try:
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        except Exception as e:
+            keep_trying = True
+            logger.info("Could not instantiate socket at {}. "
+                         "Count: {}; Will keep trying. "
+                         "Exception: {}; type: {}; (worker {};{})".format(socket_host_path, count, e, type(e),
+                                                                          worker_id, execution_id))
+        try:
+            server.bind(socket_host_path)
+        except Exception as e:
+            keep_trying = True
+            logger.info("Could not bind socket at {}. "
+                         "Count: {}; Will keep trying. "
+                         "Exception: {}; type: {}; (worker {};{})".format(socket_host_path, count, e, type(e),
+                                                                          worker_id, execution_id))
+        try:
+            server.settimeout(RESULTS_SOCKET_TIMEOUT)
+        except Exception as e:
+            keep_trying = True
+            logger.info("Could not set timeout for socket at {}. "
+                         "Count: {}; Will keep trying. "
+                         "Exception: {}; type: {}; (worker {};{})".format(socket_host_path, count, e, type(e),
+                                                                          worker_id, execution_id))
+    if not server:
+        msg = "Failed to instantiate results socket. " \
+              "Abaco compute host could be overloaded. Exception: {}; (worker {};{})".format(e, worker_id, execution_id)
+        logger.error(msg)
+        raise DockerStartContainerError(msg)
+
+    logger.debug("results socket server instantiated. (worker {};{})".format(worker_id, execution_id))
 
     # instantiate the results channel:
     results_ch = ExecutionResultsChannel(actor_id, execution_id)
 
     # create and start the container
-    logger.debug("Final container environment: {}".format(d))
-    logger.debug("Final binds: {} and host_config: {} for the container.".format(binds, host_config))
+    logger.debug("Final container environment: {};(worker {};{})".format(d, worker_id, execution_id))
+    logger.debug("Final binds: {} and host_config: {} for the container.(worker {};{})".format(binds, host_config,
+                                                                                               worker_id, execution_id))
     container = cli.create_container(image=image,
                                      environment=d,
                                      user=user,
@@ -372,26 +423,29 @@ def execute_actor(actor_id,
     start_time = get_current_utc_time()
     # start the timer to track total execution time.
     start = timeit.default_timer()
-    logger.debug("right before cli.start: {}".format(start))
+    logger.debug("right before cli.start: {}; (worker {};{})".format(start, worker_id, execution_id))
     try:
         cli.start(container=container.get('Id'))
     except Exception as e:
         # if there was an error starting the container, user will need to debug
-        logger.info("Got exception starting actor container: {}".format(e))
+        logger.info("Got exception starting actor container: {}; (worker {};{})".format(e, worker_id, execution_id))
         raise DockerStartContainerError("Could not start container {}. Exception {}".format(container.get('Id'), str(e)))
 
     # local bool tracking whether the actor container is still running
     running = True
 
-    logger.debug("right before creating stats_cli: {}".format(timeit.default_timer()))
+    logger.debug("right before creating stats_cli: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                              worker_id, execution_id))
     # create a separate cli for checking stats objects since these should be fast and we don't want to wait
     stats_cli = docker.APIClient(base_url=dd, timeout=1, version="auto")
-    logger.debug("right after creating stats_cli: {}".format(timeit.default_timer()))
+    logger.debug("right after creating stats_cli: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                             worker_id, execution_id))
 
     # under load, we can see UnixHTTPConnectionPool ReadTimeout's trying to create the stats_obj
     # so here we are trying up to 3 times to create the stats object for a possible total of 3s
     # timeouts
     ct = 0
+    stats_obj = None
     while ct < 3:
         try:
             stats_obj = stats_cli.stats(container=container.get('Id'), decode=True)
@@ -399,13 +453,14 @@ def execute_actor(actor_id,
         except ReadTimeout:
             ct += 1
         except Exception as e:
-            logger.error("Unexpected exception creating stats_obj. Exception: {}".format(e))
+            logger.error("Unexpected exception creating stats_obj. Exception: {}; (worker {};{})".format(e, worker_id,
+                                                                                                         execution_id))
             # in this case, we need to kill the container since we cannot collect stats;
             # UPDATE - 07-2018: under load, a errors can occur attempting to create the stats object.
             # the container could still be running; we need to explicitly check the container status
             # to be sure.
-            stats_obj = None
-    logger.debug("right after attempting to create stats_obj: {}".format(timeit.default_timer()))
+    logger.debug("right after attempting to create stats_obj: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                         worker_id, execution_id))
 
     while running:
         datagram = None
@@ -415,25 +470,34 @@ def execute_actor(actor_id,
         except socket.timeout:
             pass
         except Exception as e:
-            logger.error("got exception from server.recv: {}".format(e))
-        logger.debug("right after try/except datagram block: {}".format(timeit.default_timer()))
+            logger.error("got exception from server.recv: {}; (worker {};{})".format(e, worker_id, execution_id))
+        logger.debug("right after try/except datagram block: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                        worker_id, execution_id))
         if datagram:
             try:
                 results_ch.put(datagram)
             except Exception as e:
-                logger.error("Error trying to put datagram on results channel. Exception: {}".format(e))
-        logger.debug("right after results ch.put: {}".format(timeit.default_timer()))
+                logger.error("Error trying to put datagram on results channel. "
+                             "Exception: {}; (worker {};{})".format(e, worker_id, execution_id))
+        logger.debug("right after results ch.put: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                             worker_id, execution_id))
 
         # only try to collect stats if we have a stats_obj:
         if stats_obj:
-            logger.debug("we have a stats_obj; trying to collect stats.")
+            logger.debug("we have a stats_obj; trying to collect stats. (worker {};{})".format(worker_id, execution_id))
             try:
-                logger.debug("waiting on a stats obj: {}".format(timeit.default_timer()))
+                logger.debug("waiting on a stats obj: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                 worker_id, execution_id))
                 stats = next(stats_obj)
-                logger.debug("got the stats obj: {}".format(timeit.default_timer()))
+                logger.debug("got the stats obj: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                            worker_id, execution_id))
+            except StopIteration:
+                # we have read the last stats object - no need for processing
+                logger.debug("Got StopIteration; no stats object. (worker {};{})".format(worker_id, execution_id))
             except ReadTimeoutError:
                 # this is a ReadTimeoutError from docker, not requests. container is finished.
-                logger.info("next(stats) just timed out: {}".format(timeit.default_timer()))
+                logger.info("next(stats) just timed out: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                    worker_id, execution_id))
                 # UPDATE - 07-2018: under load, a ReadTimeoutError from the attempt to get a stats object
                 # does NOT imply the container has stopped; we need to explicitly check the container status
                 # to be sure.
@@ -441,19 +505,22 @@ def execute_actor(actor_id,
         # if we got a stats object, add it to the results; it is possible stats collection timed out and the object
         # is None
         if stats:
-            logger.debug("adding stats to results")
+            logger.debug("adding stats to results; (worker {};{})".format(worker_id, execution_id))
             try:
                 result['cpu'] += stats['cpu_stats']['cpu_usage']['total_usage']
             except KeyError as e:
-                logger.info("Got a KeyError trying to fetch the cpu object: {}".format(e))
+                logger.info("Got a KeyError trying to fetch the cpu object: {}; "
+                            "(worker {};{})".format(e, worker_id, execution_id))
             try:
                 result['io'] += stats['networks']['eth0']['rx_bytes']
             except KeyError as e:
-                logger.info("Got KeyError exception trying to grab the io object. running: {}; Exception: {}".format(running, e))
+                logger.info("Got KeyError exception trying to grab the io object. "
+                            "running: {}; Exception: {}; (worker {};{})".format(running, e, worker_id, execution_id))
 
         # checking the container status to see if it is still running ----
         if running:
-            logger.debug("about to check container status: {}".format(timeit.default_timer()))
+            logger.debug("about to check container status: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                      worker_id, execution_id))
             # we need to wait for the container id to be available
             i = 0
             while i < 10:
@@ -461,21 +528,23 @@ def execute_actor(actor_id,
                     c = cli.containers(all=True, filters={'id': container.get('Id')})[0]
                     break
                 except IndexError:
-                    logger.error("Got an IndexError trying to get the container object.")
+                    logger.error("Got an IndexError trying to get the container object. "
+                                 "(worker {};{})".format(worker_id, execution_id))
                     time.sleep(0.1)
                     i += 1
-            logger.debug("done checking status: {}; i: {}".format(timeit.default_timer(), i))
+            logger.debug("done checking status: {}; i: {}; (worker {};{})".format(timeit.default_timer(), i,
+                                                                                  worker_id, execution_id))
             # if we were never able to get the container object, we need to stop processing and kill this
             # worker; the docker daemon could be under heavy load, but we need to not launch another
             # actor container with this worker, because the existing container may still be running,
             if i == 10 or not c:
                 # we'll try to stop the container
                 logger.error("Never could retrieve the container object! Attempting to stop container; "
-                             "container id: {}".format(container.get('Id')))
+                             "container id: {}; (worker {};{})".format(container.get('Id'), worker_id, execution_id))
                 # stop_container could raise an exception - if so, we let it pass up and have the worker
                 # shut itself down.
                 stop_container(cli, container.get('Id'))
-                logger.info("container {} stopped.".format(container.get('Id')))
+                logger.info("container {} stopped. (worker {};{})".format(container.get('Id'), worker_id, execution_id))
 
                 # if we were able to stop the container, we can set running to False and keep the
                 # worker running
@@ -483,18 +552,21 @@ def execute_actor(actor_id,
                 continue
             state = c.get('State')
             if not state == 'running':
-                logger.debug("container finished, final state: {}".format(state))
+                logger.debug("container finished, final state: {}; (worker {};{})".format(state,
+                                                                                          worker_id, execution_id))
                 running = False
                 continue
             else:
                 # container still running; check if we are beyond the max_run_time
                 runtime = timeit.default_timer() - start
                 if max_run_time > 0 and max_run_time < runtime:
-                    logger.info("hit runtime limit: {}".format(timeit.default_timer()))
+                    logger.info("hit runtime limit: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                               worker_id, execution_id))
                     cli.stop(container.get('Id'))
                     running = False
-            logger.debug("right after checking container state: {}".format(timeit.default_timer()))
-    logger.info("container stopped:{}".format(timeit.default_timer()))
+            logger.debug("right after checking container state: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                           worker_id, execution_id))
+    logger.info("container stopped:{}; (worker {};{})".format(timeit.default_timer(), worker_id, execution_id))
     stop = timeit.default_timer()
 
     # get info from container execution, including exit code; Exceptions from any of these commands
@@ -506,21 +578,27 @@ def execute_actor(actor_id,
             try:
                 exit_code = container_state['ExitCode']
             except KeyError as e:
-                logger.error("Could not determine ExitCode for container {}. e: {}".format(container.get('Id'), e))
+                logger.error("Could not determine ExitCode for container {}. "
+                             "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
                 exit_code = 'undetermined'
         except KeyError as e:
-            logger.error("Could not determine final state for container {}. e: {} ".format(container.get('Id')), e)
+            logger.error("Could not determine final state for container {}. "
+                         "Exception: {}; (worker {};{})".format(container.get('Id')), e, worker_id, execution_id)
             container_state = {'unavailable': True}
     except docker.errors.APIError as e:
-        logger.error("Could not inspect container {}. e: {}".format(container.get('Id'), e))
+        logger.error("Could not inspect container {}. "
+                     "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
 
-    logger.debug("right after getting container_info: {}".format(timeit.default_timer()))
+    logger.debug("right after getting container_info: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                 worker_id, execution_id))
     # get logs from container
     logs = cli.logs(container.get('Id'))
     if not logs:
         # there are issues where container do not have logs associated with them when they should.
-        logger.info("Container id {} had NO logs associated with it.".format(container.get('Id')))
-    logger.debug("right after getting container logs: {}".format(timeit.default_timer()))
+        logger.info("Container id {} had NO logs associated with it. "
+                    "(worker {};{})".format(container.get('Id'), worker_id, execution_id))
+    logger.debug("right after getting container logs: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                 worker_id, execution_id))
 
     # get any additional results from the execution:
     while True:
@@ -530,32 +608,58 @@ def execute_actor(actor_id,
         except socket.timeout:
             break
         except Exception as e:
-            logger.error("Got exception from server.recv: {}".format(e))
+            logger.error("Got exception from server.recv: {}; (worker {};{})".format(e, worker_id, execution_id))
         if datagram:
             try:
                 results_ch.put(datagram)
             except Exception as e:
-                logger.error("Error trying to put datagram on results channel. Exception: {}".format(e))
-    logger.debug("right after getting last execution results from datagram socket: {}".format(timeit.default_timer()))
+                logger.error("Error trying to put datagram on results channel. "
+                             "Exception: {}; (worker {};{})".format(e, worker_id, execution_id))
+    logger.debug("right after getting last execution results from datagram socket: {}; "
+                 "(worker {};{})".format(timeit.default_timer(), worker_id, execution_id))
     if socket_host_path:
         server.close()
         os.remove(socket_host_path)
-    logger.debug("right after removing socket: {}".format(timeit.default_timer()))
+    logger.debug("right after removing socket: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                          worker_id, execution_id))
 
-    # remove container, ignore errors
+    # remove actor container with retrying logic -- check for specific filesystem errors from the docker daemon:
     if not leave_container:
-        try:
-            cli.remove_container(container=container)
-            logger.info("Container removed.")
-        except Exception as e:
-            logger.error("Exception trying to remove actor: {}".format(e))
+        keep_trying = True
+        count = 0
+        while keep_trying and count < 10:
+            keep_trying = False
+            count = count + 1
+            try:
+                cli.remove_container(container=container)
+                logger.info("Actor container removed. (worker {};{})".format(worker_id, execution_id))
+            except Exception as e:
+                # if the container is already gone we definitely want to quit:
+                if 'No such container' in str(e):
+                    logger.info("Got 'no such container' exception - quiting. "
+                                "Exception: {}; (worker {};{})".format(e, worker_id, execution_id))
+                    break
+                # if we get a resource busy/internal server error from docker, we need to keep trying to remove the
+                # container.
+                elif 'device or resource busy' in str(e) or 'failed to remove root filesystem' in str(e):
+                    logger.error("Got resource busy/failed to remove filesystem exception trying to remove "
+                                 "actor container; will keep trying."
+                                 "Count: {}; Exception: {}; (worker {};{})".format(count, e, worker_id, execution_id))
+                    time.sleep(1)
+                    keep_trying = True
+                else:
+                    logger.error("Unexpected exception trying to remove actor container. Giving up."
+                                 "Exception: {}; type: {}; (worker {};{})".format(e, type(e), worker_id, execution_id))
     else:
-        logger.debug("leaving actor container since leave_container was True.")
-    logger.debug("right after removing actor container: {}".format(timeit.default_timer()))
+        logger.debug("leaving actor container since leave_container was True. "
+                     "(worker {};{})".format(worker_id, execution_id))
+    logger.debug("right after removing actor container: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                   worker_id, execution_id))
 
     if fifo_host_path:
         os.close(fifo)
         os.remove(fifo_host_path)
     result['runtime'] = int(stop - start)
-    logger.debug("right after removing fifo; about to return: {}".format(timeit.default_timer()))
+    logger.debug("right after removing fifo; about to return: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                                         worker_id, execution_id))
     return result, logs, container_state, exit_code, start_time
