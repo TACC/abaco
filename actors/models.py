@@ -911,7 +911,8 @@ class Worker(AbacoDAO):
         try:
             workers_store.update_subfield(actor_id, worker_id, 'status', status)
         except Exception as e:
-            logger.error("Got exception trying to update worker subfield; e: {}".format(e))
+            logger.error("Got exception trying to update worker {} subfield status to {}; "
+                         "e: {}; type(e)".format(worker_id, status, e, type(e)))
         logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
 
     def get_uuid_code(self):
