@@ -276,18 +276,20 @@ class AdminExecutionsResource(Resource):
                 result['summary']['total_execution_runtime_existing'] += actor_runtime
                 result['summary']['total_execution_io_existing'] += actor_io
                 result['summary']['total_execution_cpu_existing'] += actor_cpu
-                result['actors'].append({'actor_id': actor_dbid,
-                                         'owner': actor.get('owner'),
-                                         'image': actor.get('image'),
-                                         'total_executions': actor_exs,
-                                         'total_execution_cpu': actor_cpu,
-                                         'total_execution_io': actor_io,
-                                         'total_execution_runtime': actor_runtime,
-                                         })
-
+                actor_stats = {'actor_id': actor_dbid,
+                               'owner': actor.get('owner'),
+                               'image': actor.get('image'),
+                               'total_executions': actor_exs,
+                               'total_execution_cpu': actor_cpu,
+                               'total_execution_io': actor_io,
+                               'total_execution_runtime': actor_runtime,
+                               }
+                if case == 'camel':
+                    actor_stats = dict_to_camel(actor_stats)
+                result['actors'].append(actor_stats)
 
         if case == 'camel':
-            summary = dict_to_camel(result)
+            result['summary'] = dict_to_camel(result['summary'])
         return ok(result=result, msg="Executions retrieved successfully.")
 
 
