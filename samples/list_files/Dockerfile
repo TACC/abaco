@@ -2,6 +2,6 @@
 
 from abacosamples/py3_base
 
-ADD list_files.py /list_files.py
+ADD submit_jobs.py /submit_jobs.py
 
-CMD ["python", "/list_files.py"]
+CMD ["python", "/submit_jobs.py"]
