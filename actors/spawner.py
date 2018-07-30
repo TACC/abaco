@@ -53,7 +53,7 @@ class Spawner(object):
                     time.sleep(5)
                 else:
                     break
-            cmd = self.cmd_ch.get()
+            cmd = self.cmd_ch.get_one()
             self.process(cmd)
 
     def get_tot_workers(self):
@@ -97,8 +97,10 @@ class Spawner(object):
                 # don't stop the new workers:
                 if worker['id'] not in worker_ids:
                     ch = WorkerChannel(worker_id=worker['id'])
-                    ch.put('stop')
-                    logger.info("Sent 'stop' message to worker channel: {}".format(ch))
+                    # since this is an update, there are new workers being started, so
+                    # don't delete the actor msg channel:
+                    ch.put('stop-no-delete')
+                    logger.info("Sent 'stop-no-delete' message to worker_id: {}".format(worker['id']))
                     ch.close()
         else:
             logger.info("No workers to stop.")

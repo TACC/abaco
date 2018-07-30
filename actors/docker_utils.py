@@ -451,22 +451,6 @@ def execute_actor(actor_id,
                     cli.stop(container.get('Id'))
                     running = False
             logger.debug("right after checking container state: {}".format(timeit.default_timer()))
-            # # ----- OLD METHOD uses cli.wait with a 1 second timeout -----
-            # # if container is still running, use the cli.wait function with a 1 second timeout to let the container
-            # # run for up to another second before trying to collect the next stats object
-            # try:
-            #     logger.debug("waiting on cli.wait: {}".format(timeit.default_timer()))
-            #     cli.wait(container=container.get('Id'), timeout=1)
-            #     logger.info("container finished: {}".format(timeit.default_timer()))
-            #     running = False
-            # except (ReadTimeout, ConnectionError):
-            #     logger.debug("cli.wait just timed out: {}".format(timeit.default_timer()))
-            #     # the wait timed out so check if we are beyond the max_run_time
-            #     runtime = timeit.default_timer() - start
-            #     if max_run_time > 0 and max_run_time < runtime:
-            #         logger.info("hit runtime limit: {}".format(timeit.default_timer()))
-            #         cli.stop(container.get('Id'))
-            #         running = False
     logger.info("container stopped:{}".format(timeit.default_timer()))
     stop = timeit.default_timer()
     # get info from container execution, including exit code

@@ -50,6 +50,17 @@ def send_message_and_block(actor_id, message='test'):
         status = get_execution_status(actor_id, ex_id)
     return status
 
+def time_number_of_messages(actor_id, num):
+    """Returns the time to execute `num` number of message."""
+    times = []
+    start_time = time.time()
+    for i in range(num):
+        msg_start_time = time.time()
+        send_message_and_block
+        msg_end_time = time.time()
+    end_time = time.time()
+    return end_time-start_time
+
 
 # example use:
 # from local import *

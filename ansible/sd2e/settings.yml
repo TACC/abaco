@@ -13,7 +13,7 @@ store_rabbit_port: 5672
 
 workers_generate_clients: True
 
-global_mounts:
+global_mounts: /work:/work:rw,/corral-repl/projects/SD2E-Community:/corral:rw
 
 # TODO -----
 # error handling is currently broken in gunicorn + flask + flask_restufl

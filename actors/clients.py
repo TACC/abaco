@@ -60,7 +60,7 @@ class ClientGenerator(object):
         to send an anonymous channel together with the actual client request command.
         """
         while True:
-            message = self.ch.get()
+            message = self.ch.get_one()
             logger.info("cleintg processing message: {}".format(message))
             anon_ch = message['reply_to']
             cmd = message['value']
