@@ -11,4 +11,6 @@ urlpatterns = [
     url(r'^logout$', views.logout, name='logout'),
     url(r'^admin$', views.admin, name='admin'),
     url(r'^$', views.login, name='login'),
+    url(r'^worker$',views.worker,name='worker'),
+    url(r'^execution$',views.execution,name='execution')
 ]

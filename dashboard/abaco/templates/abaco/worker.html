@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+
+
+
+        {% block body %}
+        <!-- Worker Tab -->
+        {% block header %}
+        <h1>Admin Workers </h1>
+        {% endblock %}
+
+
+
+
+        {% if error %}
+        <div class="error">
+            <p>There was an error: {{ error }}</p>
+        </div>
+        {% endif %}
+
+<br>
+
+        {% if summary %}
+
+        <div id = "summary">
+            <table id = "summaryTable" style="width:95%">
+                <thead>
+                    <tr>
+                        <th>Num. of Actor Workers</th>
+                        <th>Busy Workers</th>
+                        <th>Error Workers</th>
+                        <th>Ready Workers</th>
+                        <th>Requested Workers</th>
+                        <th>Total Workers</th>
+                        <th>Action</th>
+
+                    </tr>
+                </thead>
+                <tbody>
+
+
+                    <tr>
+                        <td>{{ summary.actorsNoWorkers }}</td>
+                        <td>{{ summary.busyWorkers }}</td>
+                        <td>{{ summary.errorWorkers }}</td>
+                        <td>{{ summary.readyWorkers }}</td>
+                        <td>{{ summary.requestedWorkers }}</td>
+                        <td>{{ summary.totalWorkers }}</td>
+
+                        <td> {{ summary.action  }}
+                        <form method="post" action="/actors/v2/admin/workers"> {% csrf_token %}
+                        <input type="hidden" class="form-control" name="{{ worker.id}}">
+                          <input type = "hidden" class = "form-control" name = "command"  value = "ShutDown">
+                          <input type = "submit"  value ="ShutDown">
+                        </form>
+                        </td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+<br>
+<br>
+
+
+
+          {% if workers %}
+          <div id = "workers">
+              <table id = "workersTable" style="width:100%">
+                  <thead>
+                      <tr>
+                          <th>Tenant</th>
+                          <th>Actor ID</th>
+                          <th>Worker ID</th>
+                          <th>Worker Status</th>
+                          <th>Actor Image</th>
+                          <th>Actor Name</th>
+                          <th>Last Execution Time</th>
+                          <th>Last Health Check</th>
+                          <th>Action</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+
+                      {% for worker in workers %}
+                      <tr>
+                          <td>{{ worker.tenant }}</td>
+                          <td>{{ worker.actorId }}</td>
+                          <td>{{ worker.id }}</td>
+                          <td>{{ worker.status }}</td>
+                          <td>{{ worker.image }}</td>
+                          <td>{{ worker.actorName }}</td>
+                          <td>{{ worker.lastexecutiontime }}</td>
+                          <td>{{ worker.lasthealthchecktime }}</td>
+                          <td>{{ worker.action }}
+                          <form action="worker" method="post"> {% csrf_token %}
+                          <input type="hidden" class="form-control" name="worker.id " value ="{{ worker.id }}"  >
+                          <input type = "hidden" class = "form-control" name = "command"  value = "Delete">
+                          <input type = "submit" value ="Delete">
+                          </form>
+                          </td>
+                      </tr>
+                      {% endfor %}
+                  </tbody>
+              </table>
+          </div>
+          {% endif %}
+
+
+
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+
+
