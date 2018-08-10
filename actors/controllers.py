@@ -8,7 +8,7 @@ from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
-from auth import check_permissions, get_tas_data, tenant_can_use_tas
+from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
@@ -17,8 +17,8 @@ from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Wo
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
-from codes import REQUESTED
-from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
+import codes
+from stores import actors_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
 
@@ -138,6 +138,118 @@ class AdminActorsResource(Resource):
         logger.info("actors retrieved.")
         return ok(result=actors, msg="Actors retrieved successfully.")
 
+class AdminWorkersResource(Resource):
+    def get(self):
+        logger.debug("top of GET /admin/workers")
+        workers_result = []
+        summary = {'total_workers': 0,
+                   'ready_workers': 0,
+                   'requested_workers': 0,
+                   'error_workers': 0,
+                   'busy_workers': 0,
+                   'actors_no_workers': 0}
+        case = Config.get('web', 'case')
+        # the workers_store objects have a kev:value structure where the key is the actor_id and
+        # the value it the worker object (iself, a dictionary).
+        for actor_id, workers in workers_store.items():
+            # we keep entries in the store for actors that have no workers, so need to skip those:
+            if not workers:
+                summary['actors_no_workers'] += 1
+                continue
+            # otherwise, we have an actor with workers:
+            for worker_id, worker in workers.items():
+                worker.update({'id': worker_id})
+                w = Worker(**worker)
+                w = w.display()
+                # add additional fields
+                actor_display_id = Actor.get_display_id(worker.get('tenant'), actor_id.decode("utf-8"))
+                w.update({'actor_id': actor_display_id})
+                w.update({'actor_dbid': actor_id.decode("utf-8")})
+                # convert additional fields to case, as needed
+                if case == 'camel':
+                    w = dict_to_camel(w)
+                workers_result.append(w)
+                summary['total_workers'] += 1
+                if worker.get('status') == codes.REQUESTED:
+                    summary['requested_workers'] += 1
+                elif worker.get('status') == codes.READY:
+                    summary['ready_workers'] += 1
+                elif worker.get('status') == codes.ERROR:
+                    summary['error_workers'] += 1
+                elif worker.get('status') == codes.BUSY:
+                    summary['busy_workers'] += 1
+        logger.info("workers retrieved.")
+        if case == 'camel':
+            summary = dict_to_camel(summary)
+        result = {'summary': summary,
+                  'workers': workers_result}
+        return ok(result=result, msg="Workers retrieved successfully.")
+
+
+class AdminExecutionsResource(Resource):
+
+    def get(self):
+        logger.debug("top of GET /admin/workers")
+        result = {'summary': {'total_actors_all': 0,
+                              'total_executions_all': 0,
+                              'total_execution_runtime_all': 0,
+                              'total_execution_cpu_all': 0,
+                              'total_execution_io_all': 0,
+                              'total_actors_existing': 0,
+                              'total_executions_existing': 0,
+                              'total_execution_runtime_existing': 0,
+                              'total_execution_cpu_existing': 0,
+                              'total_execution_io_existing': 0,
+                              },
+                  'actors': []
+        }
+        case = Config.get('web', 'case')
+        for actor_dbid, executions in executions_store.items():
+            # determine if actor still exists:
+            actor = None
+            try:
+                actor = Actor.from_db(actors_store[actor_dbid])
+            except KeyError:
+                pass
+            # iterate over executions for this actor:
+            actor_exs = 0
+            actor_runtime = 0
+            actor_io = 0
+            actor_cpu = 0
+            for ex_id, execution in executions.items():
+                actor_exs += 1
+                actor_runtime += execution.get('runtime', 0)
+                actor_io += execution.get('io', 0)
+                actor_cpu += execution.get('cpu', 0)
+            # always add these to the totals:
+            result['summary']['total_actors_all'] += 1
+            result['summary']['total_executions_all'] += actor_exs
+            result['summary']['total_execution_runtime_all'] += actor_runtime
+            result['summary']['total_execution_io_all'] += actor_io
+            result['summary']['total_execution_cpu_all'] += actor_cpu
+
+            if actor:
+                result['summary']['total_actors_existing'] += 1
+                result['summary']['total_executions_existing'] += actor_exs
+                result['summary']['total_execution_runtime_existing'] += actor_runtime
+                result['summary']['total_execution_io_existing'] += actor_io
+                result['summary']['total_execution_cpu_existing'] += actor_cpu
+                actor_stats = {'actor_id': actor_dbid,
+                               'owner': actor.get('owner'),
+                               'image': actor.get('image'),
+                               'total_executions': actor_exs,
+                               'total_execution_cpu': actor_cpu,
+                               'total_execution_io': actor_io,
+                               'total_execution_runtime': actor_runtime,
+                               }
+                if case == 'camel':
+                    actor_stats = dict_to_camel(actor_stats)
+                result['actors'].append(actor_stats)
+
+        if case == 'camel':
+            result['summary'] = dict_to_camel(result['summary'])
+        return ok(result=result, msg="Executions retrieved successfully.")
+
 
 class ActorsResource(Resource):
 
@@ -176,23 +288,14 @@ class ActorsResource(Resource):
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
-        try:
-            use_tas = Config.get('workers', 'use_tas_uid')
-        except configparser.NoOptionError:
-            logger.debug("no use_tas_uid config.")
-            use_tas = False
-        if hasattr(use_tas, 'lower'):
-            use_tas = use_tas.lower() == 'true'
-        else:
-            logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
-        logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
-        if use_tas and tenant_can_use_tas(g.tenant) and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
-            if uid and gid:
+        if not use_container_uid:
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.user, g.tenant)
+            if uid:
                 args['uid'] = uid
+            if gid:
                 args['gid'] = gid
-            if tasdir:
-                args['tasdir'] = tasdir
+            if home_dir:
+                args['tasdir'] = home_dir
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
@@ -281,26 +384,18 @@ class ActorResource(Resource):
 
         # we do not allow a PUT to override the owner in case the PUT is issued by another user
         args['owner'] = previous_owner
+
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
-        try:
-            use_tas = Config.get('workers', 'use_tas_uid')
-        except configparser.NoOptionError:
-            logger.debug("no use_tas_uid config.")
-            use_tas = False
-        if hasattr(use_tas, 'lower'):
-            use_tas = use_tas.lower() == 'true'
-        else:
-            logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
-        logger.debug("use_tas={}. user_container_uid={}".format(use_tas, use_container_uid))
-        if use_tas and not use_container_uid:
-            uid, gid, tasdir = get_tas_data(g.user, g.tenant)
-            if uid and gid:
+        if not use_container_uid:
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.user, g.tenant)
+            if uid:
                 args['uid'] = uid
+            if gid:
                 args['gid'] = gid
-            if tasdir:
-                args['tasdir'] = tasdir
+            if home_dir:
+                args['tasdir'] = home_dir
         args['mounts'] = get_all_mounts(args)
         args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
