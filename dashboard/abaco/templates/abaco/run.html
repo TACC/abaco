@@ -1,17 +1,5 @@
 {% extends 'base.html' %}
 
-{% block activetab %}
-<div class="container">
-    <ul class="nav nav-tabs">
-        <li><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li><a data-toggle="tab" href="register">Register</a></li>
-        <li class="active"><a data-toggle="run" href="run">Run</a></li>
-        <li><a data-toggle="tab" href="help">Help</a></li>
-{% if admin %}
-        <li><a data-toggle="tab" href="admin">Admin</a></li>
-{% endif %}
-        {% endblock %}
-
         {% block body %}
         <!-- Run Tab -->
         {% block header %}
@@ -170,9 +158,11 @@
                             </div>
                             {% endif %}
                             <input type="hidden" name="execution_id" value="execution_id_val">
+                            <br>
                             <input type="submit" value="Run!">
                     {% endblock %}
                 </form>
+            </div>
             </div>
         </div>
         {% endif %}

@@ -1,0 +1,40 @@
+.navbar {
+    margin-bottom: 0;
+  }
+.jumbotron {
+      margin-bottom: 0;
+      text-align: center;
+ }
+
+
+
+
+td{
+
+    border: 2px solid black;
+    text-align:center;
+    color:black;
+
+}
+
+
+th{
+    text-align:center;
+    border: 2px solid black;
+    color:black;
+    }
+
+ input[value=ShutDown] {
+    background-color: red;
+    border: none;
+    color: black;
+    padding: 5px 5px;
+    text-decoration: none;
+    margin: 2px 2px;
+    cursor: pointer;
+}
+
+
+
+
+

@@ -1,17 +1,5 @@
 {% extends 'base.html' %}
 
-{% block activetab %}
-<div class="container">
-    <ul class="nav nav-tabs">
-        <li><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li class="active"><a data-toggle="tab" href="register">Register</a></li>
-        <li><a data-toggle="tab" href="run">Run</a></li>
-        <li><a data-toggle="tab" href="help">Help</a></li>
-{% if admin %}
-        <li><a data-toggle="tab" href="admin">Admin</a></li>
-{% endif %}
-        {% endblock %}
-
         {% block body %}
         <!-- History Tab -->
         {% block header %}
@@ -28,7 +16,7 @@
         {% else %}
 
         {% block headersum %}
-        <p>Create a new reactor simply by specifying a Docker image available on the publc Docker Hub.
+        <p>Create a new reactor simply by specifying a Docker image available on the public Docker Hub.
         All other attributes are optional.</p>
         {% endblock %}
 
@@ -111,6 +99,7 @@
                                 <p>There was an error: {{ description_error }}</p>
                             </div>
                             {% endif %}
+                            <br>
                             <input type="submit" value="Register">
 
                 </form>
