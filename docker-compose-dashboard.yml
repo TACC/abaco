@@ -34,11 +34,8 @@ django:
         # for use with develop instance:
         "AGAVE_BASE_URL": "https://dev.tenants.develop.tacc.cloud"
         "AGAVE_CLIENT_KEY": "SAUNHQmAefN_iLhatqVnzaMSkLca"
-        "AGAVE_CLIENT_SECRET": "abaco_dashboard client (testshareuser)"
+        "AGAVE_CLIENT_SECRET": ""
         "JWT_HEADER": "X-Jwt-Assertion-Dev-Develop"
 #        "JWT_VALUE": ""
         SENDGRID_USER:
         SENDGRID_PASSWORD:
-
-
-    command: python manage.py runserver 0.0.0.0:8000
