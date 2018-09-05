@@ -863,8 +863,8 @@ class Worker(AbacoDAO):
         # it's possible the actor_id is not in the workers_store yet (i.e., new actor with no workers)
         # In that case we need to catch a KeyError:
         try:
-            # we know this worker_id is new since we just generated it, so we don't need to use
-            # workers_store.update()
+            # we know this worker_id is new since we just generated it, so we don't need to use the update
+            # method.
             workers_store[actor_id][worker_id] = worker
             logger.info("added additional worker with id: {} to workers_store.".format(worker_id))
         except KeyError:
@@ -911,7 +911,8 @@ class Worker(AbacoDAO):
         try:
             workers_store.update_subfield(actor_id, worker_id, 'status', status)
         except Exception as e:
-            logger.error("Got exception trying to update worker subfield; e: {}".format(e))
+            logger.error("Got exception trying to update worker {} subfield status to {}; "
+                         "e: {}; type(e)".format(worker_id, status, e, type(e)))
         logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
 
     def get_uuid_code(self):

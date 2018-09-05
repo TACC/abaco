@@ -24,19 +24,18 @@ django:
         - ./dashboard/requests:/requests
     environment:
         # for TACC instance
-#        "AGAVE_CLIENT_KEY": "f_9vaEvm3oxCnNe9Z4VoxRXZGwca"
-#        "AGAVE_CLIENT_SECRET":
+#        "AGAVE_CLIENT_KEY": "ReT0YKpfQPQLQVRXObTEgKtideka"
+#        "AGAVE_CLIENT_SECRET": "abaco_dash_dev client (jstubbs)"
 #        "AGAVE_BASE_URL": "https://api.tacc.utexas.edu"
         # for SD2E instance
 #        "AGAVE_CLIENT_KEY": "ftYwvK5aYltAqePSJQGFp3NF1l8a"
 #        "AGAVE_CLIENT_SECRET":
 #        "AGAVE_BASE_URL": "https://api.sd2e.org"
-        # for use with local development:
-        "AGAVE_CLIENT_KEY": "SAUNHQmAefN_iLhatqVnzaMSkLca"
-        "AGAVE_CLIENT_SECRET": "vRFPvghS6WCJReBP1yG0PGgrFQ4a"
+        # for use with develop instance:
         "AGAVE_BASE_URL": "https://dev.tenants.develop.tacc.cloud"
+        "AGAVE_CLIENT_KEY": "SAUNHQmAefN_iLhatqVnzaMSkLca"
+        "AGAVE_CLIENT_SECRET": "abaco_dashboard client (testshareuser)"
         "JWT_HEADER": "X-Jwt-Assertion-Dev-Develop"
-        #"JWT_VALUE": ""
+#        "JWT_VALUE": ""
         SENDGRID_USER:
         SENDGRID_PASSWORD:
-
