@@ -12,8 +12,10 @@ dashnginx:
         - "443:443"
 
 django:
+    stdin_open: true
+    tty: true
     image: abaco/dashboard
-    hostname: reactors.tacc.cloud
+    ## hostname: reactors.tacc.cloud
     ports:
         - "8000:8000"
     extra_hosts:
