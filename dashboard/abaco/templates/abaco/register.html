@@ -1,124 +1,113 @@
-{% extends 'base.html' %}
+<!--{% extends 'base.html' %}-->
 
-{% block activetab %}
-<div class="container">
-    <ul class="nav nav-tabs">
-        <li><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li class="active"><a data-toggle="tab" href="register">Register</a></li>
-        <li><a data-toggle="tab" href="run">Run</a></li>
-        <li><a data-toggle="tab" href="help">Help</a></li>
-{% if admin %}
-        <li><a data-toggle="tab" href="admin">Admin</a></li>
-{% endif %}
-        {% endblock %}
+        <!--{% block body %}-->
+        <!--&lt;!&ndash; History Tab &ndash;&gt;-->
+        <!--{% block header %}-->
+        <!--<h1>Register Reactors</h1>-->
+        <!--{% endblock %}-->
 
-        {% block body %}
-        <!-- History Tab -->
-        {% block header %}
-        <h1>Register Reactors</h1>
-        {% endblock %}
+        <!--{% if auth_error %}-->
+        <!--<div class="error">-->
+            <!--<p>It appears you do not have access to the Reactors Service. Error message: {{ auth_error }}</p>-->
+            <!--<p>You can request access <a href="/request_access" id="requestAccess"-->
+                                                         <!--class="link link-grayDarkest link-underline"-->
+                                                         <!--alt="Request Access">here</a>.</p>-->
+        <!--</div>-->
+        <!--{% else %}-->
 
-        {% if auth_error %}
-        <div class="error">
-            <p>It appears you do not have access to the Reactors Service. Error message: {{ auth_error }}</p>
-            <p>You can request access <a href="/request_access" id="requestAccess"
-                                                         class="link link-grayDarkest link-underline"
-                                                         alt="Request Access">here</a>.</p>
-        </div>
-        {% else %}
+        <!--{% block headersum %}-->
+        <!--<p>Create a new reactor simply by specifying a Docker image available on the public Docker Hub.-->
+        <!--All other attributes are optional.</p>-->
+        <!--{% endblock %}-->
 
-        {% block headersum %}
-        <p>Create a new reactor simply by specifying a Docker image available on the publc Docker Hub.
-        All other attributes are optional.</p>
-        {% endblock %}
+        <!--{% if success %}-->
+        <!--<div class="success">-->
+            <!--<p>{{ success }}</p>-->
+        <!--</div>-->
+        <!--{% endif %}-->
 
-        {% if success %}
-        <div class="success">
-            <p>{{ success }}</p>
-        </div>
-        {% endif %}
+        <!--{% if error %}-->
+        <!--<div class="error">-->
+            <!--<p>There was an error: {{ error }}</p>-->
+        <!--</div>-->
+        <!--{% endif %}-->
+        <!--<div id="register" class="tab-pane fade in active">-->
+            <!--<div class="container">-->
+                <!--<form method="POST" action="/register">-->
+                    <!--{% block form-group %}-->
+                    <!--<div class="form-group" method="POST" action="/register">{% csrf_token %}-->
+                        <!--<div class="form-group">-->
+                            <!--<label for="image">* Image:</label>-->
+                            <!--<input type="text" class="form-control" id="image"-->
+                                   <!--placeholder="{{ image_placeholder }}" name="image">-->
+                            <!--{% if image_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ image_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
 
-        {% if error %}
-        <div class="error">
-            <p>There was an error: {{ error }}</p>
-        </div>
-        {% endif %}
-        <div id="register" class="tab-pane fade in active">
-            <div class="container">
-                <form method="POST" action="/register">
-                    {% block form-group %}
-                    <div class="form-group" method="POST" action="/register">{% csrf_token %}
-                        <div class="form-group">
-                            <label for="image">* Image:</label>
-                            <input type="text" class="form-control" id="image"
-                                   placeholder="{{ image_placeholder }}" name="image">
-                            {% if image_error %}
-                            <div class="error">
-                                <p>There was an error: {{ image_error }}</p>
-                            </div>
-                            {% endif %}
+                            <!--<label for="actor_name">Name:</label>-->
+                            <!--<input type="text" class="form-control" id="actor_name"-->
+                                   <!--placeholder="{{ name_placeholder }}" name="name">-->
+                            <!--{% if name_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ name_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
 
-                            <label for="actor_name">Name:</label>
-                            <input type="text" class="form-control" id="actor_name"
-                                   placeholder="{{ name_placeholder }}" name="name">
-                            {% if name_error %}
-                            <div class="error">
-                                <p>There was an error: {{ name_error }}</p>
-                            </div>
-                            {% endif %}
+                            <!--{% if admin %}-->
+                            <!--<label for="privileged">Name:</label>-->
+                            <!--<select class="form-control" type="number" id="privileged" name="privileged">-->
+                                <!--<option value="disabled" disabled>Select One</option>-->
+                                <!--<option value="False">False</option>-->
+                                <!--<option value="True">True</option>-->
+                            <!--</select>-->
+                            <!--{% endif %}-->
 
-                            {% if admin %}
-                            <label for="privileged">Name:</label>
-                            <select class="form-control" type="number" id="privileged" name="privileged">
-                                <option value="disabled" disabled>Select One</option>
-                                <option value="False">False</option>
-                                <option value="True">True</option>
-                            </select>
-                            {% endif %}
+                            <!--{% if privileged_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ privileged_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
 
-                            {% if privileged_error %}
-                            <div class="error">
-                                <p>There was an error: {{ privileged_error }}</p>
-                            </div>
-                            {% endif %}
+                            <!--<label for="stateless">Stateless:</label>-->
+                            <!--<select class="form-control" type="number" id="stateless" name="stateless">-->
+                                <!--<option value="disabled" disabled>Select One</option>-->
+                                <!--<option value="False">False</option>-->
+                                <!--<option value="True">True</option>-->
+                            <!--</select>-->
+                            <!--{% if privileged_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ privileged_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
 
-                            <label for="stateless">Stateless:</label>
-                            <select class="form-control" type="number" id="stateless" name="stateless">
-                                <option value="disabled" disabled>Select One</option>
-                                <option value="False">False</option>
-                                <option value="True">True</option>
-                            </select>
-                            {% if privileged_error %}
-                            <div class="error">
-                                <p>There was an error: {{ privileged_error }}</p>
-                            </div>
-                            {% endif %}
+                            <!--<label for="image">Default Environment:</label>-->
+                            <!--<input type="text" class="form-control" id="default_environment"-->
+                                   <!--placeholder="{{ default_environment_placeholder }}" name="default_environment">-->
+                            <!--{% if default_environment_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ default_environment_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
 
-                            <label for="image">Default Environment:</label>
-                            <input type="text" class="form-control" id="default_environment"
-                                   placeholder="{{ default_environment_placeholder }}" name="default_environment">
-                            {% if default_environment_error %}
-                            <div class="error">
-                                <p>There was an error: {{ default_environment_error }}</p>
-                            </div>
-                            {% endif %}
+                            <!--<label for="image">Description:</label>-->
+                            <!--<input type="text" class="form-control" id="description"-->
+                                   <!--placeholder="{{ description_placeholder }}" name="description">-->
+                            <!--{% if description_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ description_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
+                            <!--<br>-->
+                            <!--<input type="submit" value="Register">-->
 
-                            <label for="image">Description:</label>
-                            <input type="text" class="form-control" id="description"
-                                   placeholder="{{ description_placeholder }}" name="description">
-                            {% if description_error %}
-                            <div class="error">
-                                <p>There was an error: {{ description_error }}</p>
-                            </div>
-                            {% endif %}
-                            <input type="submit" value="Register">
+                <!--</form>-->
+            <!--{% endblock %}-->
+            <!--</div>-->
+        <!--</div>-->
 
-                </form>
-            {% endblock %}
-            </div>
-        </div>
+<!--</div>-->
+<!--{% endif %}-->
 
-</div>
-{% endif %}
-
-{% endblock %}
+<!--{% endblock %}-->

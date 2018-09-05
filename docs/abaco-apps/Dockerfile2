@@ -1,0 +1,23 @@
+from abacosamples/base-ubu
+
+
+RUN pip install agavepy
+
+
+
+from agavepy.actors import get_context, update_state
+
+def main():
+    context = get_context()
+    count = context['message_dict']['count']
+    state = context['state']
+    update_state(count+state)
+
+if __name__ == '__main__':
+    main()
+
+
+
+
+
+
