@@ -17,8 +17,8 @@ from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Wo
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
-from codes import REQUESTED
-from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
+import codes
+from stores import actors_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
@@ -179,6 +179,118 @@ class AdminActorsResource(Resource):
             actors.append(actor)
         logger.info("actors retrieved.")
         return ok(result=actors, msg="Actors retrieved successfully.")
+
+class AdminWorkersResource(Resource):
+    def get(self):
+        logger.debug("top of GET /admin/workers")
+        workers_result = []
+        summary = {'total_workers': 0,
+                   'ready_workers': 0,
+                   'requested_workers': 0,
+                   'error_workers': 0,
+                   'busy_workers': 0,
+                   'actors_no_workers': 0}
+        case = Config.get('web', 'case')
+        # the workers_store objects have a kev:value structure where the key is the actor_id and
+        # the value it the worker object (iself, a dictionary).
+        for actor_id, workers in workers_store.items():
+            # we keep entries in the store for actors that have no workers, so need to skip those:
+            if not workers:
+                summary['actors_no_workers'] += 1
+                continue
+            # otherwise, we have an actor with workers:
+            for worker_id, worker in workers.items():
+                worker.update({'id': worker_id})
+                w = Worker(**worker)
+                w = w.display()
+                # add additional fields
+                actor_display_id = Actor.get_display_id(worker.get('tenant'), actor_id.decode("utf-8"))
+                w.update({'actor_id': actor_display_id})
+                w.update({'actor_dbid': actor_id.decode("utf-8")})
+                # convert additional fields to case, as needed
+                if case == 'camel':
+                    w = dict_to_camel(w)
+                workers_result.append(w)
+                summary['total_workers'] += 1
+                if worker.get('status') == codes.REQUESTED:
+                    summary['requested_workers'] += 1
+                elif worker.get('status') == codes.READY:
+                    summary['ready_workers'] += 1
+                elif worker.get('status') == codes.ERROR:
+                    summary['error_workers'] += 1
+                elif worker.get('status') == codes.BUSY:
+                    summary['busy_workers'] += 1
+        logger.info("workers retrieved.")
+        if case == 'camel':
+            summary = dict_to_camel(summary)
+        result = {'summary': summary,
+                  'workers': workers_result}
+        return ok(result=result, msg="Workers retrieved successfully.")
+
+
+class AdminExecutionsResource(Resource):
+
+    def get(self):
+        logger.debug("top of GET /admin/workers")
+        result = {'summary': {'total_actors_all': 0,
+                              'total_executions_all': 0,
+                              'total_execution_runtime_all': 0,
+                              'total_execution_cpu_all': 0,
+                              'total_execution_io_all': 0,
+                              'total_actors_existing': 0,
+                              'total_executions_existing': 0,
+                              'total_execution_runtime_existing': 0,
+                              'total_execution_cpu_existing': 0,
+                              'total_execution_io_existing': 0,
+                              },
+                  'actors': []
+        }
+        case = Config.get('web', 'case')
+        for actor_dbid, executions in executions_store.items():
+            # determine if actor still exists:
+            actor = None
+            try:
+                actor = Actor.from_db(actors_store[actor_dbid])
+            except KeyError:
+                pass
+            # iterate over executions for this actor:
+            actor_exs = 0
+            actor_runtime = 0
+            actor_io = 0
+            actor_cpu = 0
+            for ex_id, execution in executions.items():
+                actor_exs += 1
+                actor_runtime += execution.get('runtime', 0)
+                actor_io += execution.get('io', 0)
+                actor_cpu += execution.get('cpu', 0)
+            # always add these to the totals:
+            result['summary']['total_actors_all'] += 1
+            result['summary']['total_executions_all'] += actor_exs
+            result['summary']['total_execution_runtime_all'] += actor_runtime
+            result['summary']['total_execution_io_all'] += actor_io
+            result['summary']['total_execution_cpu_all'] += actor_cpu
+
+            if actor:
+                result['summary']['total_actors_existing'] += 1
+                result['summary']['total_executions_existing'] += actor_exs
+                result['summary']['total_execution_runtime_existing'] += actor_runtime
+                result['summary']['total_execution_io_existing'] += actor_io
+                result['summary']['total_execution_cpu_existing'] += actor_cpu
+                actor_stats = {'actor_id': actor_dbid,
+                               'owner': actor.get('owner'),
+                               'image': actor.get('image'),
+                               'total_executions': actor_exs,
+                               'total_execution_cpu': actor_cpu,
+                               'total_execution_io': actor_io,
+                               'total_execution_runtime': actor_runtime,
+                               }
+                if case == 'camel':
+                    actor_stats = dict_to_camel(actor_stats)
+                result['actors'].append(actor_stats)
+
+        if case == 'camel':
+            result['summary'] = dict_to_camel(result['summary'])
+        return ok(result=result, msg="Executions retrieved successfully.")
 
 
 class ActorsResource(Resource):

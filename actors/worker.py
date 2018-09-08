@@ -1,3 +1,4 @@
+import copy
 import os
 import shutil
 import sys
@@ -13,7 +14,7 @@ from auth import get_tenant_verify
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from codes import ERROR, READY, BUSY, COMPLETE
 from config import Config
-from docker_utils import DockerError, DockerStartContainerError, execute_actor, pull_image
+from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
 from models import Actor, Execution, Worker
 from stores import actors_store, workers_store
@@ -25,15 +26,18 @@ logger = get_logger(__name__)
 # required.
 keep_running = True
 
-def shutdown_worker(worker_id):
+def shutdown_worker(worker_id, delete_actor_ch=True):
     """Gracefully shutdown a single worker."""
     logger.debug("top of shutdown_worker for worker_id: {}".format(worker_id))
     ch = WorkerChannel(worker_id=worker_id)
-    ch.put("stop")
+    if not delete_actor_ch:
+        ch.put("stop-no-delete")
+    else:
+        ch.put("stop")
     logger.info("A 'stop' message was sent to worker: {}".format(worker_id))
     ch.close()
 
-def shutdown_workers(actor_id):
+def shutdown_workers(actor_id, delete_actor_ch=True):
     """Graceful shutdown of all workers for an actor. Pass db_id as the `actor_id` argument."""
     logger.debug("shutdown_workers() called for actor: {}".format(actor_id))
     try:
@@ -44,7 +48,7 @@ def shutdown_workers(actor_id):
         logger.info("shutdown_workers did not receive any workers from Worker.get_worker for actor: {}".format(actor_id))
     # @TODO - this code is not thread safe. we need to update the workers state in a transaction:
     for _, worker in workers.items():
-        shutdown_worker(worker['id'])
+        shutdown_worker(worker['id'], delete_actor_ch)
 
 
 def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_client):
@@ -122,7 +126,6 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
             logger.info("main thread interruptted.")
             os._exit()
 
-
 def subscribe(tenant,
               actor_id,
               worker_id,
@@ -184,6 +187,9 @@ def subscribe(tenant,
             keep_running = False
             sys.exit()
         logger.info("worker {} processing new msg.".format(worker_id))
+
+        # a deep copy of the original message, in case we need to put it back on the queue.
+        orig_msg = copy.deepcopy(msg)
         try:
             Worker.update_worker_status(actor_id, worker_id, BUSY)
         except Exception as e:
@@ -291,9 +297,30 @@ def subscribe(tenant,
                                                                             fifo_host_path,
                                                                             socket_host_path)
         except DockerStartContainerError as e:
-            logger.error("Got DockerStartContainerError: {}".format(e))
-            Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+            logger.error("Worker {} got DockerStartContainerError: {} trying to start actor for execution {}."
+                         "Placing message back on queue.".format(worker_id, e, execution_id))
+            # if we failed to start the actor container, we leave the worker up and re-queue the original
+            # message; NOTE - we use the "low level" put() instead of put_message() because we have the
+            # exact message we want to place in the queue; put_message is used by the controller to
+            actor_ch.put(orig_msg)
+            logger.debug('message requeued.')
             continue
+        except DockerStopContainerError as e:
+            logger.error("Worker {} was not able to stop actor for execution: {}; Exception: {}. "
+                         "Putting the actor in error status and shutting down workers.".format(worker_id, execution_id, e))
+            Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+            shutdown_workers(actor_id, delete_actor_ch=False)
+            # wait for worker to be shutdown..
+            time.sleep(600)
+            break
+        except Exception as e:
+            logger.error("Worker {} got an unexpected exception trying to run actor for execution: {}."
+                         "Putting the actor in error status and shutting down workers. Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
+            Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+            shutdown_workers(actor_id, delete_actor_ch=False)
+            # wait for worker to be shutdown..
+            time.sleep(600)
+            break
         # Add the completed stats to the execution
         logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
         Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)

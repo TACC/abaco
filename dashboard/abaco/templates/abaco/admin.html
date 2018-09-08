@@ -1,24 +1,13 @@
 {% extends 'base.html' %}
 
-{% block activetab %}
-<div class="container">
-    <ul class="nav nav-tabs">
-        <li><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li><a data-toggle="tab" href="register">Register</a></li>
-        <li><a data-toggle="tab" href="run">Run</a></li>
-        <li><a data-toggle="tab" href="help">Help</a></li>
-{% if admin %}
-        <li class="active"><a data-toggle="tab" href="admin">Admin</a></li>
-{% endif %}
-        {% endblock %}
 
         {% block body %}
         <!-- Admin Tab -->
         {% block header %}
-        <h1>All Registered Abaco Actors</h1>
+        <h1>Registered Abaco Actors</h1>
         {% endblock %}
-        {% block headersum %}
-        {% endblock %}
+
+
         {% if error %}
         <div class="error">
             <p>There was an error: {{ error }}</p>
@@ -40,11 +29,7 @@
                             <th>Total Runtime</th>
                             <th>Create Time</th>
                             <th>Last Update Time</th>
-                            <th>Total Workers</th>
-                            <th>Worker ID</th>
-                            <th>Last Execution Time</th>
-                            <th>Last Health Check</th>
-                            <th>Worker Status</th>
+
                         </tr>
                     </thead>
                     <tbody>
@@ -61,11 +46,7 @@
                             <td>{{ actor.runtime }}</td>
                             <td>{{ actor.createTime }}</td>
                             <td>{{ actor.lastUpdateTime }}</td>
-                            <td>{{ actor.totWorkers }}</td>
-                            <td>{{ actor.workerId }}</td>
-                            <td>{{ actor.workerLastExecutionTime }}</td>
-                            <td>{{ actor.workerLastHealthCheckTime }}</td>
-                            <td>{{ actor.workerStatus }}</td>
+
                         </tr>
                         {% endfor %}
                     </tbody>

@@ -1,180 +1,170 @@
-{% extends 'base.html' %}
+<!--{% extends 'base.html' %}-->
 
-{% block activetab %}
-<div class="container">
-    <ul class="nav nav-tabs">
-        <li><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li><a data-toggle="tab" href="register">Register</a></li>
-        <li class="active"><a data-toggle="run" href="run">Run</a></li>
-        <li><a data-toggle="tab" href="help">Help</a></li>
-{% if admin %}
-        <li><a data-toggle="tab" href="admin">Admin</a></li>
-{% endif %}
-        {% endblock %}
+        <!--{% block body %}-->
+        <!--&lt;!&ndash; Run Tab &ndash;&gt;-->
+        <!--{% block header %}-->
+        <!--<h1>Reactor Details and Executions</h1>-->
+        <!--{% endblock %}-->
 
-        {% block body %}
-        <!-- Run Tab -->
-        {% block header %}
-        <h1>Reactor Details and Executions</h1>
-        {% endblock %}
+        <!--{% if auth_error %}-->
+        <!--<div class="error">-->
+            <!--<p>It appears you do not have access to the Reactors Service. Error message: {{ auth_error }}</p>-->
+            <!--<p>You can request access <a href="/request_access" id="requestAccess"-->
+                                                         <!--class="link link-grayDarkest link-underline"-->
+                                                         <!--alt="Request Access">here</a>.</p>-->
+        <!--</div>-->
+        <!--{% else %}-->
 
-        {% if auth_error %}
-        <div class="error">
-            <p>It appears you do not have access to the Reactors Service. Error message: {{ auth_error }}</p>
-            <p>You can request access <a href="/request_access" id="requestAccess"
-                                                         class="link link-grayDarkest link-underline"
-                                                         alt="Request Access">here</a>.</p>
-        </div>
-        {% else %}
+        <!--{% block headersum %}-->
+        <!--<p>Review a reactor's executions and launch a new execution below.</p>-->
+        <!--{% endblock %}-->
 
-        {% block headersum %}
-        <p>Review a reactor's executions and launch a new execution below.</p>
-        {% endblock %}
-
-        {% if success %}
-        <div class="success">
-            <p>{{ success }}</p>
-        </div>
-        {% endif %}
+        <!--{% if success %}-->
+        <!--<div class="success">-->
+            <!--<p>{{ success }}</p>-->
+        <!--</div>-->
+        <!--{% endif %}-->
 
 
-        {% if error %}
-        <div class="error">
-            <p>There was an error: {{ error }}</p>
-        </div>
-        {% endif %}
+        <!--{% if error %}-->
+        <!--<div class="error">-->
+            <!--<p>There was an error: {{ error }}</p>-->
+        <!--</div>-->
+        <!--{% endif %}-->
 
-        {% if details_error %}
-        <div class="error">
-            <p>There was an error retrieving the reactor details: {{ details_error }}</p>
-        </div>
-        {% endif %}
+        <!--{% if details_error %}-->
+        <!--<div class="error">-->
+            <!--<p>There was an error retrieving the reactor details: {{ details_error }}</p>-->
+        <!--</div>-->
+        <!--{% endif %}-->
 
-        {% if actor %}
-        <h2 id="reactor"> Details About Reactor {{ actor.id }}</h2>
-                <table id="actorsTable" style="width:100%">
-                    <thead>
-                        <tr>
-                            <th>Reactor ID</th>
-                            <th>Reactor Name</th>
-                            <th>Image</th>
-                            <th>Executions</th>
-                            <th>Execution IDs</th>
-                            <th>Owner</th>
-                            <th>Reactor Status</th>
-                            <th>Privileged</th>
-                            <th>Create Time</th>
-                            <th>Last Update Time</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>{{ actor.id }}</td>
-                            <td>{{ actor.name }}</td>
-                            <td>{{ actor.image }}</td>
-                            <td>{{ executions.totalExecutions }}</td>
-                            <td>
-                            {% for exid in executions.ids %}
-                            <form method="GET" action="/run">{% csrf_token %}
-                              <input type="hidden" class="form-control" name="reactor_id" value="{{ actor.id }}">
-                                <input type="hidden" class="form-control" name="execution_id" value="{{ exid }}">
-                                <input type="submit" value="Get Logs for {{ exid }}">
-                            </form>
-                            {% endfor %}
-                            </td>
-                            <td>{{ actor.owner }}</td>
-                            <td>{{ actor.status }}</td>
-                            <td>{{ actor.privileged }}</td>
-                            <td>{{ actor.createTime }}</td>
-                            <td>{{ actor.lastUpdateTime }}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </h2>
-        {% endif %}
+        <!--{% if actor %}-->
+        <!--<h2 id="reactor"> Details About Reactor {{ actor.id }}</h2>-->
+                <!--<table id="actorsTable" style="width:100%">-->
+                    <!--<thead>-->
+                        <!--<tr>-->
+                            <!--<th>Reactor ID</th>-->
+                            <!--<th>Reactor Name</th>-->
+                            <!--<th>Image</th>-->
+                            <!--<th>Executions</th>-->
+                            <!--<th>Execution IDs</th>-->
+                            <!--<th>Owner</th>-->
+                            <!--<th>Reactor Status</th>-->
+                            <!--<th>Privileged</th>-->
+                            <!--<th>Create Time</th>-->
+                            <!--<th>Last Update Time</th>-->
+                            <!--<th>Action</th>-->
+                        <!--</tr>-->
+                    <!--</thead>-->
+                    <!--<tbody>-->
+                        <!--<tr>-->
+                            <!--<td>{{ actor.id }}</td>-->
+                            <!--<td>{{ actor.name }}</td>-->
+                            <!--<td>{{ actor.image }}</td>-->
+                            <!--<td>{{ executions.totalExecutions }}</td>-->
+                            <!--<td>-->
+                            <!--{% for exid in executions.ids %}-->
+                            <!--<form method="GET" action="/run">{% csrf_token %}-->
+                              <!--<input type="hidden" class="form-control" name="reactor_id" value="{{ actor.id }}">-->
+                                <!--<input type="hidden" class="form-control" name="execution_id" value="{{ exid }}">-->
+                                <!--<input type="submit" value="Get Logs for {{ exid }}">-->
+                            <!--</form>-->
+                            <!--{% endfor %}-->
+                            <!--</td>-->
+                            <!--<td>{{ actor.owner }}</td>-->
+                            <!--<td>{{ actor.status }}</td>-->
+                            <!--<td>{{ actor.privileged }}</td>-->
+                            <!--<td>{{ actor.createTime }}</td>-->
+                            <!--<td>{{ actor.lastUpdateTime }}</td>-->
+                        <!--</tr>-->
+                    <!--</tbody>-->
+                <!--</table>-->
+            <!--</h2>-->
+        <!--{% endif %}-->
 
-        {% if execution %}
-        <h2 id="execution"> Details About Reactor Execution {{ execution.id }}</h2>
-                <table id="executionTable" style="width:100%">
-                    <thead>
-                        <tr>
-                            <th>Executor</th>
-                            <th>Status</th>
-                            <th>Message Recieved</th>
-                            <th>Start Time</th>
-                            <th>Run Time</th>
-                            <th>CPU</th>
-                            <th>IO</th>
-                            <th>Exit Code</th>
-                            <th>Finish Time</th>
-                            <th>OOM Killed</th>
+        <!--{% if execution %}-->
+        <!--<h2 id="execution"> Details About Reactor Execution {{ execution.id }}</h2>-->
+                <!--<table id="executionTable" style="width:100%">-->
+                    <!--<thead>-->
+                        <!--<tr>-->
+                            <!--<th>Executor</th>-->
+                            <!--<th>Status</th>-->
+                            <!--<th>Message Recieved</th>-->
+                            <!--<th>Start Time</th>-->
+                            <!--<th>Run Time</th>-->
+                            <!--<th>CPU</th>-->
+                            <!--<th>IO</th>-->
+                            <!--<th>Exit Code</th>-->
+                            <!--<th>Finish Time</th>-->
+                            <!--<th>OOM Killed</th>-->
 
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>{{ execution.executor }}</td>
-                            <td>{{ execution.status }}</td>
-                            <td><{{ execution.messageReceivedTime }}/td>
-                            <td>{{ execution.startTime }}</td>
-                            <td>{{ execution.cpu }}</td>
-                            <td>{{ execution.io }}</td>
-                            {% if finalState in execution %}
-                            <td>{{ execution.finalState.exitCode }}</td>
-                            <td>{{ execution.finalState.FinishedAt }}</td>
-                            <td>{{ execution.finalState.OOMKilled }}</td>
-                            {% else %}
-                            <td>Not Available</td>
-                            <td>Not Available</td>
-                            <td>Not Available</td>
-                            {% endif %}
-                        </tr>
-                    </tbody>
-                </table>
-            </h2>
-        {% endif %}
+                        <!--</tr>-->
+                    <!--</thead>-->
+                    <!--<tbody>-->
+                        <!--<tr>-->
+                            <!--<td>{{ execution.executor }}</td>-->
+                            <!--<td>{{ execution.status }}</td>-->
+                            <!--<td><{{ execution.messageReceivedTime }}/td>-->
+                            <!--<td>{{ execution.startTime }}</td>-->
+                            <!--<td>{{ execution.cpu }}</td>-->
+                            <!--<td>{{ execution.io }}</td>-->
+                            <!--{% if finalState in execution %}-->
+                            <!--<td>{{ execution.finalState.exitCode }}</td>-->
+                            <!--<td>{{ execution.finalState.FinishedAt }}</td>-->
+                            <!--<td>{{ execution.finalState.OOMKilled }}</td>-->
+                            <!--{% else %}-->
+                            <!--<td>Not Available</td>-->
+                            <!--<td>Not Available</td>-->
+                            <!--<td>Not Available</td>-->
+                            <!--{% endif %}-->
+                        <!--</tr>-->
+                    <!--</tbody>-->
+                <!--</table>-->
+            <!--</h2>-->
+        <!--{% endif %}-->
 
-        {% if execution and execution_logs %}
-        <div>
-            <h2>Logs from Execution {{ execution.id }}:</h2> <p>{{ execution_logs.logs }}</p>
-        </div>
-        {% endif %}
-
-
-        <h2>Run a Reactor</h2>
-        <p>Queue up a reactor excution simply by passing a message to the reactor.</p>
+        <!--{% if execution and execution_logs %}-->
+        <!--<div>-->
+            <!--<h2>Logs from Execution {{ execution.id }}:</h2> <p>{{ execution_logs.logs }}</p>-->
+        <!--</div>-->
+        <!--{% endif %}-->
 
 
-        <div id="run" class="tab-pane fade in active">
-            <div class="container">
-                <form method="POST" action="/run">
-                    {% block form-group %}
-                    <div class="form-group" method="POST" action="/run">{% csrf_token %}
-                        <div class="form-group">
-                            <label for="actor_id">Reactor ID:</label>
-                            <input type="text" class="form-control" id="actor_id"
-                                   placeholder="Reactor ID" name="actor_id" value="{{ actor_id_val }}">
-                            {% if actor_id_error %}
-                            <div class="error">
-                                <p>There was an error: {{ actor_id_error }}</p>
-                            </div>
-                            {% endif %}
+        <!--<h2>Run a Reactor</h2>-->
+        <!--<p>Queue up a reactor excution simply by passing a message to the reactor.</p>-->
 
-                            <label for="message">Message:</label>
-                            <input type="text" class="form-control" id="message"
-                                   placeholder="Message" name="message">
-                            {% if message_error %}
-                            <div class="error">
-                                <p>There was an error: {{ message_error }}</p>
-                            </div>
-                            {% endif %}
-                            <input type="hidden" name="execution_id" value="execution_id_val">
-                            <input type="submit" value="Run!">
-                    {% endblock %}
-                </form>
-            </div>
-        </div>
-        {% endif %}
 
-        {% endblock %}
+        <!--<div id="run" class="tab-pane fade in active">-->
+            <!--<div class="container">-->
+                <!--<form method="POST" action="/run">-->
+                    <!--{% block form-group %}-->
+                    <!--<div class="form-group" method="POST" action="/run">{% csrf_token %}-->
+                        <!--<div class="form-group">-->
+                            <!--<label for="actor_id">Reactor ID:</label>-->
+                            <!--<input type="text" class="form-control" id="actor_id"-->
+                                   <!--placeholder="Reactor ID" name="actor_id" value="{{ actor_id_val }}">-->
+                            <!--{% if actor_id_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ actor_id_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
+
+                            <!--<label for="message">Message:</label>-->
+                            <!--<input type="text" class="form-control" id="message"-->
+                                   <!--placeholder="Message" name="message">-->
+                            <!--{% if message_error %}-->
+                            <!--<div class="error">-->
+                                <!--<p>There was an error: {{ message_error }}</p>-->
+                            <!--</div>-->
+                            <!--{% endif %}-->
+                            <!--<input type="hidden" name="execution_id" value="execution_id_val">-->
+                            <!--<br>-->
+                            <!--<input type="submit" value="Run!">-->
+                    <!--{% endblock %}-->
+                <!--</form>-->
+            <!--</div>-->
+            <!--</div>-->
+        <!--</div>-->
+        <!--{% endif %}-->
+
+        <!--{% endblock %}-->

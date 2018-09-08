@@ -1,50 +1,38 @@
-{% extends 'base.html' %}
+<!--{% extends 'base.html' %}-->
 
-{% block activetab %}
-<div class="container">
-    <ul class="nav nav-tabs">
-        <li><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li><a data-toggle="tab" href="register">Register</a></li>
-        <li><a data-toggle="tab" href="run">Run</a></li>
-        <li class="active"><a data-toggle="tab" href="help">Help</a></li>
-{% if admin %}
-        <li><a data-toggle="tab" href="admin">Admin</a></li>
-{% endif %}
-        {% endblock %}
-
-        {% block body %}
-        <!-- Help Tab -->
-        <!--Section header-->
-        <h2>Getting Started with TACC Reactors</h2>
-        <!--Links-->
-        <p>TACC Reactors provide users with a scalable "serverless" computing platform based on Docker
-        container technology and the Actor Model of concurrent computation. The opensource <a href="http://useabaco.cloud/" target="_blank"
-               alt="Actor Based Containers: Functions-as-a-service using the Actor model.">Abaco</a> web service
-            underpins the Reactors service:</p>
+        <!--{% block body %}-->
+        <!--&lt;!&ndash; Help Tab &ndash;&gt;-->
+        <!--&lt;!&ndash;Section header&ndash;&gt;-->
+        <!--<h2>Getting Started with TACC Reactors</h2>-->
+        <!--&lt;!&ndash;Links&ndash;&gt;-->
+        <!--<p>TACC Reactors provide users with a scalable "serverless" computing platform based on Docker-->
+        <!--container technology and the Actor Model of concurrent computation. The opensource <a href="http://useabaco.cloud/" target="_blank"-->
+               <!--alt="Actor Based Containers: Functions-as-a-service using the Actor model.">Abaco</a> web service-->
+            <!--underpins the Reactors service:</p>-->
 
 
-        <p>Every TACC rector is associated with a Docker image, and registering a reactor is as simple as
-        specifying a valid image on the Docker Hub. Once registered, a TACC Reactor is assigned an ID and
-        gets a Messages Inbox URL associated with that ID. Sending a POST request to a rector's inbox URL
-        queues a container execution where the message payload of the POST request is injected into the
-            container at runtime.
-        </p>
+        <!--<p>Every TACC rector is associated with a Docker image, and registering a reactor is as simple as-->
+        <!--specifying a valid image on the Docker Hub. Once registered, a TACC Reactor is assigned an ID and-->
+        <!--gets a Messages Inbox URL associated with that ID. Sending a POST request to a rector's inbox URL-->
+        <!--queues a container execution where the message payload of the POST request is injected into the-->
+            <!--container at runtime.-->
+        <!--</p>-->
 
-        <p>The system can handle thousands of concurrent messages to a reactor's inbox; the messages will be queued
-            internally and the containers will be launched sequentially. Thus, reactors can be used to
-            "respond to events" using the webhooks paradigm. Morevover, TACC Reactor containers are authenticated with
-            a short-term access token representing the user who registered the reactor enabling them to access any
-            of TACC's APIs. Additionally, reactor containers
-            have access to other TACC resources such as the user's home directory on the work file system.
-        </p>
+        <!--<p>The system can handle thousands of concurrent messages to a reactor's inbox; the messages will be queued-->
+            <!--internally and the containers will be launched sequentially. Thus, reactors can be used to-->
+            <!--"respond to events" using the webhooks paradigm. Morevover, TACC Reactor containers are authenticated with-->
+            <!--a short-term access token representing the user who registered the reactor enabling them to access any-->
+            <!--of TACC's APIs. Additionally, reactor containers-->
+            <!--have access to other TACC resources such as the user's home directory on the work file system.-->
+        <!--</p>-->
 
-        <!--Section header-->
-        <h2>More Information</h2>
-        <p> For more information, see the Reactor Turorial or User Guide</p>
-        <h4><a href="help" target="_blank" alt="TACC Reactor Tutorial">TACC Reactor Tutorial
-            </a>(coming soon)</h4>
+        <!--&lt;!&ndash;Section header&ndash;&gt;-->
+        <!--<h2>More Information</h2>-->
+        <!--<p> For more information, see the Reactor Turorial or User Guide</p>-->
+        <!--<h4><a href="help" target="_blank" alt="TACC Reactor Tutorial">TACC Reactor Tutorial-->
+            <!--</a>(coming soon)</h4>-->
 
-        <h4><a href="help" target="_blank" alt="TACC Reactor User Guide">TACC Reactor User
-            Guide</a> (coming soon)</h4>
+        <!--<h4><a href="help" target="_blank" alt="TACC Reactor User Guide">TACC Reactor User-->
+            <!--Guide</a> (coming soon)</h4>-->
 
-        {% endblock %}
+        <!--{% endblock %}-->

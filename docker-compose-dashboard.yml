@@ -12,8 +12,10 @@ dashnginx:
         - "443:443"
 
 django:
+    stdin_open: true
+    tty: true
     image: abaco/dashboard
-    hostname: reactors.tacc.cloud
+    ## hostname: reactors.tacc.cloud
     ports:
         - "8000:8000"
     extra_hosts:
@@ -22,16 +24,18 @@ django:
         - ./dashboard/requests:/requests
     environment:
         # for TACC instance
-#        "AGAVE_CLIENT_KEY": "f_9vaEvm3oxCnNe9Z4VoxRXZGwca"
-#        "AGAVE_CLIENT_SECRET":
+#        "AGAVE_CLIENT_KEY": "ReT0YKpfQPQLQVRXObTEgKtideka"
+#        "AGAVE_CLIENT_SECRET": "abaco_dash_dev client (jstubbs)"
 #        "AGAVE_BASE_URL": "https://api.tacc.utexas.edu"
         # for SD2E instance
 #        "AGAVE_CLIENT_KEY": "ftYwvK5aYltAqePSJQGFp3NF1l8a"
 #        "AGAVE_CLIENT_SECRET":
 #        "AGAVE_BASE_URL": "https://api.sd2e.org"
-        # for use with local development:
-        "AGAVE_BASE_URL": "http://172.17.0.1:8001"
-        "JWT_HEADER": "X-Jwt-Assertion-TACC-PROD"
-        "JWT_VALUE": ""
+        # for use with develop instance:
+        "AGAVE_BASE_URL": "https://dev.tenants.develop.tacc.cloud"
+        "AGAVE_CLIENT_KEY": "SAUNHQmAefN_iLhatqVnzaMSkLca"
+        "AGAVE_CLIENT_SECRET": "abaco_dashboard client (testshareuser)"
+        "JWT_HEADER": "X-Jwt-Assertion-Dev-Develop"
+#        "JWT_VALUE": ""
         SENDGRID_USER:
         SENDGRID_PASSWORD:

@@ -1,8 +1,13 @@
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>TACC Reactor Dashboard</title>
+    <title>TACC Admin Reactor Dashboard</title>
     <!-- Latest compiled and minified CSS -->
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    {% load staticfiles %}
+    <link rel="stylesheet" href="{% static 'css/base.css' %}" >
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"
           integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
 
@@ -15,11 +20,9 @@
             integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa"
             crossorigin="anonymous"></script>
 
-    <!-- <link href="/base.css" rel="stylesheet"></link> -->
-	    <meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
 	    <meta http-equiv="cache-control" content="no-cache">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-	    <title>Abaco Dashboard</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
         <script src="//code.jquery.com/jquery-1.12.4.js"></script>
         <script src="//cdn.datatables.net/1.10.15/js/jquery.dataTables.min.js"></script>
 
@@ -31,6 +34,22 @@
                 $('#actorsTable').DataTable();
             });
         </script>
+
+        <script>
+            $(document).ready(function(){
+                $('#workersTable').DataTable();
+            });
+        </script>
+
+        <script>
+            $(document).ready(function(){
+                $('#executionsTable').DataTable();
+            });
+        </script>
+
+
+
+
 
 </head>
 
@@ -49,17 +68,61 @@
 </nav>
 <div class="jumbotron">
     <h1>
-        <center>TACC Reactors Dashboard</center>
+        <center>
+        TACC Admin Reactors Dashboard
+        </center>
     </h1>
 </div>
 <!--Tabs-->
+
 {% block activetab %}
-<!-- 	    	<li class="active"><a data-toggle="tab" href="compile">Compile</a></li>
-		    <li><a data-toggle="tab" href="run">Run</a></li>
-		    <li><a data-toggle="tab" href="history">Job History</a></li>
-		    <li><a data-toggle="tab" href="help">Help</a></li> -->
+
+    <div class="container">
+        <ul class="nav nav-tabs">
+
+<!--{% if active_tab == "reactors" %}-->
+        <!--<li  class="active"><a data-toggle="tab" href="reactors">Reactors</a></li>-->
+<!--{% else %}-->
+            <!--<li><a data-toggle="tab" href="reactors">Reactors</a></li>-->
+<!--{% endif %}-->
+<!--{% if active_tab == "register" %}-->
+        <!--<li class = "active"><a data-toggle="tab" href="register">Register</a></li>-->
+<!--{%else %}-->
+            <!--<li><a data-toggle="tab" href="register">Register</a></li>-->
+<!--{% endif %}-->
+<!--{% if active_tab == "run" %}-->
+        <!--<li class = "active"><a data-toggle="tab" href="run">Run</a></li>-->
+<!--{% else %}-->
+            <!--<li><a data-toggle="tab" href="run">Run</a> </li>-->
+<!--{% endif %}-->
+<!--{% if active_tab == "help" %}-->
+        <!--<li class = "active"><a data-toggle="tab" href="help">Help</a></li>-->
+<!--{% else %}-->
+            <!--<li><a data-toggle="tab" href="help">Help</a> </li>-->
+<!--{% endif %}-->
+{% if active_tab == "admin" %}
+        <li class = "active"><a data-toggle="tab" href="actor">Actors</a></li>
+{% else %}
+            <li><a data-toggle="tab" href="actor">Actors</a> </li>
+{% endif %}
+{% if active_tab == "worker" %}
+        <li class = "active"><a data-toggle="tab" href="worker">Workers</a></li>
+{% else %}
+            <li><a data-toggle="tab" href="worker">Workers</a> </li>
+{% endif %}
+{% if active_tab == "execution" %}
+        <li class = "active"><a data-toggle="tab" href="execution">Executions</a></li>
+{% else %}
+            <li><a data-toggle="tab" href="execution">Executions</a> </li>
+{% endif %}
+
+
+        </ul>
+
+
 {% endblock %}
-</ul>
+
+
 <!-- End Tabs -->
 <div class="tab-content">
     {% block body %}
@@ -74,6 +137,8 @@
                 {% endblock %}
             </div>
         </div>
+
+
         <!-- Compile Tab -->
         <!-- 	    	<div id="compile" class="tab-pane fade in active">
                         <div id=header class="page-header">
@@ -118,6 +183,8 @@
                     </div> -->
         {% endblock %}
     </div>
+  </div>
+</div>
 </div>
 </body>
 </html>
