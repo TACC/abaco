@@ -276,7 +276,7 @@ class AdminExecutionsResource(Resource):
                 result['summary']['total_execution_runtime_existing'] += actor_runtime
                 result['summary']['total_execution_io_existing'] += actor_io
                 result['summary']['total_execution_cpu_existing'] += actor_cpu
-                actor_stats = {'actor_id': actor_dbid,
+                actor_stats = {'actor_id': actor.get('id'),
                                'owner': actor.get('owner'),
                                'image': actor.get('image'),
                                'total_executions': actor_exs,
