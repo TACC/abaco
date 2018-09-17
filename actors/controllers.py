@@ -1027,6 +1027,9 @@ class WorkerResource(Resource):
         except WorkerException as e:
             logger.debug("Did not find worker: {}. actor: {}.".format(worker_id, actor_id))
             raise ResourceError(e.msg, 404)
+        # if the worker is in requested status, we shouldn't try to shut it down because it doesn't exist yet;
+        # we just need to remove the worker record from the workers_store.
+        # TODO - if worker.status == 'REQUESTED' ....
         logger.info("calling shutdown_worker(). worker: {}. actor: {}.".format(worker_id, actor_id))
         shutdown_worker(worker['id'])
         logger.info("shutdown_worker() called for worker: {}. actor: {}.".format(worker_id, actor_id))
