@@ -163,19 +163,23 @@ class MetricsResource(Resource):
 class AdminActorsResource(Resource):
     def get(self):
         logger.debug("top of GET /admin/actors")
+        case = Config.get('web', 'case')
         actors = []
         for k, v in actors_store.items():
             actor = Actor.from_db(v)
-            actor.workers = Worker.get_workers(actor.db_id)
-            for id, worker in actor.workers.items():
-                actor.worker = worker
-                break
+            actor.workers = []
+            for id, worker in Worker.get_workers(actor.db_id).items():
+                if case == 'camel':
+                    worker = dict_to_camel(worker)
+                actor.workers.append(worker)
             ch = ActorMsgChannel(actor_id=actor.db_id)
             actor.messages = len(ch._queue._queue)
             ch.close()
             summary = ExecutionsSummary(db_id=actor.db_id)
             actor.executions = summary.total_executions
             actor.runtime = summary.total_runtime
+            if case == 'camel':
+                actor = dict_to_camel(actor)
             actors.append(actor)
         logger.info("actors retrieved.")
         return ok(result=actors, msg="Actors retrieved successfully.")
@@ -202,14 +206,13 @@ class AdminWorkersResource(Resource):
             for worker_id, worker in workers.items():
                 worker.update({'id': worker_id})
                 w = Worker(**worker)
-                w = w.display()
                 # add additional fields
                 actor_display_id = Actor.get_display_id(worker.get('tenant'), actor_id.decode("utf-8"))
                 w.update({'actor_id': actor_display_id})
                 w.update({'actor_dbid': actor_id.decode("utf-8")})
                 # convert additional fields to case, as needed
-                if case == 'camel':
-                    w = dict_to_camel(w)
+                logger.debug("worker before case conversion: {}".format(w))
+                w = w.display()
                 workers_result.append(w)
                 summary['total_workers'] += 1
                 if worker.get('status') == codes.REQUESTED:
