@@ -5,6 +5,10 @@
         {% block body %}
         <!-- Worker Tab -->
         {% block header %}
+
+        {% load static from staticfiles %}
+        <link rel="stylesheet" href="{% static 'css/base.css' %}" >
+
         <h1>Workers </h1>
         {% endblock %}
 
@@ -94,8 +98,10 @@
                           <td>{{ worker.lastExecutionTime }}</td>
                           <td>{{ worker.lastHealthCheckTime }}</td>
                           <td>{{ worker.action }}
-                          <form action="worker" method="post"> {% csrf_token %}
-                          <input type="hidden" class="form-control" name="worker.id " value ="{{ worker.id }}"  >
+                          <form action="workers" method="post"> {% csrf_token %}
+                          <input type="hidden" class="form-control" name="id" value ="{{ worker.id }}"  >
+                          <input type="hidden" class="form-control" name="actorId" value ="{{ worker.actorId }}"  >
+
                           <input type = "hidden" class = "form-control" name = "command"  value = "Delete">
                           <input type = "submit" value ="Delete">
                           </form>

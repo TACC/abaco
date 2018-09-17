@@ -5,6 +5,10 @@
         {% block body %}
         <!-- Execution Tab -->
         {% block header %}
+
+        {% load static from staticfiles %}
+        <link rel="stylesheet" href="{% static 'css/base.css' %}" >
+
         <h1>Executions </h1>
         {% endblock %}
 

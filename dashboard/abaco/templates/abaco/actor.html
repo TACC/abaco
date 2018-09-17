@@ -2,11 +2,15 @@
 
 
         {% block body %}
-        <!-- Admin Tab -->
+        <!-- Actors Tab -->
         {% block header %}
-        <h1>Registered Abaco Actors</h1>
-        {% endblock %}
 
+        {% load static from staticfiles %}
+        <link rel="stylesheet" href="{% static 'css/base.css' %}" >
+
+        <h1>Registered Abaco Actors</h1>
+
+        {% endblock %}
 
         {% if error %}
         <div class="error">

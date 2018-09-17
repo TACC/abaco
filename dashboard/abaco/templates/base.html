@@ -6,7 +6,7 @@
     <title>TACC Admin Reactor Dashboard</title>
     <!-- Latest compiled and minified CSS -->
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    {% load staticfiles %}
+    {% load static from staticfiles %}
     <link rel="stylesheet" href="{% static 'css/base.css' %}" >
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"
           integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
@@ -54,7 +54,7 @@
 </head>
 
 <body>
-
+<div id="logoutbutton">
 <nav class="navbar navbar-default">
     <div class="container-fluid">
         <div class="navbar-header">
@@ -62,10 +62,15 @@
         </div>
 
         <ul class="nav navbar-nav navbar-right">
+
             <li><a href="logout"><span class="glyphicon glyphicon-log-out"></span> Logout</a></li>
-        </ul>
-    </div>
-</nav>
+
+            </ul>
+        </div>
+    </nav>
+</div>
+
+
 <div class="jumbotron">
     <h1>
         <center>
@@ -76,9 +81,10 @@
 <!--Tabs-->
 
 {% block activetab %}
-
-    <div class="container">
+<div class="container">
+    <div class="basetabs">
         <ul class="nav nav-tabs">
+
 
 <!--{% if active_tab == "reactors" %}-->
         <!--<li  class="active"><a data-toggle="tab" href="reactors">Reactors</a></li>-->
@@ -100,25 +106,26 @@
 <!--{% else %}-->
             <!--<li><a data-toggle="tab" href="help">Help</a> </li>-->
 <!--{% endif %}-->
-{% if active_tab == "admin" %}
-        <li class = "active"><a data-toggle="tab" href="actor">Actors</a></li>
+{% if active_tab == "actor" %}
+        <li class = "active"><a data-toggle="tab" href="actors">Actors</a></li>
 {% else %}
-            <li><a data-toggle="tab" href="actor">Actors</a> </li>
+            <li><a data-toggle="tab" href="actors">Actors</a> </li>
 {% endif %}
 {% if active_tab == "worker" %}
-        <li class = "active"><a data-toggle="tab" href="worker">Workers</a></li>
+        <li class = "active"><a data-toggle="tab" href="workers">Workers</a></li>
 {% else %}
-            <li><a data-toggle="tab" href="worker">Workers</a> </li>
+            <li><a data-toggle="tab" href="workers">Workers</a> </li>
 {% endif %}
 {% if active_tab == "execution" %}
-        <li class = "active"><a data-toggle="tab" href="execution">Executions</a></li>
+        <li class = "active"><a data-toggle="tab" href="executions">Executions</a></li>
 {% else %}
-            <li><a data-toggle="tab" href="execution">Executions</a> </li>
+            <li><a data-toggle="tab" href="executions">Executions</a> </li>
 {% endif %}
 
 
         </ul>
 
+    </div>
 
 {% endblock %}
 
@@ -137,6 +144,7 @@
                 {% endblock %}
             </div>
         </div>
+
 
 
         <!-- Compile Tab -->

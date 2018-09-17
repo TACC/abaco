@@ -184,8 +184,19 @@ def actors(request):
     else:
         if not check_for_tokens(request):
             return redirect(reverse("login"))
-        if not is_admin(request):
-            return HttpResponse('Unauthorized', status=401)
+        # try:
+        #     if not is_admin(request):
+        #         context = {"error": "You do not have Admin privileges."}
+        #         return render(request, 'abaco/login.html', context, content_type='text/html')
+        # except Exception as e:
+        #     context = {"error": "Error logging in this user. Error: {}".format(e)}
+        #     return render(request, 'abaco/login.html', context, content_type='text/html')
+        # if not is_admin(request):
+        #     return HttpResponse('Unauthorized', status=401)
+        # if not is_admin(request):
+        #     context = {"error": "You do not have Admin privileges."}
+        #     return render(request, 'abaco/login.html', context, content_type='text/html')
+
         access_token = request.session.get("access_token")
         headers = {'Authorization': 'Bearer {}'.format(access_token)}
         url = '{}/actors/v2/admin'.format(os.environ.get('AGAVE_BASE_URL', "https://api.tacc.utexas.edu"))
@@ -246,7 +257,7 @@ def actors(request):
                 actors.append(a)
     context['actors'] = actors
     context['error'] = error
-    return render(request, 'abaco/admin.html', context, content_type='text/html')
+    return render(request, 'abaco/actor.html', context, content_type='text/html')
 
 def worker(request):
     """
@@ -283,6 +294,21 @@ def worker(request):
 
     """This part retrieves the information from the actors"""
 
+    if request.method == 'POST':
+        worker_id = request.POST.get('id')
+        actor_id = request.POST.get('actorId')
+        headers = {'Authorization': 'Bearer {}'.format(access_token)}
+        url = '{}/actors/v2/{}/workers/{}'.format(
+            os.environ.get('AGAVE_BASE_URL', "https://api.tacc.utexas.edu"),
+            actor_id,
+            worker_id
+        )
+
+        rsp = requests.delete(url, headers=headers)
+
+        print(rsp.status_code)
+        # all an else if the below is not being carried out & indent
+        # redirect to refresh and show this page
 
     try:
         rsp = requests.get(url, headers=headers)
@@ -655,16 +681,22 @@ def login(request):
             context = {"error": "Password cannot be blank"}
             return render(request, 'abaco/login.html', context, content_type='text/html')
 
-        if not is_admin:
-            context = {"error": "You do not have Admin privileges. Please contact your administrator if you believe this is a mistake"}
-            return render(request, 'abaco/login.html', context, content_type='text/html')
-
         try:
             ag = get_agave_client(username, password) # this does an oauth call - gets token here
         except Exception as e:
             # render login template with an error
             context = {"error": "Invalid username or password: {}".format(e)}
             return render(request, 'abaco/login.html', context, content_type='text/html')
+
+        try:
+            if not is_admin(request):
+                request.session.flush()
+                context = {"error": "You do not have Admin privileges."}
+                return render(request, 'abaco/login.html', context, content_type='text/html')
+        except Exception as e:
+            context = {"error": "Error logging in this user. Error: {}".format(e)}
+            return render(request, 'abaco/login.html', context, content_type='text/html')
+
         # if we are here, we successfully generated an Agave client, so get the token data:
         access_token = ag.token.token_info['access_token']
         refresh_token = ag.token.token_info['refresh_token']
@@ -735,7 +767,7 @@ def reactors(request):
         auth_error = "Insufficient roles. Current roles are: {}".format(get_roles(request.session['access_token'], request))
         # return HttpResponse('Unauthorized', status=401)
         context = {"admin": False, 'auth_error': auth_error}
-        return render(request, 'abaco/actors.html', context, content_type='text/html')
+        return render(request, 'abaco/reactors.html', context, content_type='text/html')
 
     context = {'admin': is_admin(request), "active_tab":"reactors"}
     error = None
@@ -757,5 +789,5 @@ def reactors(request):
 
     context['actors'] = actors
     context['error'] = error
-    return render(request, 'abaco/actors.html', context, content_type='text/html')
+    return render(request, 'abaco/reactors.html', context, content_type='text/html')
 
