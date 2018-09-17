@@ -456,6 +456,184 @@ def execution(request):
     return render(request, 'abaco/execution.html', context, content_type='text/html')
 
 
+def worker(request):
+    """
+    This view generates the workers page.
+    """
+    if not check_for_tokens(request):
+        return redirect(reverse("login"))
+    if not is_abaco_user(request):
+        auth_error = "Insufficient roles. Current roles are: {}".format(
+            get_roles(request.session['access_token'], request))
+        # return HttpResponse('Unauthorized', status=401)
+        context = {"admin": False, 'auth_error': auth_error}
+        return render(request, 'abaco/worker.html', context, content_type='text/html')
+
+
+
+    if os.environ.get('JWT_HEADER') and os.environ.get('JWT_VALUE') and os.environ.get('AGAVE_BASE_URL'):
+        jwt_header = os.environ.get('JWT_HEADER')
+        jwt_value = os.environ.get('JWT_VALUE')
+        base_url = os.environ.get('AGAVE_BASE_URL')
+        headers = {jwt_header: jwt_value}
+        url = '{}/actors/admin/workers'.format(base_url)
+    else:
+        if not check_for_tokens(request):
+            return redirect(reverse("login"))
+        if not is_admin(request):
+            return HttpResponse('Unauthorized', status=401)
+        access_token = request.session.get("access_token")
+        headers = {'Authorization': 'Bearer {}'.format(access_token)}
+        url = '{}/actors/v2/admin/workers'.format(os.environ.get('AGAVE_BASE_URL', "https://api.tacc.utexas.edu"))
+    context = {"admin": is_admin(request), "active_tab":"worker"}
+    workers = []
+    error = None
+
+    """This part retrieves the information from the actors"""
+
+
+    try:
+        rsp = requests.get(url, headers=headers)
+    except Exception as e:
+        msg = "Error retrieving admin endpoint."
+        logger.error('{}. Exception: {}'.format(msg, e))
+        raise e
+    if rsp.status_code not in [200, 201]:
+        logger.error("Did not get 200 from /actors/v2/admin/worker. Status: {}. content: {}".format(
+            rsp.status_code, rsp.content))
+        if "message" in rsp:
+            msg = rsp.get("message")
+        else:
+            msg = rsp.content
+            error = "Unable to retrieve actors. Error was: {}".format(msg)
+    else:
+        logger.info("Request to /actors successful.")
+        data = json.loads(rsp.content.decode('utf-8'))
+        all_data = data.get("result")
+        workers_data = all_data.get("workers")
+        summary_data = all_data.get("summary")
+        if not workers_data and request.method == 'POST':
+            error = "No actors found."
+
+
+        else:
+
+            for worker in workers_data:
+
+                if worker.get("workers"):
+                    for w, workers_data in worker.get("workers").items():
+
+                        worker['actorId'] += '{}, '.format(workers_data.get('actorId'))
+                        worker['status'] += '{}, '.format(workers_data.get('status'))
+                        worker['id'] += '{}, '.format(workers_data.get('id'))
+                        worker['actorName'] += '{}, '.format(workers_data.get('actorName'))
+                        try:
+                            worker['lastHExecutionTime'] += '{}, '.format(
+                                display_time(workers_data.get('last_execution_time')))
+                            worker['lastHealthCheck'] += '{}, '.format(
+                                display_time(workers_data.get('last_health_check')))
+                        except KeyError as e:
+                            logger.error("Error pulling worker data from admin api. Exception: {}".format(e))
+                elif worker.get('worker'):
+                    worker['status'] = worker['status']
+                    worker['id'] = worker['id']
+                    try:
+                        worker['lastExecutionTime'] = display_time(worker['worker'].get('last_execution_time'))
+                        worker['lastHealthCheck'] = display_time(worker['worker'].get('last_health_check_time'))
+                    except KeyError as e:
+                        logger.error("Error pulling worker data from admin api. Exception: {}".format(e))
+                logger.info("Adding actor data after converting to camel: {}".format(worker))
+
+                workers.append(worker)
+                context['summary'] = summary_data
+
+    context['workers'] = workers
+    context['error'] = error
+
+    return render(request, 'abaco/worker.html', context, content_type='text/html')
+
+def execution(request):
+    """
+    This view generates the execution page.
+    """
+    if not check_for_tokens(request):
+        return redirect(reverse("login"))
+    if not is_abaco_user(request):
+        auth_error = "Insufficient roles. Current roles are: {}".format(
+            get_roles(request.session['access_token'], request))
+        # return HttpResponse('Unauthorized', status=401)
+        context = {"admin": False, 'auth_error': auth_error}
+        return render(request, 'abaco/execution.html', context, content_type='text/html')
+
+    if os.environ.get('JWT_HEADER') and os.environ.get('JWT_VALUE') and os.environ.get('AGAVE_BASE_URL'):
+        jwt_header = os.environ.get('JWT_HEADER')
+        jwt_value = os.environ.get('JWT_VALUE')
+        base_url = os.environ.get('AGAVE_BASE_URL')
+        headers = {jwt_header: jwt_value}
+        url = '{}/actors/admin/executions'.format(base_url)
+    else:
+        if not check_for_tokens(request):
+            return redirect(reverse("login"))
+        if not is_admin(request):
+            return HttpResponse('Unauthorized', status=401)
+        access_token = request.session.get("access_token")
+        headers = {'Authorization': 'Bearer {}'.format(access_token)}
+        url = '{}/actors/v2/admin/executions'.format(os.environ.get('AGAVE_BASE_URL', "https://api.tacc.utexas.edu"))
+    context = {"admin": is_admin(request), "active_tab":"execution"}
+    actors = []
+    error = None
+
+    """This part retrieves the information from the actors"""
+
+    try:
+        rsp = requests.get(url, headers=headers)
+    except Exception as e:
+        msg = "Error retrieving admin endpoint."
+        logger.error('{}. Exception: {}'.format(msg, e))
+        raise e
+    if rsp.status_code not in [200, 201]:
+        logger.error("Did not get 200 from /actors/v2/admin/execution. Status: {}. content: {}".format(
+            rsp.status_code, rsp.content))
+        if "message" in rsp:
+            msg = rsp.get("message")
+        else:
+            msg = rsp.content
+            error = "Unable to retrieve actors. Error was: {}".format(msg)
+    else:
+        logger.info("Request to /actors successful.")
+        data = json.loads(rsp.content.decode('utf-8'))
+        all_data = data.get("result")
+        execution_data = all_data.get("actors")
+        summary_data = all_data.get("summary")
+        if not execution_data and request.method == 'POST':
+            error = "No actors found."
+
+
+        else:
+
+            for execution in execution_data:
+
+
+
+                if execution.get("actors"):
+                    for e, execution_data in execution.get("actors").items():
+
+                        execution['actor_Id'] += '{}, '.format(execution_data.get('actor_Id'))
+                        execution['image'] += '{}, '.format(execution_data.get('image'))
+                        execution['owner'] += '{}, '.format(execution_data.get('owner'))
+                        execution['total_execution_cpu'] += '{}, '.format(execution_data.get('totalExecutionCpu'))
+                        execution['tot_execution_io'] += '{}, '.format(execution_data.get('totalExecutionIo'))
+                        execution['total_execution_runtime'] += '{}, '.format(execution_data.get('totalExecutionRuntime'))
+                        execution['total_executions'] += '{}, '.format(execution_data.get('totalExecutions'))
+
+                context['summary'] = summary_data
+                actors.append(execution)
+
+    context['actors'] = actors
+    context['error'] = error
+    return render(request, 'abaco/execution.html', context, content_type='text/html')
+
+
 def register(request):
     """
     This view generates the register page.

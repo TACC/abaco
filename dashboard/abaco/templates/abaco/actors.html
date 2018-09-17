@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+
+        {% block body %}
+        <!-- Admin Tab -->
+        {% block header %}
+        <h1>Your TACC Reactors</h1>
+        {% endblock %}
+        {% block headersum %}
+        {% endblock %}
+
+        {% if auth_error %}
+        <div class="error">
+            <p>It appears you do not have access to the Reactors Service. Error message: {{ auth_error }}</p>
+            <p>You can request access <a href="/request_access" id="requestAccess"
+                                                         class="link link-grayDarkest link-underline"
+                                                         alt="Request Access">here</a>.</p>
+        </div>
+        {% else %}
+
+<br>
+
+        {% if error %}
+        <div class="error">
+            <p>There was an error: {{ error }}</p>
+        </div>
+        {% endif %}
+            {% if actors %}
+            <div id="actors">
+                <table id="actorsTable" style="width:100%">
+                    <thead>
+                        <tr>
+                            <th>Reactor ID</th>
+                            <th>Reactor Name</th>
+                            <th>Image</th>
+                            <th>Description</th>
+                            <th>Default Environment</th>
+                            <th>Owner</th>
+                            <th>Reactor Status</th>
+                            <th>Privileged</th>
+                            <th>Create Time</th>
+                            <th>Last Update Time</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for actor in actors %}
+                        <tr>
+                            <td>{{ actor.id }}</td>
+                            <td>{{ actor.name }}</td>
+                            <td>{{ actor.image }}</td>
+                            <td>{{ actor.description }}</td>
+                            <td>{{ actor.defaultEnvironment }}</td>
+                            <td>{{ actor.owner }}</td>
+                            <td>{{ actor.status }}</td>
+                            <td>{{ actor.privileged }}</td>
+                            <td>{{ actor.createTime }}</td>
+                            <td>{{ actor.lastUpdateTime }}</td>
+                            <td>
+                            <form method="post" action="/actors">{% csrf_token %}
+                              <input type="hidden" class="form-control" name="actor_id" value="{{ actor.id }}">
+                                <input type="hidden" class="form-control" name="command" value="delete">
+                                <input type="submit" value="delete">
+                            </form>
+                            <form method="GET" action="/run">{% csrf_token %}
+                              <input type="hidden" class="form-control" name="reactor_id" value="{{ actor.id }}">
+                                <input type="submit" value="run">
+                            </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+    {% endif %}
+
+{% endblock %}
+
+
+
+
+
+
+
+<form action="/action_page.php" method="get" target="_blank">
+  First name: <input type="text" name="fname"><br>
+  Last name: <input type="text" name="lname"><br>
+  <button type="submit">Submit</button>
+  <button type="submit" formmethod="post">Submit using POST</button>
+</form>

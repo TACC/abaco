@@ -241,7 +241,8 @@ def run_worker(image, worker_id):
                                                        '_abaco_secret': os.environ.get('_abaco_secret')},
                                           mounts=mounts,
                                           log_file=log_file,
-                                          auto_remove=auto_remove)
+                                          auto_remove=auto_remove,
+                                          name='worker_{}'.format(worker_id))
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
     logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))

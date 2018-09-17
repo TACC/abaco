@@ -8,7 +8,7 @@ on Agave.
 ### Base Image ###
 The `abacosamples/base-ubu` image provides the following convenience utilities for writing (Python2) actor functions:
   * `get_context()` - returns a Python dictionary with the following fields:
-    * `raw_message` - the original message, either string or JSON depending on the Contetnt-Type.
+    * `raw_message` - the original message, either string or JSON depending on the Content-Type.
     * `content_type` - derived from the original message request.
     * `message_dict` - A Python dictionary representing the message (for Content-Type: application/json)
     * `execution_id` - the ID of this execution.

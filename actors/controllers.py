@@ -279,7 +279,7 @@ class AdminExecutionsResource(Resource):
                 result['summary']['total_execution_runtime_existing'] += actor_runtime
                 result['summary']['total_execution_io_existing'] += actor_io
                 result['summary']['total_execution_cpu_existing'] += actor_cpu
-                actor_stats = {'actor_id': actor_dbid,
+                actor_stats = {'actor_id': actor.get('id'),
                                'owner': actor.get('owner'),
                                'image': actor.get('image'),
                                'total_executions': actor_exs,
@@ -1030,6 +1030,9 @@ class WorkerResource(Resource):
         except WorkerException as e:
             logger.debug("Did not find worker: {}. actor: {}.".format(worker_id, actor_id))
             raise ResourceError(e.msg, 404)
+        # if the worker is in requested status, we shouldn't try to shut it down because it doesn't exist yet;
+        # we just need to remove the worker record from the workers_store.
+        # TODO - if worker.status == 'REQUESTED' ....
         logger.info("calling shutdown_worker(). worker: {}. actor: {}.".format(worker_id, actor_id))
         shutdown_worker(worker['id'])
         logger.info("shutdown_worker() called for worker: {}. actor: {}.".format(worker_id, actor_id))

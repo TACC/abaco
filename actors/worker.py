@@ -123,7 +123,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
             logger.info("WorkerChannel deleted and ActorMsgChannel closed for actor: {} worker_id: {}".format(actor_id, worker_id))
             logger.info("Worker with worker_id: {} is now exiting.".format(worker_id))
             _thread.interrupt_main()
-            logger.info("main thread interruptted.")
+            logger.info("main thread interrupted.")
             os._exit()
 
 def subscribe(tenant,
