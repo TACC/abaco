@@ -1,7 +1,7 @@
 # Test suite for abaco project.
 # Image: jstubbs/abaco_testsuite
 
-from alpine:3.2
+from alpine:3.8
 
 RUN apk add --update musl python3 && rm /var/cache/apk/*
 RUN apk add --update bash && rm -f /var/cache/apk/*
