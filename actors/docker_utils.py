@@ -359,14 +359,8 @@ def execute_actor(actor_id,
         if os.path.exists(socket_host_path):
             logger.error("socket at {} already exists; Exception: {}; (worker {};{})".format(socket_host_path, e,
                                                                                              worker_id, execution_id))
-            raise e
-    # try:
-    #     server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    #     server.bind(socket_host_path)
-    #     server.settimeout(RESULTS_SOCKET_TIMEOUT)
-    # except Exception as e:
-    #     logger.error("could not instantiate or bind socket at {}. Exception: {}".format(socket_host_path, e))
-    #     raise e
+            raise DockerStartContainerError("Got an OSError trying to create the results docket; "
+                                            "exception: {}".format(e))
 
     # use retry logic since, when the compute node is under load, we see errors initially trying to create the socket
     # server object.
