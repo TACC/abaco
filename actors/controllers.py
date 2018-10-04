@@ -213,6 +213,8 @@ class AdminWorkersResource(Resource):
                 # convert additional fields to case, as needed
                 logger.debug("worker before case conversion: {}".format(w))
                 w = w.display()
+                if case == 'camel':
+                    w = dict_to_camel(w)
                 workers_result.append(w)
                 summary['total_workers'] += 1
                 if worker.get('status') == codes.REQUESTED:
