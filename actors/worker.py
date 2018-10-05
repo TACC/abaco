@@ -59,7 +59,9 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
     global keep_running
     logger.info("Worker subscribing to worker channel...")
     while True:
-        msg = worker_ch.get_one()
+        msg, msg_obj = worker_ch.get_one()
+        # receiving the message is enough to ack it - resiliency is currently handled in the calling code.
+        msg_obj.ack()
         logger.debug("Received message in worker channel: {}".format(msg))
         logger.debug("Type(msg)={}".format(type(msg)))
         if type(msg) == dict:
@@ -181,41 +183,51 @@ def subscribe(tenant,
             Worker.update_worker_status(actor_id, worker_id, READY)
             update_worker_status = False
         try:
-            msg = actor_ch.get_one()
+            msg, msg_obj = actor_ch.get_one()
         except channelpy.ChannelClosedException:
             logger.info("Channel closed, worker exiting...")
             keep_running = False
             sys.exit()
         logger.info("worker {} processing new msg.".format(worker_id))
 
-        # a deep copy of the original message, in case we need to put it back on the queue.
-        orig_msg = copy.deepcopy(msg)
         try:
             Worker.update_worker_status(actor_id, worker_id, BUSY)
         except Exception as e:
-            logger.error("unexpected exception from call to update_worker_status."
+            logger.error("unexpected exception from call to update_worker_status. Nacking message."
                          "actor_id: {}; worker_id: {}; status: {}; exception: {}".format(actor_id,
                                                                                          worker_id,
                                                                                          BUSY,
                                                                                          e))
+            msg_obj.nack(requeue=True)
             raise e
         update_worker_status = True
         logger.info("Received message {}. Starting actor container...".format(msg))
         # the msg object is a dictionary with an entry called message and an arbitrary
         # set of k:v pairs coming in from the query parameters.
         message = msg.pop('message', '')
-        actor = Actor.from_db(actors_store[actor_id])
-        execution_id = msg['_abaco_execution_id']
-        content_type = msg['_abaco_Content_Type']
-        mounts = actor.mounts
-        logger.debug("actor mounts: {}".format(mounts))
+        try:
+            actor = Actor.from_db(actors_store[actor_id])
+            execution_id = msg['_abaco_execution_id']
+            content_type = msg['_abaco_Content_Type']
+            mounts = actor.mounts
+            logger.debug("actor mounts: {}".format(mounts))
+        except Exception as e:
+            logger.error("unexpected exception retrieving actor, execution, content-type, mounts. Nacking message."
+                         "actor_id: {}; worker_id: {}; status: {}; exception: {}".format(actor_id,
+                                                                                         worker_id,
+                                                                                         BUSY,
+                                                                                         e))
+            msg_obj.nack(requeue=True)
+            raise e
+
         # for results, create a socket in the configured directory.
         try:
             socket_host_path_dir = Config.get('workers', 'socket_host_path_dir')
-        except (configparser.NoSectionError, configparser.NoOptionError):
-            logger.error("No socket_host_path configured. Cannot manage results data.")
+        except (configparser.NoSectionError, configparser.NoOptionError) as e:
+            logger.error("No socket_host_path configured. Cannot manage results data. Nacking message")
             Actor.set_status(actor_id, ERROR, msg="Abaco instance not configured for results data.")
-            continue
+            msg_obj.nack(requeue=True)
+            raise e
         socket_host_path = '{}.sock'.format(os.path.join(socket_host_path_dir, worker_id, execution_id))
         logger.info("Create socket at path: {}".format(socket_host_path))
         # add the socket as a mount:
@@ -228,16 +240,18 @@ def subscribe(tenant,
         if content_type == 'application/octet-stream':
             try:
                 fifo_host_path_dir = Config.get('workers', 'fifo_host_path_dir')
-            except (configparser.NoSectionError, configparser.NoOptionError):
+            except (configparser.NoSectionError, configparser.NoOptionError) as e:
                 logger.error("No fifo_host_path configured. Cannot manage binary data.")
-                Actor.set_status(actor_id, ERROR, msg="Abaco instance not configured for binary data.")
-                continue
+                Actor.set_status(actor_id, ERROR, msg="Abaco instance not configured for binary data. Nacking message.")
+                msg_obj.nack(requeue=True)
+                raise e
             fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
             try:
                 os.mkfifo(fifo_host_path)
                 logger.info("Created fifo at path: {}".format(fifo_host_path))
             except Exception as e:
-                logger.error("Could not create fifo_path. Exception: {}".format(e))
+                logger.error("Could not create fifo_path. Nacking message. Exception: {}".format(e))
+                msg_obj.nack(requeue=True)
                 raise e
             # add the fifo as a mount:
             mounts.append({'host_path': fifo_host_path,
@@ -247,7 +261,12 @@ def subscribe(tenant,
         # the execution object was created by the controller, but we need to add the worker id to it now that we
         # know which worker will be working on the execution.
         logger.debug("Adding worker_id to execution.")
-        Execution.add_worker_id(actor_id, execution_id, worker_id)
+        try:
+            Execution.add_worker_id(actor_id, execution_id, worker_id)
+        except Exception as e:
+            logger.error("Unexpected exception adding working_id to the Execution. Nacking message. Exception: {}".format(e))
+            msg_obj.nack(requeue=True)
+            raise e
 
         # privileged dictates whether the actor container runs in privileged mode and if docker daemon is mounted.
         privileged = False
@@ -279,7 +298,11 @@ def subscribe(tenant,
                 environment['_abaco_access_token'] = token
                 logger.info("Refreshed the tokens. Passed {} to the environment.".format(token))
             except Exception as e:
-                logger.error("Got an exception trying to get an access token: {}".format(e))
+                logger.error("Got an exception trying to get an access token. Stoping worker and nacking message. "
+                             "Exception: {}".format(e))
+                msg_obj.nack(requeue=True)
+                raise e
+
         else:
             logger.info("Agave client `ag` is None -- not passing access token.")
         logger.info("Passing update environment: {}".format(environment))
@@ -302,13 +325,16 @@ def subscribe(tenant,
             # if we failed to start the actor container, we leave the worker up and re-queue the original
             # message; NOTE - we use the "low level" put() instead of put_message() because we have the
             # exact message we want to place in the queue; put_message is used by the controller to
-            actor_ch.put(orig_msg)
+            msg_obj.nack(requeue=True)
             logger.debug('message requeued.')
             continue
         except DockerStopContainerError as e:
             logger.error("Worker {} was not able to stop actor for execution: {}; Exception: {}. "
                          "Putting the actor in error status and shutting down workers.".format(worker_id, execution_id, e))
             Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+            # since the error was with stopping the actor, we will consider this message "processed"; this choice
+            # could be reconsidered/changed
+            msg_obj.ack()
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
             time.sleep(600)
@@ -317,10 +343,17 @@ def subscribe(tenant,
             logger.error("Worker {} got an unexpected exception trying to run actor for execution: {}."
                          "Putting the actor in error status and shutting down workers. Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
             Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+            # the execute_actor function raises a DockerStartContainerError if it met an exception before starting the
+            # actor container; if the container was started, then another exception should be raised. Therefore,
+            # we can assume here that the container was at least started and we can ack the message.
+            msg_obj.ack()
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
             time.sleep(600)
             break
+        # ack the message
+        msg_obj.ack()
+
         # Add the completed stats to the execution
         logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
         Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)

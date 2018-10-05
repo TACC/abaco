@@ -31,7 +31,7 @@ django:
 #        "AGAVE_CLIENT_KEY": "ftYwvK5aYltAqePSJQGFp3NF1l8a"
 #        "AGAVE_CLIENT_SECRET":
 #        "AGAVE_BASE_URL": "https://api.sd2e.org"
-        # for use with develop instance:
+        # for use with develop instance (testshareuser):
         "AGAVE_BASE_URL": "https://dev.tenants.develop.tacc.cloud"
         "AGAVE_CLIENT_KEY": "SAUNHQmAefN_iLhatqVnzaMSkLca"
         "AGAVE_CLIENT_SECRET": "vRFPvghS6WCJReBP1yG0PGgrFQ4a"

@@ -232,13 +232,13 @@ def actors(request):
                 a['workerLastExecutionTime'] = ''
                 a['workerId'] = ''
                 if a.get("workers"):
-                  for w, worker_data in a.get("workers").items():
+                  for w in a.get("workers"):
                       tot_workers += 1
-                      a['workerId'] += '{}, '.format(worker_data.get('id'))
-                      a['workerStatus'] += '{}, '.format(worker_data.get('status'))
+                      a['workerId'] += '{}, '.format(w.get('id'))
+                      a['workerStatus'] += '{}, '.format(w.get('status'))
                       try:
-                          a['workerLastHealthCheckTime'] += '{}, '.format(display_time(worker_data.get('last_health_check_time')))
-                          a['workerLastExecutionTime'] += '{}, '.format(display_time(worker_data.get('last_execution_time')))
+                          a['workerLastHealthCheckTime'] += '{}, '.format(display_time(w.get('last_health_check_time')))
+                          a['workerLastExecutionTime'] += '{}, '.format(display_time(w.get('last_execution_time')))
                       except KeyError as e:
                           logger.error("Error pulling worker data from admin api. Exception: {}".format(e))
                 elif a.get('worker'):

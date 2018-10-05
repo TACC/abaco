@@ -1,4 +1,8 @@
-# comment the following line when using a local checkout of channelpy
+# comment/uncomment the following line(s) when using a local checkout of git repos:
+
+#-e git+file:///home/jstubbs/bitbucket-repos/agaveflask#egg=agaveflask
+-e git+https://jstubbs@bitbucket.org/tacc-cic/agaveflask.git#egg=agaveflask
+
 -e git://github.com/TACC/channelpy.git#egg=channelpy
 
 flask==0.12.2
@@ -15,8 +19,10 @@ rabbitpy==1.0.0
 pyzmq==14.3.0
 pymongo==3.3.0
 hashids==1.2.0
-cloudpickle
+
+# we can migrate to a higher version of cloudpickle as soon as we upgrade the samples images (e.g. abacosamples/py3_func:dev)
+# currently, differences in the patch version withing 0.5 of cloudpickle (e.g. 0.5.2 vs 0.5.6) causes compatibility issues.
+# cf., https://github.com/ucbrise/clipper/issues/573
+cloudpickle==0.5.2
 agavepy
 prometheus_client
-
--e git+https://jstubbs@bitbucket.org/tacc-cic/agaveflask.git#egg=agaveflask

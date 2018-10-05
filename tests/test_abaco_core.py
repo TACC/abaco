@@ -171,13 +171,13 @@ def test_register_actor_default_env(headers):
 
 def test_register_actor_func(headers):
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'abacosamples/py3_func:dev', 'name': 'abaco_test_suite_func'}
+    data = {'image': 'abacosamples/py3_func', 'name': 'abaco_test_suite_func'}
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
     assert result['owner'] == 'testuser'
-    assert result['image'] == 'abacosamples/py3_func:dev'
+    assert result['image'] == 'abacosamples/py3_func'
     assert result['name'] == 'abaco_test_suite_func'
     assert result['id'] is not None
 
