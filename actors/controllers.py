@@ -13,7 +13,7 @@ from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
-from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
+from models import dict_to_camel, display_time, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
@@ -212,6 +212,12 @@ class AdminWorkersResource(Resource):
                 w.update({'actor_dbid': actor_id.decode("utf-8")})
                 # convert additional fields to case, as needed
                 logger.debug("worker before case conversion: {}".format(w))
+                last_execution_time_str = w.pop('last_execution_time')
+                last_health_check_time_str = w.pop('last_health_check_time')
+                create_time_str = w.pop('create_time')
+                w['last_execution_time'] = display_time(last_execution_time_str)
+                w['last_health_check_time'] = display_time(last_health_check_time_str)
+                w['create_time'] = display_time(create_time_str)
                 if case == 'camel':
                     w = dict_to_camel(w)
                 workers_result.append(w)
