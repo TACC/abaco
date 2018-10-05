@@ -212,7 +212,6 @@ class AdminWorkersResource(Resource):
                 w.update({'actor_dbid': actor_id.decode("utf-8")})
                 # convert additional fields to case, as needed
                 logger.debug("worker before case conversion: {}".format(w))
-                w = w.display()
                 if case == 'camel':
                     w = dict_to_camel(w)
                 workers_result.append(w)
