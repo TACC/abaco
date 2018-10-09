@@ -50,11 +50,11 @@
                         <td>{{ summary.requestedWorkers }}</td>
                         <td>{{ summary.totalWorkers }}</td>
 
-                        <td> {{ summary.action  }}
+                        <td> {{ summary.action }}
                         <form method="post" action="/actors/v2/admin/workers"> {% csrf_token %}
-                        <input type="hidden" class="form-control" name="{{ worker.id}}">
+                        <input type="hidden" class="form-control" name="{{ worker.id }}">
                           <input type = "hidden" class = "form-control" name = "command"  value = "ShutDown">
-                          <input type = "submit"  value ="ShutDown">
+                          <input type = "submit"  value = "ShutDown">
                         </form>
                         </td>
                     </tr>
@@ -64,12 +64,11 @@
         </div>
         {% endif %}
 
-<br>
-<br>
 
 
 
-          {% if workers %}
+
+        {% if workers %}
           <div id = "workers">
               <table id = "workersTable" style="width:100%">
                   <thead>
@@ -111,6 +110,40 @@
                   </tbody>
               </table>
           </div>
+        {% else %}
+        <div id = "summary">
+            <table id = "summaryTable" style="width:95%">
+                <thead>
+                    <tr>
+                        <th>Num. of Actor without Workers</th>
+                        <th>Busy Workers</th>
+                        <th>Error Workers</th>
+                        <th>Ready Workers</th>
+                        <th>Requested Workers</th>
+                        <th>Total Workers</th>
+                        <th>Action</th>
+
+                    </tr>
+                </thead>
+                <tbody>
+
+
+                    <tr>
+                        <td>0</td>
+                        <td>0</td>
+                        <td>0</td>
+                        <td>0</td>
+                        <td>0</td>
+                        <td>0</td>
+
+                        <td><strong>No Workers</strong></td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+
+
           {% endif %}
 
 

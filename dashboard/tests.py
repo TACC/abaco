@@ -1,9 +1,9 @@
 from django.test import TestCase
 
-rom rest_framework.authtoken.models import Token
-from rest_framework.test import APIClient
+# from rest_framework.authtoken.models import Token
+# from rest_framework.test import APIClient
 
-from dashboard.local_secrets import *
+from local_secrets import *
 
 
 
@@ -11,7 +11,6 @@ class DashboardClassCase(TestCase):
     def setup(self):
 
         token_tsu = Token.objects.get(user__username='testshareuser')
-
         self.client = APIClient()
 
     def test_no_login_if_not_admin(self):
@@ -20,9 +19,8 @@ class DashboardClassCase(TestCase):
         print
 
 
-
     def test_flushes_session_if_not_admin(self):
-        # self.client.login(username='testuser', password='{PW_TU}')
+        self.client.login(username='testuser', password='{}'.format(PW_TU))
         pass
 
     def test_actors_tab_no_session(self):
