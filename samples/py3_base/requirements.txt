@@ -1,1 +1,1 @@
-agavepy==0.6.1
+agavepy

@@ -53,7 +53,10 @@ class Spawner(object):
                     time.sleep(5)
                 else:
                     break
-            cmd = self.cmd_ch.get_one()
+            cmd, msg_obj = self.cmd_ch.get_one()
+            # directly ack the messages from the command channel; problems generated from starting workers are
+            # handled downstream; e.g., by setting the actor in an ERROR state; command messages should not be re-queued
+            msg_obj.ack()
             self.process(cmd)
 
     def get_tot_workers(self):

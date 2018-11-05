@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+
+
+        {% block body %}
+        <!-- Execution Tab -->
+        {% block header %}
+
+        {% load static from staticfiles %}
+        <link rel="stylesheet" href="{% static 'css/base.css' %}" >
+
+        <h1>Executions </h1>
+        {% endblock %}
+
+
+
+
+        {% if error %}
+        <div class="error">
+            <p>There was an error: {{ error }}</p>
+        </div>
+        {% endif %}
+
+<br>
+
+        {% if summary %}
+
+        <div id = "summary">
+            <table id = "summaryTable" width = "100%">
+                <thead>
+                    <tr>
+                        <th>Total Actors Created (all)</th>
+                        <th>Total Current Actors (existing)</th>
+                        <th>Total Execution Runtime (all)</th>
+                        <th>Total Execution CPU (all)</th>
+                        <th>Total Execution IO (all)</th>
+                        <th>Total Number of Executions (all)</th>
+                        <th>Total Execution Runtime (existing)</th>
+                        <th>Total Execution CPU (existing)</th>
+                        <th>Total Execution IO (existing)</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+
+                    <tr>
+                        <td>{{ summary.totalActorsAll }}</td>
+                        <td>{{ summary.totalActorsExisting }}</td>
+                        <td>{{ summary.totalExecutionRuntimeAll }}</td>
+                        <td>{{ summary.totalExecutionCpuAll }}</td>
+                        <td>{{ summary.totalExecutionIoAll }}</td>
+                        <td>{{ summary.totalExecutionsAll }}</td>
+                        <td>{{ summary.totalExecutionRuntimeExisting }}</td>
+                        <td>{{ summary.totalExecutionCpuExisting }}</td>
+                        <td>{{ summary.totalExecutionIoExisting }}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+
+        </div>
+        {% endif %}
+
+<br>
+<br>
+
+          {% if actors %}
+          <div id = "actors">
+              <table id = "executionsTable" style="width:100%">
+                  <thead>
+                      <tr>
+                          <th>Actor ID</th>
+                          <th>Owner</th>
+                          <th>Image</th>
+                          <th>Total Execution</th>
+                          <th>Total Execution (CPU)</th>
+                          <th>Total Execution (IO)</th>
+                          <th>Total Execution (runtime)</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+
+
+                    {% for list in actors %}
+                    <tr>
+                        <td>{{ list.actorId }}</td>
+                        <td>{{ list.owner }}</td>
+                        <td>{{ list.image }}</td>
+                        <td>{{ list.totalExecutionCpu }}</td>
+                        <td>{{ list.totalExecutionRuntime }}</td>
+                        <td>{{ list.totalExecutionIo }}</td>
+                        <td>{{ list.totalExecutions }}</td>
+
+                    </tr>
+
+                    {% endfor %}
+                  </tbody>
+              </table>
+          </div>
+{% endif %}
+
+{% endblock %}

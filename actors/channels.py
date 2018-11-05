@@ -8,7 +8,6 @@ import rabbitpy
 
 from config import Config
 
-
 class WorkerChannel(Channel):
     """Channel for communication with a worker. Pass the id of the worker to communicate with an
     existing worker.
@@ -123,9 +122,8 @@ class BinaryChannel(BasicChannel):
         """Blocking method to get a single message without polling."""
         if self._queue is None:
             raise ChannelClosedException()
-        for msg in self._queue._queue:
-            msg.ack()
-            return self._process(msg.body)
+        for msg in self._queue._queue.consume(prefetch=1):
+            return self._process(msg.body), msg
 
 
 

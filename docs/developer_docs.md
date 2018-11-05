@@ -295,7 +295,7 @@ $ docker rm `docker ps -aq`
 Debug container
 ---------------
 
-It can be usefule to run a test container with all of the abaco code as well as iPython installed
+It can be useful to run a test container with all of the abaco code as well as iPython installed
 when investigating an Abaco host. The following command will create such a container. NOTE: make sure
 to update the SPAWNER_HOST_ID when using the health.py module in the test container.
 

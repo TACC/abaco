@@ -1,17 +1,5 @@
 {% extends 'base.html' %}
 
-{% block activetab %}
-<div class="container">
-    <ul class="nav nav-tabs">
-        <li  class="active"><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li><a data-toggle="tab" href="register">Register</a></li>
-        <li><a data-toggle="tab" href="run">Run</a></li>
-        <li><a data-toggle="tab" href="help">Help</a></li>
-{% if admin %}
-        <li><a data-toggle="tab" href="admin">Admin</a></li>
-{% endif %}
-    </ul>
-{% endblock %}
         {% block body %}
         <!-- Admin Tab -->
         {% block header %}
@@ -28,6 +16,8 @@
                                                          alt="Request Access">here</a>.</p>
         </div>
         {% else %}
+
+<br>
 
         {% if error %}
         <div class="error">
@@ -85,3 +75,16 @@
     {% endif %}
 
 {% endblock %}
+
+
+
+
+
+
+
+<form action="/action_page.php" method="get" target="_blank">
+  First name: <input type="text" name="fname"><br>
+  Last name: <input type="text" name="lname"><br>
+  <button type="submit">Submit</button>
+  <button type="submit" formmethod="post">Submit using POST</button>
+</form>

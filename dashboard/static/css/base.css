@@ -1,0 +1,61 @@
+.navbar {
+
+    margin-bottom: 0;
+
+    }
+
+.jumbotron {
+
+      margin-bottom: 0;
+      text-align: center;
+
+    }
+
+td {
+
+    border: 1px solid black;
+    text-align: center;
+    color: black;
+
+    }
+
+th {
+
+    border: 1px solid black;
+    text-align: center;
+    color: black;
+
+    }
+
+ input[value=ShutDown] {
+
+    background-color: red;
+    border: 2px solid black;
+    color: black;
+    padding: 5px 5px;
+    text-decoration: none;
+    margin: 2px 2px;
+    cursor: pointer;
+
+    }
+
+.error {
+
+    color: red;
+    text-align: center;
+
+    }
+
+#gam-request-access {
+
+
+    text-align: center;
+
+    }
+
+#gam-forgot-password {
+
+
+    text-align: center;
+
+    }

@@ -13,7 +13,7 @@ from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
-from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
+from models import dict_to_camel, display_time, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
@@ -102,6 +102,55 @@ class MetricsResource(Resource):
                 logger.debug("METRICS current message count: {}".format(current_message_count))
                 if current_message_count >= 1:
                     metrics_utils.scale_up(actor_id)
+                logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
+                if int(data[0]['value'][1]) >= 1:
+                    tenant, aid = actor_id.decode('utf8').split('_')
+                    logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
+                    try:
+                        # create a worker & add to this actor
+                        actor = Actor.from_db(actors_store[actor_id])
+                        worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
+                        logger.info("New worker id: {}".format(worker_ids[0]))
+                        ch = CommandChannel()
+                        ch.put_cmd(actor_id=actor.db_id,
+                                   worker_ids=worker_ids,
+                                   image=actor.image,
+                                   tenant=tenant,
+                                   num=1,
+                                   stop_existing=False)
+                        ch.close()
+                        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
+                    except Exception as e:
+                        logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
+                elif int(data[0]['value'][1]) <= 1:
+                    logger.debug("METRICS made it to scale down block")
+                    # Check the number of workers for this actor before deciding to scale down
+                    workers = Worker.get_workers(actor_id)
+                    logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
+                    try:
+                        if len(workers) == 1:
+                            logger.debug("METRICS only one worker, won't scale down")
+                        else:
+                            while len(workers) > 0:
+                                logger.debug('METRICS made it STATUS check')
+                                worker = workers.popitem()[1]
+                                logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
+                                # check status of the worker is ready
+                                if worker['status'] == 'READY':
+                                    logger.debug("METRICS I MADE IT")
+                                    # scale down
+                                    try:
+                                        shutdown_worker(worker['id'], delete_actor_ch=False)
+                                        continue
+                                    except Exception as e:
+                                        logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
+                                    logger.debug('METRICS shut down worker {}'.format(worker['id']))
+
+                    except IndexError:
+                        logger.debug('METRICS only one worker found for actor {}. '
+                                     'Will not scale down'.format(actor_id))
+                    except Exception as e:
+                        logger.debug("METRICS SCALE UP FAILED: {}".format(e))
 
                 elif current_message_count == 0:
                     # Check the number of workers for this actor before deciding to scale down
@@ -121,19 +170,23 @@ class MetricsResource(Resource):
 class AdminActorsResource(Resource):
     def get(self):
         logger.debug("top of GET /admin/actors")
+        case = Config.get('web', 'case')
         actors = []
         for k, v in actors_store.items():
             actor = Actor.from_db(v)
-            actor.workers = Worker.get_workers(actor.db_id)
-            for id, worker in actor.workers.items():
-                actor.worker = worker
-                break
+            actor.workers = []
+            for id, worker in Worker.get_workers(actor.db_id).items():
+                if case == 'camel':
+                    worker = dict_to_camel(worker)
+                actor.workers.append(worker)
             ch = ActorMsgChannel(actor_id=actor.db_id)
             actor.messages = len(ch._queue._queue)
             ch.close()
             summary = ExecutionsSummary(db_id=actor.db_id)
             actor.executions = summary.total_executions
             actor.runtime = summary.total_runtime
+            if case == 'camel':
+                actor = dict_to_camel(actor)
             actors.append(actor)
         logger.info("actors retrieved.")
         return ok(result=actors, msg="Actors retrieved successfully.")
@@ -160,12 +213,18 @@ class AdminWorkersResource(Resource):
             for worker_id, worker in workers.items():
                 worker.update({'id': worker_id})
                 w = Worker(**worker)
-                w = w.display()
                 # add additional fields
                 actor_display_id = Actor.get_display_id(worker.get('tenant'), actor_id.decode("utf-8"))
                 w.update({'actor_id': actor_display_id})
                 w.update({'actor_dbid': actor_id.decode("utf-8")})
                 # convert additional fields to case, as needed
+                logger.debug("worker before case conversion: {}".format(w))
+                last_execution_time_str = w.pop('last_execution_time')
+                last_health_check_time_str = w.pop('last_health_check_time')
+                create_time_str = w.pop('create_time')
+                w['last_execution_time'] = display_time(last_execution_time_str)
+                w['last_health_check_time'] = display_time(last_health_check_time_str)
+                w['create_time'] = display_time(create_time_str)
                 if case == 'camel':
                     w = dict_to_camel(w)
                 workers_result.append(w)
@@ -234,7 +293,7 @@ class AdminExecutionsResource(Resource):
                 result['summary']['total_execution_runtime_existing'] += actor_runtime
                 result['summary']['total_execution_io_existing'] += actor_io
                 result['summary']['total_execution_cpu_existing'] += actor_cpu
-                actor_stats = {'actor_id': actor_dbid,
+                actor_stats = {'actor_id': actor.get('id'),
                                'owner': actor.get('owner'),
                                'image': actor.get('image'),
                                'total_executions': actor_exs,
@@ -985,8 +1044,11 @@ class WorkerResource(Resource):
         except WorkerException as e:
             logger.debug("Did not find worker: {}. actor: {}.".format(worker_id, actor_id))
             raise ResourceError(e.msg, 404)
+        # if the worker is in requested status, we shouldn't try to shut it down because it doesn't exist yet;
+        # we just need to remove the worker record from the workers_store.
+        # TODO - if worker.status == 'REQUESTED' ....
         logger.info("calling shutdown_worker(). worker: {}. actor: {}.".format(worker_id, actor_id))
-        shutdown_worker(worker['id'])
+        shutdown_worker(worker['id'], delete_actor_ch=False)
         logger.info("shutdown_worker() called for worker: {}. actor: {}.".format(worker_id, actor_id))
         return ok(result=None, msg="Worker scheduled to be stopped.")
 

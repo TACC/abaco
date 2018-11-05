@@ -3,6 +3,9 @@
 
 {% block body %}
 
+{% load static from staticfiles %}
+<link rel="stylesheet" href="{% static 'css/login.css' %}" >
+
 <div class="row">
     <div class="col-sm-6 col-sm-offset-3">
         <div class="panel panel-default">
@@ -14,7 +17,7 @@
             <div class="panel-body">
                 <form class="form-horizontal" method="POST" action="/login">{% csrf_token %}
                     <fieldset>
-                        <legend>Sign In With Your TACC Account</legend>
+                        <legend><center>Sign In With Your TACC Account</center></legend>
                         <div class="form-group">
                             <label for="username" class="col-lg-2 control-label"></label>
 
@@ -57,27 +60,28 @@
                         </div>
                         {% endif %}
                         <!-- Get a TACC account -->
+
                         <div>
-                            <div id="gam-forgot-password" class="card--message col-lg-8 col-lg-offset-3">
+                            <div id="gam-forgot-password" class="card--message col-lg-8 col-lg-offset-2">
                                 Don't have a TACC account? <a href="https://portal.tacc.utexas.edu/account-request" id="createAccount"
                                                          class="link link-grayDarkest link-underline"
-                                                         alt="Get a TACC account">Click here</a>
+                                                         alt="Get a TACC account">Get One Here</a>
                             </div>
                         </div>
 
                         <!-- Password Reset -->
                         <div>
-                            <div id="gam-forgot-password" class="card--message col-lg-8 col-lg-offset-3">
+                            <div id="gam-forgot-password" class="card--message col-lg-8 col-lg-offset-2">
                                 Forgot your TACC password? <a href="https://portal.tacc.utexas.edu/password-reset" id="recoverPassword"
                                                          class="link link-grayDarkest link-underline"
-                                                         alt="Reset password">Reset it here</a>
+                                                         alt="Reset password">Reset It Here</a>
                             </div>
                         </div>
 
                         <!-- Request Access -->
                         <div>
-                            <div id="gam-request-access" class="card--message col-lg-8 col-lg-offset-3">
-                                Don't have access to the Reactors Service? <a href="/request_access" id="requestAccess"
+                            <div id="gam-request-access" class="card--message col-lg-8 col-lg-offset-2">
+                                Don't have access to the Dashboard? <a href="/request_access" id="requestAccess"
                                                          class="link link-grayDarkest link-underline"
                                                          alt="Request Access">Request Access</a>
                             </div>

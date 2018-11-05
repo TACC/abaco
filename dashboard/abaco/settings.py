@@ -25,7 +25,7 @@ SECRET_KEY = 'mpdl-&ye!5y&(ud*ci#r#(02h1j8mx$1-tv9erf!y*e!rs9h#@'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['reactors.tacc.cloud']
+ALLOWED_HOSTS = ['reactors-dashboard.tacc.cloud', 'reactors.tacc.cloud', '0.0.0.0:8000', '0.0.0.0']
 
 # Application definition
 
@@ -120,8 +120,15 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.11/howto/static-files/
 
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+STATIC_URL = 'dashboard/static/'
+
+# Add these new lines
+STATICFILES_DIRS = (
+    os.path.join(BASE_DIR, 'static'),
+)
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
 # LOGIN_REDIRECT_URL = '/' # means home view
 
 

@@ -3,14 +3,17 @@
 {% block activetab %}
 <div class="container">
     <ul class="nav nav-tabs">
-        <li><a data-toggle="tab" href="reactors">Reactors</a></li>
-        <li><a data-toggle="tab" href="register">Register</a></li>
-        <li><a data-toggle="tab" href="run">Run</a></li>
-        <li><a data-toggle="tab" href="help">Help</a></li>
+        <li><a data-toggle="tab" href="reactors">Home</a></li>
+        <!--<li><a data-toggle="tab" href="register">Register</a></li>-->
+        <!--<li><a data-toggle="tab" href="run">Run</a></li>-->
+        <!--<li><a data-toggle="tab" href="help">Help</a></li>-->
         <li class="active"><a data-toggle="tab" href="request_access">Request Access</a></li>
+    </ul>
+
 {% endblock %}
 
         {% block body %}
+        <br>
 
         <h2>Request Access to TACC Reactors</h2>
 
@@ -26,10 +29,10 @@
             <label for="name">* Full Name:</label>
             <input type="text" class="form-control" placeholder="Your name" id="name" name="name" value="{{ name }}">
 
-            <label for="username">* TACC username:</label>
+            <label for="username">* TACC Username:</label>
             <input type="text" class="form-control" id="username" name="username" placeholder="Your TACC username" value="{{ username }}">
 
-            <label for="email_address">* email address:</label>
+            <label for="email_address">* Email Address:</label>
             <input type="email" class="form-control" placeholder="email@example.edu" id="email_address" name="email_address" value="{{ email_address }}">
 
             <label for="affiliation">Affiliation:</label>
@@ -42,5 +45,5 @@
             <br>
             <input type="submit" value="Submit">
         </form>
-
+</div>
         {% endblock %}

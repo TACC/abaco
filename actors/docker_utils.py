@@ -241,7 +241,8 @@ def run_worker(image, worker_id):
                                                        '_abaco_secret': os.environ.get('_abaco_secret')},
                                           mounts=mounts,
                                           log_file=log_file,
-                                          auto_remove=auto_remove)
+                                          auto_remove=auto_remove,
+                                          name='worker_{}'.format(worker_id))
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
     logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))
@@ -358,14 +359,8 @@ def execute_actor(actor_id,
         if os.path.exists(socket_host_path):
             logger.error("socket at {} already exists; Exception: {}; (worker {};{})".format(socket_host_path, e,
                                                                                              worker_id, execution_id))
-            raise e
-    # try:
-    #     server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    #     server.bind(socket_host_path)
-    #     server.settimeout(RESULTS_SOCKET_TIMEOUT)
-    # except Exception as e:
-    #     logger.error("could not instantiate or bind socket at {}. Exception: {}".format(socket_host_path, e))
-    #     raise e
+            raise DockerStartContainerError("Got an OSError trying to create the results docket; "
+                                            "exception: {}".format(e))
 
     # use retry logic since, when the compute node is under load, we see errors initially trying to create the socket
     # server object.
