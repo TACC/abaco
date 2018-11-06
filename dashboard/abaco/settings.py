@@ -25,7 +25,7 @@ SECRET_KEY = 'mpdl-&ye!5y&(ud*ci#r#(02h1j8mx$1-tv9erf!y*e!rs9h#@'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['reactors.tacc.cloud', '0.0.0.0:8000', '0.0.0.0']
+ALLOWED_HOSTS = ['reactors-dashboard.tacc.cloud', 'reactors.tacc.cloud', '0.0.0.0:8000', '0.0.0.0']
 
 # Application definition
 
