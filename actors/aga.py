@@ -8,6 +8,8 @@ from urllib.parse import urlparse, urljoin
 import requests
 import time
 
+from agaveflask.logs import get_logger
+logger = get_logger(__name__)
 
 class AgaveError(Exception):
     pass
@@ -145,6 +147,8 @@ class AgaveClientsService(object):
                                 data={'clientName': body.get('clientName')},
                                 verify=self.parent.verify)
             result = rsp.json().get('result')
+            logger.debug("response from POST to create client: {}; content: {}".format(rsp, rsp.content))
+            logger.debug("result from POST to create client: {}".format(result))
             self.parent.set_client(result['consumerKey'], result['consumerSecret'])
             return result
         except Exception as e:
