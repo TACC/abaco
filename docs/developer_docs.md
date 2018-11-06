@@ -320,3 +320,14 @@ Making requests to the local development stack is easy using the requests librar
 >>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=headers).json()
 
 ```
+
+Auto-Scaling
+------------
+
+Autoscaling uses [Prometheus](https://prometheus.io), which also provides a convenient dashboard. Metrics for prometheus are refreshed every 5 seconds. Every time this occurs, new metrics are created for any new actors. These metrics keep a count of how many messages the actor has in its queue. It will also update the message count for each actor's metric. 
+
+If an actor's message count reaches a certain level, another worker will be given to the actor so that it can process the messages more quickly. It will stop adding new workers if there are not enough resources left. 
+
+When the message count reaches 0, a single worker will be removed. This will repeat every refresh as long as the message count is 0. The actor will always be left with at least 1 worker. 
+
+Prometheus has some configuration files, found in the prometheus directory. Here, there is also a Dockerfile. The autoscaling feature uses a separate docker-compose file, `docker-compose-prom`.
