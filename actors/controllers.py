@@ -102,66 +102,12 @@ class MetricsResource(Resource):
                 logger.debug("METRICS current message count: {}".format(current_message_count))
                 if current_message_count >= 1:
                     metrics_utils.scale_up(actor_id)
-                logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                if int(data[0]['value'][1]) >= 1:
-                    tenant, aid = actor_id.decode('utf8').split('_')
-                    logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
-                    try:
-                        # create a worker & add to this actor
-                        actor = Actor.from_db(actors_store[actor_id])
-                        worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
-                        logger.info("New worker id: {}".format(worker_ids[0]))
-                        ch = CommandChannel()
-                        ch.put_cmd(actor_id=actor.db_id,
-                                   worker_ids=worker_ids,
-                                   image=actor.image,
-                                   tenant=tenant,
-                                   num=1,
-                                   stop_existing=False)
-                        ch.close()
-                        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
-                    except Exception as e:
-                        logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
-                elif int(data[0]['value'][1]) <= 1:
-                    logger.debug("METRICS made it to scale down block")
-                    # Check the number of workers for this actor before deciding to scale down
-                    workers = Worker.get_workers(actor_id)
-                    logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
-                    try:
-                        if len(workers) == 1:
-                            logger.debug("METRICS only one worker, won't scale down")
-                        else:
-                            while len(workers) > 0:
-                                logger.debug('METRICS made it STATUS check')
-                                worker = workers.popitem()[1]
-                                logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
-                                # check status of the worker is ready
-                                if worker['status'] == 'READY':
-                                    logger.debug("METRICS I MADE IT")
-                                    # scale down
-                                    try:
-                                        shutdown_worker(worker['id'], delete_actor_ch=False)
-                                        continue
-                                    except Exception as e:
-                                        logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
-                                    logger.debug('METRICS shut down worker {}'.format(worker['id']))
-
-                    except IndexError:
-                        logger.debug('METRICS only one worker found for actor {}. '
-                                     'Will not scale down'.format(actor_id))
-                    except Exception as e:
-                        logger.debug("METRICS SCALE UP FAILED: {}".format(e))
-
+                    logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
                 elif current_message_count == 0:
-                    # Check the number of workers for this actor before deciding to scale down
                     metrics_utils.scale_down(actor_id)
                     logger.debug("METRICS made it to scale down block")
-
             except Exception as e:
                 logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
-
-
-
 
     def test_metrics(self):
         logger.debug("METRICS TESTING")
