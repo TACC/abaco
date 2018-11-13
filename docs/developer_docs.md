@@ -324,10 +324,17 @@ Making requests to the local development stack is easy using the requests librar
 Auto-Scaling
 ------------
 
-Autoscaling uses [Prometheus](https://prometheus.io), which also provides a convenient dashboard. Metrics for prometheus are refreshed every 5 seconds. Every time this occurs, new metrics are created for any new actors. These metrics keep a count of how many messages the actor has in its queue. It will also update the message count for each actor's metric. 
+Autoscaling uses [Prometheus](https://prometheus.io), which also provides a convenient dashboard.
 
-If an actor's message count reaches a certain level, another worker will be given to the actor so that it can process the messages more quickly. It will stop adding new workers if there are not enough resources left. 
-
-When the message count reaches 0, a single worker will be removed. This will repeat every refresh as long as the message count is 0. The actor will always be left with at least 1 worker. 
+Prometheus works by doing a GET request to the `/metrics` endpoint of Abaco, which occurs every 5 seconds. When this GET request happens, the following chain of events occurs:
+1. All current Actors are cycled through, and given a metric for counting the current number of messages in its queue. 
+     * An actor that already has a metric will not receive another one. 
+2. All of the Actor metrics are cycled through, and updated with the Actor's current message count
+3. Each Actor is checked. If an actor has 0 workers, it is given 1 worker. 
+4. Each Actor metric is checked. 
+     * If the message count for the actor is >=1, then that actor is given a new worker. 
+     * If the message count for the actor is 0, then 1 worker is removed from that actor (assuming it has at least 1 worker)
+5. The `/metrics` endpoint is updated with the current values of each metric
+6. Prometheus scrapes the `/metrics` endpoint and saves the metrics data to its time-series database. 
 
 Prometheus has some configuration files, found in the prometheus directory. Here, there is also a Dockerfile. The autoscaling feature uses a separate docker-compose file, `docker-compose-prom`.
