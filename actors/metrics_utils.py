@@ -105,7 +105,7 @@ def scale_down(actor_id):
                     logger.debug("METRICS I MADE IT")
                     # scale down
                     try:
-                        shutdown_worker(worker['id'])
+                        shutdown_worker(worker['id'], delete_actor_ch=False)
                         continue
                     except Exception as e:
                         logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
