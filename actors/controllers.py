@@ -31,7 +31,8 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
-
+command_gauge = Gauge('message_count_for_command_channel',
+                      'Number of messages currently in the Command Channel')
 
 class MetricsResource(Resource):
     def get(self):
@@ -49,6 +50,10 @@ class MetricsResource(Resource):
             in actors_store.items()
         ]
 
+        ch = CommandChannel()
+        command_gauge.set(len(ch._queue._queue))
+        logger.debug("METRICS COMMAND CHANNEL: {}".format(command_gauge._value._value))
+        ch.close()
         logger.debug("ACTOR IDS: {}".format(actor_ids))
 
         try:
@@ -82,7 +87,6 @@ class MetricsResource(Resource):
             last_metric.update({actor_id: data})
 
             # Add a worker if actor has 0 workers & a message in the Q
-            #TODO check number of messages in this actor's Q
             # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
             workers = Worker.get_workers(actor_id)
             logger.debug('METRICS: NUMBER OF WORKERS: {}'.format(len(workers)))
@@ -97,15 +101,17 @@ class MetricsResource(Resource):
                 logger.debug("METRICS - Error scaling up: {} - {} - {}".format(type(e), e, e.args))
 
             # Add a worker if message count reaches a given number
-            # TODO: see how this process is affected by MAX_WORKERS in spawner.py
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
-                if current_message_count >= 1:
-                    metrics_utils.scale_up(actor_id)
-                    logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                elif current_message_count == 0:
-                    metrics_utils.scale_down(actor_id)
-                    logger.debug("METRICS made it to scale down block")
+                if command_gauge._value._value < 5:
+                    if current_message_count >= 1:
+                        metrics_utils.scale_up(actor_id)
+                        logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
+                    elif current_message_count == 0:
+                        metrics_utils.scale_down(actor_id)
+                        logger.debug("METRICS made it to scale down block")
+                else:
+                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
             except Exception as e:
                 logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
 

@@ -84,7 +84,7 @@ def scale_up(actor_id):
                    num=1,
                    stop_existing=False)
         ch.close()
-        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
+        logger.debug('COMMAND CHANNEL: METRICS Added worker successfully for {}'.format(actor_id))
     except Exception as e:
         logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
 
