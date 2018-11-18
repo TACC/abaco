@@ -17,7 +17,7 @@ reg:
     environment:
         server: dev
         api: reg
-        #server: gunicorn
+        server: gunicorn
         mongo_password:
         redis_password:
         TAS_ROLE_ACCT:
@@ -32,7 +32,7 @@ mes:
     ports:
         - "5001:5000"
     environment:
-        server: dev
+        server: gunicorn
         api: mes
         mongo_password:
         redis_password:
@@ -63,7 +63,7 @@ admin:
     ports:
         - "5003:5000"
     environment:
-        server: dev
+        server: gunicorn
         api: admin
         mongo_password:
         redis_password:

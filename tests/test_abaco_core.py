@@ -286,10 +286,6 @@ def test_register_with_invalid_def_env(headers):
     message = data['message']
     assert field in message
 
-
-# This test currectly fails due to a known issue with the error handling with
-# flask-restful
-@pytest.mark.xfail
 def test_register_with_put(headers):
     url = '{}/actors'.format(base_url)
     rsp = requests.put(url, headers=headers, data={'image': 'abacosamples/test'})
