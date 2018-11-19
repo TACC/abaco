@@ -1,4 +1,5 @@
 import json
+import os
 import configparser
 import requests
 import datetime
@@ -33,6 +34,14 @@ rate_gauges = {}
 last_metric = {}
 command_gauge = Gauge('message_count_for_command_channel',
                       'Number of messages currently in the Command Channel')
+
+try:
+    ACTOR_MAX_WORKERS = Config.get("spawner", "max_workers_per_actor")
+except:
+    ACTOR_MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_ACTOR', 20)
+ACTOR_MAX_WORKERS = int(ACTOR_MAX_WORKERS)
+logger.info("METRICS - running with ACTOR_MAX_WORKERS = {}".format(ACTOR_MAX_WORKERS))
+
 
 class MetricsResource(Resource):
     def get(self):
@@ -104,7 +113,7 @@ class MetricsResource(Resource):
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
                 if command_gauge._value._value < 5:
-                    if current_message_count >= 1:
+                    if current_message_count >= 1 and len(workers) <= ACTOR_MAX_WORKERS:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
                     elif current_message_count == 0:
