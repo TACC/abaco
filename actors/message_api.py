@@ -15,10 +15,10 @@ api = AgaveApi(app)
 def auth():
     authn_and_authz()
 
-# Set up error handling
-@app.errorhandler(Exception)
-def handle_all_errors(e):
-    return handle_error(e)
+# set up error handling
+api.handle_error = handle_error
+api.handle_exception = handle_error
+api.handle_user_exception = handle_error
 
 # Resources
 api.add_resource(MessagesResource, '/actors/<string:actor_id>/messages')
