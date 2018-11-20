@@ -209,12 +209,12 @@ def check_privileged():
     # various APIs (e.g., the state api) allow an arbitary JSON serializable objects which won't have a get method:
     if not hasattr(data, 'get'):
         return True
-    if data.get('privileged'):
-        logger.debug("User is trying to set privileged")
+    if data.get('privileged') or data.get('max_workers'):
+        logger.debug("User is trying to set privileged or max workers")
         # if we're here, user isn't an admin so must have privileged role:
         if not codes.PRIVILEGED_ROLE in g.roles:
             logger.info("User does not have privileged role.")
-            raise PermissionsException("Not authorized -- only admins and privileged users can make privileged actors.")
+            raise PermissionsException("Not authorized -- only admins and privileged users can make privileged actors or set max workers.")
         else:
             logger.debug("user allowed to set privileged.")
 
