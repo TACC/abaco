@@ -2,11 +2,7 @@
 Locust test suite for core Abaco functionality. To execute this test suite, build the testsuite image and then run
 with an entrypoint of bash and mount a config file to /tests/locust_credentials.json; e.g.,
  
-  $ docker run --rm -it -p 8089:8089 -v $(pwd)/locust_credentials_local.json:/tests/locust_credentials.json --entrypoint=bash  abaco/testsuite:dev  
- 
-Inside the container, start the locust program:
-
-  $ locust -f /tests/locust_tests.py
+  $ docker run --rm -it -p 8089:8089 -v $(pwd)/locust_credentials_local.json:/tests/locust_credentials.json --entrypoint=locust  abaco/testsuite:dev -f /tests/locust_tests.py  
   
 then, navigate to localhost:8089 and start up some locusts.
 
