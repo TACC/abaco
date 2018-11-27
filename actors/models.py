@@ -188,7 +188,7 @@ class Actor(AbacoDAO):
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
-        ('max_workers', 'optional', 'max_workers', int, 'How many workers this actor is allowed at the same time.', 5),
+        ('max_workers', 'optional', 'max_workers', int, 'How many workers this actor is allowed at the same time.', None),
         ('use_container_uid', 'optional', 'use_container_uid', inputs.boolean, 'Whether this actor runs as the UID set in the container image.', False),
         ('default_environment', 'optional', 'default_environment', dict, 'A dictionary of default environmental variables and values.', {}),
         ('status', 'optional', 'status', str, 'Current status of the actor.', SUBMITTED),
