@@ -106,6 +106,7 @@ class AbacoDAO(DbDict):
                 param_name = under_to_camel(name)
             else:
                 param_name = name
+            logger.warning('LOOK HERE 2 {}'.format(param_name))
             parser.add_argument(param_name, type=typ, required=required, help=help, default=default)
         return parser
 

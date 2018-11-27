@@ -654,6 +654,8 @@ def execute_actor(actor_id,
     if fifo_host_path:
         os.close(fifo)
         os.remove(fifo_host_path)
+    if results_ch:
+        results_ch.close()
     result['runtime'] = int(stop - start)
     logger.debug("right after removing fifo; about to return: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                          worker_id, execution_id))
