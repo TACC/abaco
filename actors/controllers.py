@@ -424,21 +424,7 @@ class ActorResource(Resource):
                 args['gid'] = gid
             if home_dir:
                 args['tasdir'] = home_dir
-        #
-        # if Config.get('web', 'case') == 'camel':
-        #     actor.pop('max_workers')
-            # max_workers = args.get('maxWorkers')
-            # args['max_workers'] = max_workers
-        # else:
-        #     actor.pop('maxWorkers')
-        #     max_workers = args.get('max_workers')
-        #     args['maxWorkers'] = max_workers
 
-        # max_workers = args.get('maxWorkers')
-        # args['max_workers'] = max_workers
-
-        logger.warning('LOOK HERE: {}'.format(args))
-        # logger.warning('LOOK HERE AGAIN: {}'.format(max_workers))
         args['mounts'] = get_all_mounts(args)
         args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
