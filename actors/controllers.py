@@ -95,11 +95,22 @@ class MetricsResource(Resource):
             )
             last_metric.update({actor_id: data})
 
-            # Add a worker if actor has 0 workers & a message in the Q
-            # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
             workers = Worker.get_workers(actor_id)
+            actor = actor = actors_store[actor_id]
+            logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
+
+            # If this actor has a custom max_workers, use that. Otherwise use default.
+            if actor['max_workers']:
+                max_workers = actor['max_workers']
+            else:
+                max_workers = Config.get('spawner', 'max_workers_per_actor')
+
+            logger.debug('METRICS: MAX WORKERS: {}'.format(max_workers))
             logger.debug('METRICS: NUMBER OF WORKERS: {}'.format(len(workers)))
             logger.debug('METRICS: number of messages: {}'.format(current_message_count))
+
+            # Add a worker if actor has 0 workers & a message in the Q
+            # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
             try:
                 if len(workers) == 0 and current_message_count >= 1:
                     metrics_utils.scale_up(actor_id)
@@ -112,7 +123,7 @@ class MetricsResource(Resource):
             # Add a worker if message count reaches a given number
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
-                if command_gauge._value._value < 5:
+                if metrics_utils.allow_autoscaling(command_gauge._value._value, max_workers, len(workers)):
                     if current_message_count >= 1 and len(workers) <= ACTOR_MAX_WORKERS:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))

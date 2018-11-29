@@ -68,6 +68,19 @@ def calc_change_rate(data, last_metric, actor_id):
         logger.info("No previous data yet for new actor {}".format(actor_id))
     return change_rate
 
+
+def allow_autoscaling(cmd_q_len, max_workers, num_workers):
+
+    if cmd_q_len > 5 or max_workers >= num_workers:
+        if cmd_q_len > 5:
+            logger.debug('NO AUTOSCALE. COMMAND QUEUE.')
+        else:
+            logger.debug('NO AUTOSCALE. MAX WORKERS.')
+        return False
+
+    return True
+
+
 def scale_up(actor_id):
     tenant, aid = actor_id.decode('utf8').split('_')
     logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
