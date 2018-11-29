@@ -72,10 +72,6 @@ def calc_change_rate(data, last_metric, actor_id):
 def allow_autoscaling(cmd_q_len, max_workers, num_workers):
 
     if cmd_q_len > 5 or max_workers >= num_workers:
-        if cmd_q_len > 5:
-            logger.debug('NO AUTOSCALE. COMMAND QUEUE.')
-        else:
-            logger.debug('NO AUTOSCALE. MAX WORKERS.')
         return False
 
     return True
@@ -97,7 +93,7 @@ def scale_up(actor_id):
                    num=1,
                    stop_existing=False)
         ch.close()
-        logger.debug('COMMAND CHANNEL: METRICS Added worker successfully for {}'.format(actor_id))
+        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
     except Exception as e:
         logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
 
@@ -115,7 +111,6 @@ def scale_down(actor_id):
                 logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
                 # check status of the worker is ready
                 if worker['status'] == 'READY':
-                    logger.debug("METRICS I MADE IT")
                     # scale down
                     try:
                         shutdown_worker(worker['id'], delete_actor_ch=False)

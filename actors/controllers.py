@@ -61,7 +61,7 @@ class MetricsResource(Resource):
 
         ch = CommandChannel()
         command_gauge.set(len(ch._queue._queue))
-        logger.debug("METRICS COMMAND CHANNEL: {}".format(command_gauge._value._value))
+        logger.debug("METRICS COMMAND CHANNEL size: {}".format(command_gauge._value._value))
         ch.close()
         logger.debug("ACTOR IDS: {}".format(actor_ids))
 
@@ -105,9 +105,6 @@ class MetricsResource(Resource):
             else:
                 max_workers = Config.get('spawner', 'max_workers_per_actor')
 
-            logger.debug('METRICS: MAX WORKERS: {}'.format(max_workers))
-            logger.debug('METRICS: NUMBER OF WORKERS: {}'.format(len(workers)))
-            logger.debug('METRICS: number of messages: {}'.format(current_message_count))
 
             # Add a worker if actor has 0 workers & a message in the Q
             # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
