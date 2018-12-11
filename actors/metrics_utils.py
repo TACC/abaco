@@ -2,6 +2,7 @@ import requests
 import json
 import datetime
 
+from config import Config
 from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
     set_permission
 from worker import shutdown_workers, shutdown_worker
@@ -13,6 +14,8 @@ logger = get_logger(__name__)
 
 message_gauges = {}
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
+
+MAX_WORKERS_PER_HOST = Config.get('spawner', 'max_workers_per_host')
 
 
 def create_gauges(actor_ids):
@@ -71,8 +74,10 @@ def calc_change_rate(data, last_metric, actor_id):
 
 def allow_autoscaling(cmd_q_len, max_workers, num_workers):
 
-    if cmd_q_len > 5 or max_workers >= num_workers:
+    if cmd_q_len > int(MAX_WORKERS_PER_HOST) or int(num_workers) >= int(max_workers):
         return False
+
+    logger.debug('METRICS NO AUTOSCALE - criteria not met. {} {} '.format(cmd_q_len, num_workers))
 
     return True
 

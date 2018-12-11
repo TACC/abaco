@@ -121,7 +121,7 @@ class MetricsResource(Resource):
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
                 if metrics_utils.allow_autoscaling(command_gauge._value._value, max_workers, len(workers)):
-                    if current_message_count >= 1 and len(workers) <= ACTOR_MAX_WORKERS:
+                    if current_message_count >= 1:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
                     elif current_message_count == 0:
