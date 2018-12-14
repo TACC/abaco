@@ -206,7 +206,7 @@ class Actor(AbacoDAO):
         ('uid', 'optional', 'uid', str, 'The uid to run the container as. Only used if user_container_uid is false.', None),
         ('gid', 'optional', 'gid', str, 'The gid to run the container as. Only used if user_container_uid is false.', None),
 
-        ('queue', 'optional', 'queue', str, 'The command channel that this actor uses.', None),
+        ('queue', 'optional', 'queue', str, 'The command channel that this actor uses.', 'default'),
         ('db_id', 'derived', 'db_id', str, 'Primary key in the database for this actor.', None),
         ('id', 'derived', 'id', str, 'Human readable id for this actor.', None),
         ]
