@@ -73,9 +73,9 @@ class ClientsChannel(Channel):
 class CommandChannel(Channel):
     """Work with commands on the command channel."""
 
-    def __init__(self):
+    def __init__(self, name='default'):
         self.uri = Config.get('rabbit', 'uri')
-        super().__init__(name='command',
+        super().__init__(name='command_channel_{}'.format(name),
                          connection_type=RabbitConnection,
                          uri=self.uri)
 

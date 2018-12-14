@@ -59,10 +59,10 @@ class MetricsResource(Resource):
             in actors_store.items()
         ]
 
-        ch = CommandChannel()
-        command_gauge.set(len(ch._queue._queue))
-        logger.debug("METRICS COMMAND CHANNEL size: {}".format(command_gauge._value._value))
-        ch.close()
+        # ch = CommandChannel()
+        # command_gauge.set(len(ch._queue._queue))
+        # logger.debug("METRICS COMMAND CHANNEL size: {}".format(command_gauge._value._value))
+        # ch.close()
         logger.debug("ACTOR IDS: {}".format(actor_ids))
 
         try:
@@ -309,6 +309,7 @@ class ActorsResource(Resource):
     def post(self):
         logger.info("top of POST to register a new actor.")
         args = self.validate_post()
+        logger.debug("LOOK HERE {}".format(args))
         logger.debug("validate_post() successful")
         args['tenant'] = g.tenant
         args['api_server'] = g.api_server
@@ -441,7 +442,8 @@ class ActorResource(Resource):
         logger.info("updated actor {} stored in db.".format(actor_id))
         if update_image:
             worker_ids = [Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)]
-            ch = CommandChannel()
+            # get actor queue name
+            ch = CommandChannel(name=actor.queue)
             ch.put_cmd(actor_id=actor.db_id, worker_ids=worker_ids, image=actor.image, tenant=args['tenant'])
             ch.close()
             logger.debug("put new command on command channel to update actor.")
@@ -981,7 +983,7 @@ class WorkersResource(Resource):
                 worker_ids = [Worker.request_worker(tenant=g.tenant,
                                                         actor_id=dbid)]
                 logger.info("New worker id: {}".format(worker_ids[0]))
-                ch = CommandChannel()
+                ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,
                            worker_ids=worker_ids,
                            image=actor.image,
