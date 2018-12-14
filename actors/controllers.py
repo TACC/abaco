@@ -32,8 +32,8 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
-command_gauge = Gauge('message_count_for_command_channel',
-                      'Number of messages currently in the Command Channel')
+command_gauge = Gauge('message_count_for_command_channel_default',
+                      'Number of messages currently in the Default Command Channel')
 
 try:
     ACTOR_MAX_WORKERS = Config.get("spawner", "max_workers_per_actor")
@@ -59,10 +59,10 @@ class MetricsResource(Resource):
             in actors_store.items()
         ]
 
-        # ch = CommandChannel()
-        # command_gauge.set(len(ch._queue._queue))
-        # logger.debug("METRICS COMMAND CHANNEL size: {}".format(command_gauge._value._value))
-        # ch.close()
+        ch = CommandChannel(name='default')
+        command_gauge.set(len(ch._queue._queue))
+        logger.debug("METRICS COMMAND CHANNEL DEFAULT size: {}".format(command_gauge._value._value))
+        ch.close()
         logger.debug("ACTOR IDS: {}".format(actor_ids))
 
         try:
@@ -96,7 +96,7 @@ class MetricsResource(Resource):
             last_metric.update({actor_id: data})
 
             workers = Worker.get_workers(actor_id)
-            actor = actor = actors_store[actor_id]
+            actor = actors_store[actor_id]
             logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
 
             # If this actor has a custom max_workers, use that. Otherwise use default.
