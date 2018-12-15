@@ -16,13 +16,13 @@ from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChan
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
-
 try:
     MAX_WORKERS = Config.get("spawner", "max_workers_per_host")
 except:
     MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_HOST', 20)
 MAX_WORKERS = int(MAX_WORKERS)
 logger.info("Spawner running with MAX_WORKERS = {}".format(MAX_WORKERS))
+
 
 class SpawnerException(Exception):
     def __init__(self, message):
@@ -48,7 +48,7 @@ class Spawner(object):
             # check resource threshold before subscribing
             while True:
                 if self.overloaded():
-                    logger.critical("SPAWNER FOR HOST {} OVERLOADED!!!".format(self.host_id))
+                    logger.critical("METRICS - SPAWNER FOR HOST {} OVERLOADED!!!".format(self.host_id))
                     # self.update_status to OVERLOADED
                     time.sleep(5)
                 else:
