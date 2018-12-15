@@ -200,7 +200,7 @@ def actors(request):
         access_token = request.session.get("access_token")
         headers = {'Authorization': 'Bearer {}'.format(access_token)}
         url = '{}/actors/v2/admin'.format(os.environ.get('AGAVE_BASE_URL', "https://api.tacc.utexas.edu"))
-    context = {"admin": is_admin(request), "active_tab":"admin"}
+    context = {"admin": is_admin(request), "active_tab":"actor"}
     actors = []
     error = None
     try:
