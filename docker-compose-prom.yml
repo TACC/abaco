@@ -1,6 +1,7 @@
 version: "3.3"
 services:
     prometheus:
+        # build: ./prometheus
         image: abaco/prom$TAG
 #        environment:
 #            no_proxy: "reg"

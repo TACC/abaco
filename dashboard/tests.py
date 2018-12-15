@@ -9,18 +9,13 @@ from local_secrets import *
 
 class DashboardClassCase(TestCase):
     def setup(self):
-
-        token_tsu = Token.objects.get(user__username='testshareuser')
-        self.client = APIClient()
+        pass
 
     def test_no_login_if_not_admin(self):
-        token_tu = Token.objects.get(user__username='testuser')
-        self.client.credentials(HTTP_AUTHORIZATION='Token ' + token_tu.key)
-        print
+        pass
 
 
     def test_flushes_session_if_not_admin(self):
-        self.client.login(username='testuser', password='{}'.format(PW_TU))
         pass
 
     def test_actors_tab_no_session(self):
