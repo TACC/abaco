@@ -238,7 +238,7 @@ $ docker build -t abaco/dashboard -f Dockerfile-dashboard .
 4. Start the dashboard app with docker-compose by running the following from the project root:
 
 ```shell
-$ docker-compose -f docker-compose-dashboard up -d
+$ docker-compose -f docker-compose-dashboard.yml up -d
 ```
 
 
