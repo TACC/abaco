@@ -31,7 +31,7 @@ def get_credentials():
         config['headers'] = util.get_jwt_headers()
     else:
         if config.get('access_token'):
-            config['headers']['Authorizationn'] = 'Bearer {}'.format(config.get('access_token'))
+            config['headers']['Authorization'] = 'Bearer {}'.format(config.get('access_token'))
             config['url_suffix'] = '/v2'
         else:
             print("Must provide either use_jwt or an access_token.")
