@@ -1,4 +1,5 @@
 import json
+import os
 import configparser
 import requests
 import datetime
@@ -20,6 +21,7 @@ from mounts import get_all_mounts
 import codes
 from stores import actors_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
+import metrics_utils
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
@@ -30,6 +32,15 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
+command_gauge = Gauge('message_count_for_command_channel',
+                      'Number of messages currently in the Command Channel')
+
+try:
+    ACTOR_MAX_WORKERS = Config.get("spawner", "max_workers_per_actor")
+except:
+    ACTOR_MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_ACTOR', 20)
+ACTOR_MAX_WORKERS = int(ACTOR_MAX_WORKERS)
+logger.info("METRICS - running with ACTOR_MAX_WORKERS = {}".format(ACTOR_MAX_WORKERS))
 
 
 class MetricsResource(Resource):
@@ -47,31 +58,20 @@ class MetricsResource(Resource):
             for db_id, _
             in actors_store.items()
         ]
-        logger.debug("ACTOR IDS: {}".format(actor_ids))
-        try:
-            if actor_ids:
-                for actor_id in actor_ids:
-                    if actor_id not in message_gauges.keys():
-                        try:
-                            g = Gauge(
-                                'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                                'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
-                            )
-                            message_gauges.update({actor_id: g})
-                        except Exception as e:
-                            logger.info("got exception trying to instantiate the Gauge: {}".format(e))
-                    else:
-                        g = message_gauges[actor_id]
 
-                    try:
-                        ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
-                    except Exception as e:
-                        logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
-                        raise e
-                    result = {'messages': len(ch._queue._queue)}
-                    ch.close()
-                    g.set(result['messages'])
-                    logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+        ch = CommandChannel()
+        command_gauge.set(len(ch._queue._queue))
+        logger.debug("METRICS COMMAND CHANNEL size: {}".format(command_gauge._value._value))
+        ch.close()
+        logger.debug("ACTOR IDS: {}".format(actor_ids))
+
+        try:
+            assert len(actor_ids) > 0  # does this work?
+            if actor_ids:
+                # Create a gauge for each actor id
+                actor_ids = metrics_utils.create_gauges(actor_ids)
+
+                # return the actor_ids so we can use them again for check_metrics
                 return actor_ids
         except Exception as e:
             logger.info("Got exception in get_metrics: {}".format(e))
@@ -81,80 +81,59 @@ class MetricsResource(Resource):
         for actor_id in actor_ids:
             logger.debug("TOP OF CHECK METRICS")
 
-            query = {
-                'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                'time': datetime.datetime.utcnow().isoformat() + "Z"
-            }
-            r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
-            data = json.loads(r.text)['data']['result']
-
-            change_rate = 0
+            data = metrics_utils.query_message_count_for_actor(actor_id)
             try:
-                previous_data = last_metric[actor_id]
-                try:
-                    change_rate = int(data[0]['value'][1]) - int(previous_data[0]['value'][1])
-                except:
-                    logger.debug("Could not calculate change rate.")
+                current_message_count = int(data[0]['value'][1])
             except:
-                logger.info("No previous data yet for new actor {}".format(actor_id))
+                logger.info("No current message count for actor {}".format(actor_id))
+                current_message_count = 0
 
+            change_rate = metrics_utils.calc_change_rate(
+                data,
+                last_metric,
+                actor_id
+            )
             last_metric.update({actor_id: data})
+
+            workers = Worker.get_workers(actor_id)
+            actor = actor = actors_store[actor_id]
+            logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
+
+            # If this actor has a custom max_workers, use that. Otherwise use default.
+            if actor['max_workers']:
+                max_workers = actor['max_workers']
+            else:
+                max_workers = Config.get('spawner', 'max_workers_per_actor')
+
+
+            # Add a worker if actor has 0 workers & a message in the Q
+            # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
+            try:
+                if len(workers) == 0 and current_message_count >= 1:
+                    metrics_utils.scale_up(actor_id)
+                    logger.debug('METICS: ADDING WORKER SINCE THERE WERE NONE')
+                else:
+                    logger.debug('METRICS: worker creation criteria not met')
+            except Exception as e:
+                logger.debug("METRICS - Error scaling up: {} - {} - {}".format(type(e), e, e.args))
+
             # Add a worker if message count reaches a given number
             try:
-                logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                if int(data[0]['value'][1]) >= 1:
-                    tenant, aid = actor_id.decode('utf8').split('_')
-                    logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
-                    try:
-                        # create a worker & add to this actor
-                        actor = Actor.from_db(actors_store[actor_id])
-                        worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
-                        logger.info("New worker id: {}".format(worker_ids[0]))
-                        ch = CommandChannel()
-                        ch.put_cmd(actor_id=actor.db_id,
-                                   worker_ids=worker_ids,
-                                   image=actor.image,
-                                   tenant=tenant,
-                                   num=1,
-                                   stop_existing=False)
-                        ch.close()
-                        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
-                    except Exception as e:
-                        logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
-                elif int(data[0]['value'][1]) <= 1:
+                logger.debug("METRICS current message count: {}".format(current_message_count))
+                if metrics_utils.allow_autoscaling(command_gauge._value._value, max_workers, len(workers)):
+                    if current_message_count >= 1:
+                        metrics_utils.scale_up(actor_id)
+                        logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
+                # changed - jfs: i think this block needs to run even if allow_autoscaling returns false
+                #           so that scale down can work once message count reaches zero in case where the
+                #           autoscaler previously scaled the worker pool to max_workers:
+                elif current_message_count == 0:
+                    metrics_utils.scale_down(actor_id)
                     logger.debug("METRICS made it to scale down block")
-                    # Check the number of workers for this actor before deciding to scale down
-                    workers = Worker.get_workers(actor_id)
-                    logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
-                    try:
-                        if len(workers) == 1:
-                            logger.debug("METRICS only one worker, won't scale down")
-                        else:
-                            while len(workers) > 0:
-                                logger.debug('METRICS made it STATUS check')
-                                worker = workers.popitem()[1]
-                                logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
-                                # check status of the worker is ready
-                                if worker['status'] == 'READY':
-                                    logger.debug("METRICS I MADE IT")
-                                    # scale down
-                                    try:
-                                        shutdown_worker(worker['id'], delete_actor_ch=False)
-                                        continue
-                                    except Exception as e:
-                                        logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
-                                    logger.debug('METRICS shut down worker {}'.format(worker['id']))
-
-                    except IndexError:
-                        logger.debug('METRICS only one worker found for actor {}. '
-                                     'Will not scale down'.format(actor_id))
-                    except Exception as e:
-                        logger.debug("METRICS SCALE UP FAILED: {}".format(e))
-
-
+                else:
+                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
             except Exception as e:
                 logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
-
 
     def test_metrics(self):
         logger.debug("METRICS TESTING")
@@ -348,6 +327,14 @@ class ActorsResource(Resource):
                 args['gid'] = gid
             if home_dir:
                 args['tasdir'] = home_dir
+
+        if Config.get('web', 'case') == 'camel':
+            max_workers = args.get('maxWorkers')
+            args['max_workers'] = max_workers
+        else:
+            max_workers = args.get('max_workers')
+            args['maxWorkers'] = max_workers
+
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
@@ -448,6 +435,7 @@ class ActorResource(Resource):
                 args['gid'] = gid
             if home_dir:
                 args['tasdir'] = home_dir
+
         args['mounts'] = get_all_mounts(args)
         args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
@@ -477,6 +465,7 @@ class ActorResource(Resource):
         if Config.get('web', 'case') == 'camel':
             actor.pop('use_container_uid')
             actor.pop('default_environment')
+            actor.pop('max_workers')
 
         # this update overrides all required and optional attributes
         try:

@@ -14,6 +14,9 @@ api = AgaveApi(app, errors=errors)
 
 REQUEST_TIME = Summary('request_processing_seconds', 'DESC: Time spent processing request')
 
+# todo - probably should add a basic auth check
+# for now, we comment this out because we do not authenticate the calls from prometheus;
+
 # Authn/z
 # @app.before_request
 # def auth():

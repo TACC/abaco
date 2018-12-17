@@ -9,6 +9,7 @@ from channelpy.exceptions import ChannelTimeoutException
 from codes import ERROR
 from config import Config
 from docker_utils import DockerError, run_worker
+from errors import WorkerException
 from models import Actor, Worker
 from stores import workers_store
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
@@ -16,13 +17,13 @@ from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChan
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
-
 try:
     MAX_WORKERS = Config.get("spawner", "max_workers_per_host")
 except:
     MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_HOST', 20)
 MAX_WORKERS = int(MAX_WORKERS)
 logger.info("Spawner running with MAX_WORKERS = {}".format(MAX_WORKERS))
+
 
 class SpawnerException(Exception):
     def __init__(self, message):
@@ -48,7 +49,7 @@ class Spawner(object):
             # check resource threshold before subscribing
             while True:
                 if self.overloaded():
-                    logger.critical("SPAWNER FOR HOST {} OVERLOADED!!!".format(self.host_id))
+                    logger.critical("METRICS - SPAWNER FOR HOST {} OVERLOADED!!!".format(self.host_id))
                     # self.update_status to OVERLOADED
                     time.sleep(5)
                 else:
@@ -232,7 +233,7 @@ class Spawner(object):
             for i in range(num_workers):
                 worker_id = worker_ids[i]
                 logger.info("starting worker {} with id: {}".format(i, worker_id))
-                ch, anon_ch, worker = self.start_worker(image, tenant, worker_id)
+                ch, anon_ch, worker = self.start_worker(image, tenant, actor_id, worker_id)
                 logger.debug("channel for worker {} is: {}".format(str(i), ch.name))
                 channels.append(ch)
                 anon_channels.append(anon_ch)
@@ -244,7 +245,7 @@ class Spawner(object):
             raise SpawnerException(message=e.message)
         return channels, anon_channels, workers
 
-    def start_worker(self, image, tenant, worker_id):
+    def start_worker(self, image, tenant, actor_id, worker_id):
         ch = SpawnerWorkerChannel(worker_id=worker_id)
         # start an actor executor container and wait for a confirmation that image was pulled.
         attempts = 0
@@ -264,6 +265,14 @@ class Spawner(object):
                     continue
                 else:
                     logger.info("Exception was NOT a read timeout; quiting on this worker.")
+                    # delete this worker from the workers store:
+                    try:
+                        Worker.delete_worker(actor_id, worker_id)
+                    except WorkerException as e:
+                        logger.info("Got WorkerException from delete_worker(). "
+                                    "worker_id: {}"
+                                    "Exception: {}".format(worker_id, e))
+
                     raise SpawnerException(message="Unable to start worker; error: {}".format(e))
             break
         worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)

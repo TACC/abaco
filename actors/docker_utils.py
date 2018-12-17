@@ -232,6 +232,8 @@ def run_worker(image, worker_id):
     if hasattr(auto_remove, 'lower'):
         if auto_remove.lower() == 'false':
             auto_remove = False
+        else:
+            auto_remove = True
     elif not auto_remove == True:
         auto_remove = False
     container = run_container_with_docker(image=AE_IMAGE,

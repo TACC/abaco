@@ -130,7 +130,7 @@ def check_worker_health(actor_id, worker):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
     worker_id = worker.get('id')
-    logger.info("Checking status of worker from db with worker_id: {}".format())
+    logger.info("Checking status of worker from db with worker_id: {}".format(worker_id))
     if not worker_id:
         logger.error("Corrupt data in the workers_store. Worker object without an id attribute. {}".format(worker))
         try:
@@ -214,35 +214,37 @@ def check_workers(actor_id, ttl):
             # worker is healthy so update last health check:
             Worker.update_worker_health_time(actor_id, worker_id)
             logger.info("Worker ok.")
+
         # now check if the worker has been idle beyond the ttl:
-        if ttl < 0:
-            # ttl < 0 means infinite life
-            logger.info("Infinite ttl configured; leaving worker")
-            return
-        # we don't shut down workers that are currently running:
-        if not worker['status'] == codes.BUSY:
-            last_execution = int(float(worker.get('last_execution_time', 0)))
-            # if worker has made zero executions, use the create_time
-            if last_execution == 0:
-                last_execution = worker.get('create_time', 0)
-            logger.debug("using last_execution: {}".format(last_execution))
-            try:
-                last_execution = int(float(last_execution))
-            except:
-                logger.error("Could not case last_execution {} to int(float()".format(last_execution))
-                last_execution = 0
-            if last_execution + ttl < time.time():
-                # shutdown worker
-                logger.info("Shutting down worker beyond ttl.")
-                shutdown_worker(worker['id'])
-            else:
-                logger.info("Still time left for this worker.")
-        elif worker['status'] == codes.ERROR:
+        # if ttl < 0:
+        #     # ttl < 0 means infinite life
+        #     logger.info("Infinite ttl configured; leaving worker")
+        #     return
+        # # we don't shut down workers that are currently running:
+        # if not worker['status'] == codes.BUSY:
+        #     last_execution = int(float(worker.get('last_execution_time', 0)))
+        #     # if worker has made zero executions, use the create_time
+        #     if last_execution == 0:
+        #         last_execution = worker.get('create_time', 0)
+        #     logger.debug("using last_execution: {}".format(last_execution))
+        #     try:
+        #         last_execution = int(float(last_execution))
+        #     except:
+        #         logger.error("Could not case last_execution {} to int(float()".format(last_execution))
+        #         last_execution = 0
+        #     if last_execution + ttl < time.time():
+        #         # shutdown worker
+        #         logger.info("Shutting down worker beyond ttl.")
+        #         shutdown_worker(worker['id'])
+        #     else:
+        #         logger.info("Still time left for this worker.")
+
+        if worker['status'] == codes.ERROR:
             # shutdown worker
             logger.info("Shutting down worker in error status.")
             shutdown_worker(worker['id'])
-        else:
-            logger.debug("Worker not in READY status, will postpone.")
+        # else:
+        #     logger.debug("Worker not in READY status, will postpone.")
 
 
 def manage_workers(actor_id):
