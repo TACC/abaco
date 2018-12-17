@@ -124,9 +124,12 @@ class MetricsResource(Resource):
                     if current_message_count >= 1:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                    elif current_message_count == 0:
-                        metrics_utils.scale_down(actor_id)
-                        logger.debug("METRICS made it to scale down block")
+                # changed - jfs: i think this block needs to run even if allow_autoscaling returns false
+                #           so that scale down can work once message count reaches zero in case where the
+                #           autoscaler previously scaled the worker pool to max_workers:
+                elif current_message_count == 0:
+                    metrics_utils.scale_down(actor_id)
+                    logger.debug("METRICS made it to scale down block")
                 else:
                     logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
             except Exception as e:

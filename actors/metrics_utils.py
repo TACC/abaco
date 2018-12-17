@@ -13,6 +13,8 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 message_gauges = {}
+worker_gaueges = {}
+
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
 
 MAX_WORKERS_PER_HOST = Config.get('spawner', 'max_workers_per_host')
@@ -43,6 +45,22 @@ def create_gauges(actor_ids):
         ch.close()
         g.set(result['messages'])
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+        if actor_id not in worker_gaueges.keys():
+            try:
+                g = Gauge(
+                    'worker_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                    'Number of workers for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                )
+                worker_gaueges.update({actor_id: g})
+                logger.debug('Created worker gauge {}'.format(g))
+            except Exception as e:
+                logger.info("got exception trying to instantiate the Worker Gauge: {}".format(e))
+        else:
+            g = worker_gaueges[actor_id]
+        workers = Worker.get_workers(actor_id)
+        result = {'workers': len(workers)}
+        g.set(result['workers'])
+
     return actor_ids
 
 def query_message_count_for_actor(actor_id):
