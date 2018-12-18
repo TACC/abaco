@@ -431,6 +431,8 @@ def test_execute_default_env_actor(headers):
     assert 'default_env_key2' in logs
     assert 'default_env_value1' in logs
     assert 'default_env_value1' in logs
+    assert '_abaco_container_repo' in logs
+    assert 'abaco_worker_id' in logs
 
 def test_execute_func_actor(headers):
     # toy function and list to send as a message:
