@@ -251,7 +251,7 @@ class Spawner(object):
         attempts = 0
         while True:
             try:
-                worker_dict = run_worker(image, worker_id)
+                worker_dict = run_worker(image, actor_id, worker_id)
             except DockerError as e:
                 logger.error("Spawner got a docker exception from run_worker; Exception: {}".format(e))
                 if 'read timeout' in e.message:

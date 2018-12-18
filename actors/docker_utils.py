@@ -171,7 +171,8 @@ def run_container_with_docker(image,
                                          environment=environment,
                                          volumes=volumes,
                                          host_config=host_config,
-                                         command=command)
+                                         command=command,
+                                         name=name)
         cli.start(container=container.get('Id'))
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
@@ -180,7 +181,7 @@ def run_container_with_docker(image,
     logger.info("container started successfully: {}".format(container))
     return container
 
-def run_worker(image, worker_id):
+def run_worker(image, actor_id, worker_id):
     """
     Run an actor executor worker with a given channel and image.
     :return:
@@ -244,7 +245,7 @@ def run_worker(image, worker_id):
                                           mounts=mounts,
                                           log_file=log_file,
                                           auto_remove=auto_remove,
-                                          name='worker_{}'.format(worker_id))
+                                          name='worker_{}_{}'.format(actor_id, worker_id))
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
     logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))
