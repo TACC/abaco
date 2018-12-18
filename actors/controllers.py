@@ -778,14 +778,16 @@ class ActorExecutionLogsResource(Resource):
         return ok(result, msg="Logs retrieved successfully.")
 
 
+def get_messages_hypermedia(actor):
+    return {'_links': {'self': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id),
+                       'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
+                       },
+            }
+
+
 class MessagesResource(Resource):
 
     def get(self, actor_id):
-        def get_hypermedia(actor):
-            return {'_links': {'self': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id),
-                               'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
-                               },
-                       }
         logger.debug("top of GET /actors/{}/messages".format(actor_id))
         # check that actor exists
         id = Actor.get_dbid(g.tenant, actor_id)
@@ -799,7 +801,25 @@ class MessagesResource(Resource):
         result = {'messages': len(ch._queue._queue)}
         ch.close()
         logger.debug("messages found for actor: {}.".format(actor_id))
-        result.update(get_hypermedia(actor))
+        result.update(get_messages_hypermedia(actor))
+        return ok(result)
+
+    def delete(self, actor_id):
+        logger.debug("top of DELETE /actors/{}/messages".format(actor_id))
+        # check that actor exists
+        id = Actor.get_dbid(g.tenant, actor_id)
+        try:
+            actor = Actor.from_db(actors_store[id])
+        except KeyError:
+            logger.debug("did not find actor: {}.".format(actor_id))
+            raise ResourceError(
+                "No actor found with id: {}.".format(actor_id), 404)
+        ch = ActorMsgChannel(actor_id=id)
+        ch._queue._queue.purge()
+        result = {'msg': "Actor mailbox purged."}
+        ch.close()
+        logger.debug("messages purged for actor: {}.".format(actor_id))
+        result.update(get_messages_hypermedia(actor))
         return ok(result)
 
     def validate_post(self):
