@@ -287,6 +287,8 @@ def subscribe(tenant,
         environment['_abaco_access_token'] = ''
         environment['_abaco_actor_dbid'] = actor_id
         environment['_abaco_actor_id'] = actor.id
+        environment['_abaco_worker_id'] = worker_id
+        environment['_abaco_container_repo'] = actor.image
         environment['_abaco_actor_state'] = actor.state
         logger.debug("Overlayed environment: {}".format(environment))
 
