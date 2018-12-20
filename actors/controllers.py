@@ -55,8 +55,8 @@ class MetricsResource(Resource):
 
         actor_ids = [
             db_id
-            for db_id, _
-            in actors_store.items()
+            for db_id, actor
+            in actors_store.items() if actor.get('stateless')
         ]
 
         ch = CommandChannel()
@@ -127,7 +127,7 @@ class MetricsResource(Resource):
                 # changed - jfs: i think this block needs to run even if allow_autoscaling returns false
                 #           so that scale down can work once message count reaches zero in case where the
                 #           autoscaler previously scaled the worker pool to max_workers:
-                elif current_message_count == 0:
+                if current_message_count == 0:
                     metrics_utils.scale_down(actor_id)
                     logger.debug("METRICS made it to scale down block")
                 else:
@@ -479,7 +479,7 @@ class ActorResource(Resource):
                 msg = '{}: {}'.format(msg, e)
             raise DAOError("Invalid actor description: {}".format(msg))
         if not actor.stateless and new_fields.get('stateless'):
-            raise DAOError("Invalid actor description: an actor that was not stateless cannot be update to be stateless.")
+            raise DAOError("Invalid actor description: an actor that was not stateless cannot be updated to be stateless.")
         actor.update(new_fields)
         return actor
 
