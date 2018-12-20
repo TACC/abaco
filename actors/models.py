@@ -184,7 +184,7 @@ class Actor(AbacoDAO):
         ('name', 'optional', 'name', str, 'User defined name for this actor.', None),
         ('image', 'required', 'image', str, 'Reference to image on docker hub for this actor.', None),
 
-        ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', False),
+        ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', True),
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
