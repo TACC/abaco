@@ -43,9 +43,6 @@ import requests
 import json
 
 from actors import health, models, codes, stores
-# from util import headers, base_url, case, test_remove_initial_actors, \
-#     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-#     execute_actor, get_tenant
 
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
@@ -126,7 +123,7 @@ def test_cors_options_list_actors(headers):
 
 def test_register_actor(headers):
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite'}
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite', 'stateless': False}
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
@@ -138,7 +135,8 @@ def test_register_actor(headers):
 
 def test_register_stateless_actor(headers):
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_statelesss', 'stateless': True}
+    # stateless actors are the default now, so stateless tests should pass without specifying "stateless": True
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_statelesss'}
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
@@ -530,7 +528,7 @@ def test_execute_actor_json(headers):
 def test_update_actor(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}'.format(base_url, actor_id)
-    data = {'image': 'jstubbs/abaco_test2'}
+    data = {'image': 'jstubbs/abaco_test2', 'stateless': False}
     rsp = requests.put(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
@@ -552,7 +550,7 @@ def test_update_actor_other_user(headers):
     basic_response_checks(rsp)
 
     # now, update the actor with another user:
-    data = {'image': 'jstubbs/abaco_test2'}
+    data = {'image': 'jstubbs/abaco_test2', 'stateless': False}
     url = '{}/actors/{}'.format(base_url, actor_id)
     rsp = requests.put(url, data=data, headers=priv_headers())
     result = basic_response_checks(rsp)
