@@ -334,7 +334,8 @@ class ActorsResource(Resource):
         else:
             max_workers = args.get('max_workers')
             args['maxWorkers'] = max_workers
-
+        if max_workers and 'stateless' in args and not args.get('stateless'):
+            raise DAOError("Invalid actor description: stateful actors can only have 1 worker.")
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
@@ -466,6 +467,8 @@ class ActorResource(Resource):
             actor.pop('use_container_uid')
             actor.pop('default_environment')
             actor.pop('max_workers')
+            actor.pop('mem_limit')
+            actor.pop('max_cpus')
 
         # this update overrides all required and optional attributes
         try:
@@ -480,6 +483,8 @@ class ActorResource(Resource):
             raise DAOError("Invalid actor description: {}".format(msg))
         if not actor.stateless and new_fields.get('stateless'):
             raise DAOError("Invalid actor description: an actor that was not stateless cannot be updated to be stateless.")
+        if not actor.stateless and (new_fields.get('max_workers') or new_fields.get('maxWorkers')):
+            raise DAOError("Invalid actor description: stateful actors can only have 1 worker.")
         actor.update(new_fields)
         return actor
 

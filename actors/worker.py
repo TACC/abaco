@@ -166,7 +166,6 @@ def subscribe(tenant,
     except configparser.NoOptionError:
         logger.info("No max_cpus value configured.")
         max_cpus = "-1"
-        max_cpus = str(max_cpus)
 
     logger.info("max_cpus: {}".format(max_cpus))
 
@@ -291,6 +290,12 @@ def subscribe(tenant,
         if type(actor['privileged']) == bool and actor['privileged']:
             privileged = True
         logger.debug("privileged: {}".format(privileged))
+
+        # overlay resource limits if set on actor:
+        if actor.mem_limit:
+            mem_limit = actor.mem_limit
+        if actor.max_cpus:
+            max_cpus = actor.max_cpus
 
         # retrieve the default environment registered with the actor.
         environment = actor['default_environment']
