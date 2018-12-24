@@ -209,14 +209,23 @@ def check_privileged():
     # various APIs (e.g., the state api) allow an arbitary JSON serializable objects which won't have a get method:
     if not hasattr(data, 'get'):
         return True
-    if data.get('privileged') or data.get('max_workers'):
-        logger.debug("User is trying to set privileged or max workers")
+    if not codes.PRIVILEGED_ROLE in g.roles:
+        logger.info("User does not have privileged role.")
         # if we're here, user isn't an admin so must have privileged role:
-        if not codes.PRIVILEGED_ROLE in g.roles:
-            logger.info("User does not have privileged role.")
-            raise PermissionsException("Not authorized -- only admins and privileged users can make privileged actors or set max workers.")
-        else:
-            logger.debug("user allowed to set privileged.")
+        if data.get('privileged'):
+            logger.debug("User is trying to set privileged")
+            raise PermissionsException("Not authorized -- only admins and privileged users can make privileged actors.")
+        if data.get('max_workers') or data.get('maxWorkers'):
+            logger.debug("User is trying to set max_workers")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set max workers.")
+        if data.get('max_cpus') or data.get('maxCpus'):
+            logger.debug("User is trying to set max CPUs")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set max CPUs.")
+        if data.get('mem_limit') or data.get('memLimit'):
+            logger.debug("User is trying to set mem limit")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set mem limit.")
+    else:
+        logger.debug("user allowed to set privileged.")
 
     # when using the UID associated with the user in TAS, admins can still register actors
     # to use the UID built in the container using the use_container_uid flag:
