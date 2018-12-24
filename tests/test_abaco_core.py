@@ -46,7 +46,7 @@ from actors import health, models, codes, stores
 
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-    execute_actor, get_tenant, priv_headers
+    execute_actor, get_tenant, priv_headers, limited_headers
 
 
 # #################
@@ -284,6 +284,23 @@ def test_register_with_invalid_def_env(headers):
     message = data['message']
     assert field in message
 
+def test_cant_register_max_workers_stateful(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'max_workers'
+    if case == 'camel':
+        field = 'maxWorkers'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': False,
+            field: 3,
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert "stateful actors can only have 1 worker" in message
+
 def test_register_with_put(headers):
     url = '{}/actors'.format(base_url)
     rsp = requests.put(url, headers=headers, data={'image': 'abacosamples/test'})
@@ -296,6 +313,49 @@ def test_cant_update_stateless_actor_state(headers):
     rsp = requests.post(url, headers=headers, data={'state': 'abc'})
     response_format(rsp)
     assert rsp.status_code not in range(1, 399)
+
+# invalid check having to do with authorization
+def test_cant_set_max_workers_limited(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'max_workers'
+    if case == 'camel':
+        field = 'maxWorkers'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            field: 3,
+            }
+    rsp = requests.post(url, json=data, headers=limited_headers())
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+
+def test_cant_set_max_cpus_limited(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'max_cpus'
+    if case == 'camel':
+        field = 'maxCpus'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            field: 3000000000,
+            }
+    rsp = requests.post(url, json=data, headers=limited_headers())
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+
+def test_cant_set_mem_limit_limited(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'mem_limit'
+    if case == 'camel':
+        field = 'memLimit'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            field: '3g',
+            }
+    rsp = requests.post(url, json=data, headers=limited_headers())
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+
+
+# check actors are ready ---
 
 def check_actor_is_ready(headers, actor_id=None):
     count = 0
