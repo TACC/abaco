@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 from agavepy.agave import Agave
 from config import Config
 import codes
-from models import Actor, get_permissions, Nonce
+from models import Actor, Alias, get_permissions, is_hashid, Nonce
 
 from errors import ClientException, ResourceError, PermissionsException
 
@@ -112,6 +112,35 @@ def authorization():
     logic. This function is called by agaveflask after all authentication processing and initial
     authorization logic has run.
     """
+    # first check whether the request is even valid -
+    if hasattr(request, 'url_rule'):
+        logger.debug("request.url_rule: {}".format(request.url_rule))
+        if hasattr(request.url_rule, 'rule'):
+            logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
+        else:
+            logger.info("url_rule has no rule.")
+            raise ResourceError(
+                "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
+    else:
+        logger.info("Request has no url_rule")
+        raise ResourceError(
+            "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
+
+    # get the actor db_id from a possible identifier once and for all -
+    # these routes do not have an actor id in them:
+    if request.url_rule.rule == '/actors' \
+        or request.url_rule.rule == '/actors/' \
+        or '/actors/admin' in request.url_rule.rule \
+        or '/actors/aliases' in request.url_rule.rule:
+        db_id = None
+        logger.debug("setting db_id to None; rule: {}".format(request.url_rule.rule))
+    else:
+        # every other route should have an actor identifier
+        logger.debug("fetching db_id; rule: {}".format(request.url_rule.rule))
+        db_id = get_db_id()
+    g.db_id = db_id
+    logger.debug("db_id: {}".format(db_id))
+
     g.admin = False
     if request.method == 'OPTIONS':
         # allow all users to make OPTIONS requests
@@ -134,17 +163,6 @@ def authorization():
         raise PermissionsException("Not authorized -- missing required role.")
     else:
         logger.debug("User has an abaco role.")
-        if hasattr(request, 'url_rule'):
-            logger.debug("request.url_rule: {}".format(request.url_rule))
-            if hasattr(request.url_rule, 'rule'):
-                logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
-            else:
-                logger.info("url_rule has no rule.")
-                raise ResourceError("Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
-        else:
-            logger.info("Request has no url_rule")
-            raise ResourceError(
-                "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
     logger.debug("request.path: {}".format(request.path))
 
     # the admin role when JWT auth is configured:
@@ -160,7 +178,7 @@ def authorization():
         else:
             raise PermissionsException("Abaco Admin role required.")
 
-    # there are special rules on the root collection:
+    # there are special rules on the actors root collection:
     if '/actors' == request.url_rule.rule or '/actors/' == request.url_rule.rule:
         logger.debug("Checking permissions on root collection.")
         # first, only admins can create/update actors to be privileged, so check that:
@@ -170,9 +188,17 @@ def authorization():
         logger.debug("new actor or GET on root connection. allowing request.")
         return True
 
+    # aliases root collection has special rules as well -
+    if '/actors/aliases' == request.url_rule.rule or '/actors/aliases/' == request.url_rule.rule:
+        return True
+
+    # request to a specific alias needs to check aliases permissions
+    if '/actors/aliases' in request.url_rule.rule:
+        alias_id = get_alias_id()
+        # todo - check permissions store
+        return True
+
     # all other checks are based on actor-id:
-    db_id = get_db_id()
-    logger.debug("db_id: {}".format(db_id))
     if request.method == 'GET':
         # GET requests require READ access
         has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.READ)
@@ -268,13 +294,36 @@ def check_permissions(user, actor_id, level):
 
 def get_db_id():
     """Get the db_id from the request path."""
+    # logger.debug("top of get_db_id. request.path: {}".format(request.path))
     path_split = request.path.split("/")
     if len(path_split) < 3:
         logger.error("Unrecognized request -- could not find the actor id. path_split: {}".format(path_split))
         raise PermissionsException("Not authorized.")
-    actor_id = path_split[2]
+    # logger.debug("path_split: {}".format(path_split))
+    actor_identifier = path_split[2]
+    # logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    try:
+        actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
+    except KeyError:
+        logger.info("Unrecoginzed actor_identifier: {}. Actor not found".format(actor_identifier))
+        raise ResourceError("Actor with identifier '{}' not found".format(actor_identifier), 404)
+    except Exception as e:
+        msg = "Unrecognized exception trying to resolve actor identifier: {}; " \
+              "exception: {}".format(actor_identifier, e)
+        logger.error(msg)
+        raise ResourceError(msg)
     logger.debug("actor_id: {}".format(actor_id))
     return Actor.get_dbid(g.tenant, actor_id)
+
+def get_alias_id():
+    """Get the alias from the request path."""
+    path_split = request.path.split("/")
+    if len(path_split) < 4:
+        logger.error("Unrecognized request -- could not find the alias. path_split: {}".format(path_split))
+        raise PermissionsException("Not authorized.")
+    alias = path_split[3]
+    logger.debug("alias: {}".format(alias))
+    return Alias.generate_alias_id(g.tenant, alias)
 
 def get_tenant_verify(tenant):
     """Return whether to turn on SSL verification."""

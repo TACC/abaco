@@ -14,13 +14,31 @@ from codes import REQUESTED, SUBMITTED, EXECUTE, PermissionLevel
 from config import Config
 import errors
 
-from stores import actors_store, clients_store, executions_store, logs_store, nonce_store, permissions_store, workers_store
+from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, permissions_store, workers_store
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 
 HASH_SALT = 'eJa5wZlEX4eWU'
+
+def is_hashid(identifier):
+    """ 
+    Determine if `identifier` is an Abaco Hashid (e.g., actor id, worker id, nonce id, etc.
+    
+    :param identifier (str) - The identifier to check 
+    :return: (bool) - True if the identifier is an Abaco Hashid.
+    """
+    hashids = Hashids(salt=HASH_SALT)
+    dec = hashids.decode(identifier)
+    # the decode() method returns a non-empty tuple (containing the original uuid seed)
+    # iff the identifier was produced from an encode() with the HASH_SALT; otherwise, it returns an
+    # empty tuple. Therefore, the length of the produced tuple can be used to check whether the
+    # identify was created with the Abaco HASH_SALT.
+    if len(dec) > 0:
+        return True
+    else:
+        return False
 
 def under_to_camel(value):
     def camel_case():
@@ -106,7 +124,6 @@ class AbacoDAO(DbDict):
                 param_name = under_to_camel(name)
             else:
                 param_name = name
-            logger.warning('LOOK HERE 2 {}'.format(param_name))
             parser.add_argument(param_name, type=typ, required=required, help=help, default=default)
         return parser
 
@@ -243,6 +260,39 @@ class Actor(AbacoDAO):
         else:
             return db_id
 
+    @classmethod
+    def get_actor_id(cls, tenant, identifier):
+        """
+        Return the db_id associated with the identifier 
+        :param identifier (str): either an actor_id or an alias. 
+        :return: The actor_id; rasies a KeyError if no actor suc exists. 
+        """
+        if is_hashid(identifier):
+            return identifier
+        # look for an alias with the identifier:
+        alias_id = Alias.generate_alias_id(tenant, identifier)
+        alias = Alias.retrieve_by_alias_id(alias_id)
+        return alias.actor_id
+
+    @classmethod
+    def get_actor(cls, identifier, is_alias=False):
+        """
+        Return the actor object based on `identifier` which could be either a dbid or an alias.
+        :param identifier (str): Unique identifier for an actor; either a dbid or an alias dbid.
+        :param is_alias (bool): Caller can pass a hint, "is_alias=True", to avoid extra code checks. 
+        
+        :return: Actor dictionary; caller should instantiate an Actor object from it.  
+        """
+        if not is_alias:
+            # check whether the identifier is an actor_id:
+            if is_hashid(identifier):
+                return actors_store[identifier]
+        # if we're here, either the caller set the is_alias=True hint or the is_hashid() returned False.
+        # either way, we need to check the alias store
+        alias = alias_store[identifier]
+        db_id = alias['db_id']
+        return actors_store[db_id]
+
     def get_uuid_code(self):
         """ Return the Agave code for this object.
         :return: str
@@ -315,6 +365,70 @@ class Actor(AbacoDAO):
         actors_store.update(actor_id, 'status', status)
         if status_message:
             actors_store.update(actor_id, 'status_message', status_message)
+
+
+class Alias(AbacoDAO):
+    """Data access object for working with Actor aliases."""
+
+    PARAMS = [
+        # param_name, required/optional/provided/derived, attr_name, type, help, default
+        ('tenant', 'provided', 'tenant', str, 'The tenant that this alias belongs to.', None),
+        ('alias_id', 'provided', 'alias_id', str, 'Primary key for alias for the actor and primary key to this store; must be globally unique.', None),
+        ('alias', 'required', 'alias', str, 'Actual alias for the actor; must be unique within a tenant.', None),
+        ('actor_id', 'required', 'actor_id', str, 'The human readable id for the actor associated with this alias.',
+         None),
+        ('db_id', 'provided', 'db_id', str, 'Primary key in the database for the actor associated with this alias.', None),
+        ('owner', 'provided', 'owner', str, 'The user who created this alias.', None),
+        ('api_server', 'provided', 'api_server', str, 'The base URL for the tenant that this alias belongs to.', None),
+    ]
+
+    # the following nouns cannot be used for an alias as they
+    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin']
+
+    @classmethod
+    def generate_alias_id(cls, tenant, alias):
+        """Generate the alias id from the alias name and tenant."""
+        return '{}_{}'.format(tenant, alias)
+
+    def check_reserved_words(self):
+        if self.alias in Alias.RESERVED_WORDS:
+            raise errors.DAOError("{} is a reserved word. "
+                                  "The following reserved words cannot be used "
+                                  "for an alias: {}.".format(self.alias, Alias.RESERVED_WORDS))
+
+    def check_and_create_alias(self):
+        """Check to see if an alias is unique and create it if so. If not, raises a DAOError."""
+
+        # first, make sure alias is not  a reserved word:
+        self.check_reserved_words()
+        # attempt to create the alias within a transaction
+        obj = alias_store.add_key_val_if_empty(self.alias_id, self)
+        if not obj:
+            raise errors.DAOError("Alias {} already exists.".format(self.alias))
+        return obj
+
+    @classmethod
+    def retrieve_by_alias_id(cls, alias_id):
+        """ Returns the Alias object associate with the alias_id or raises a KeyError."""
+        logger.debug("top of retrieve_by_alias_id; alias_id: {}".format(alias_id))
+        obj = alias_store[alias_id]
+        logger.debug("got alias obj: {}".format(obj))
+        return Alias(**obj)
+
+    def get_hypermedia(self):
+        return {'_links': { 'self': '{}/actors/v2/alaises/{}'.format(self.api_server, self.alias),
+                            'owner': '{}/profiles/v2/{}'.format(self.api_server, self.owner),
+                            'actor': '{}/actors/v2/{}'.format(self.api_server, self.actor_id)
+        }}
+
+    def display(self):
+        """Return a representation fit for display."""
+        self.update(self.get_hypermedia())
+        self.pop('db_id')
+        self.pop('tenant')
+        self.pop('alias_id')
+        self.pop('api_server')
+        return self.case()
 
 
 class Nonce(AbacoDAO):
