@@ -64,6 +64,7 @@ def response_format(rsp):
     assert 'message' in data.keys()
     assert 'status' in data.keys()
     assert 'version' in data.keys()
+    return data
 
 def basic_response_checks(rsp, check_tenant=True):
     assert rsp.status_code in [200, 201]
