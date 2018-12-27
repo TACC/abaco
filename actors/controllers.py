@@ -353,6 +353,9 @@ class AliasResource(Resource):
         alias_id = Alias.generate_alias_id(g.tenant, alias)
         try:
             del alias_store[alias_id]
+            # also remove all permissions - there should be at least one permissions associated
+            # with the owner
+            del permissions_store[alias_id]
             logger.info("alias {} deleted from alias store.".format(alias_id))
         except Exception as e:
             logger.info("got Exception {} trying to delete alias {}".format(e, alias_id))

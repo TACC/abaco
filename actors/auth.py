@@ -220,10 +220,10 @@ def authorization():
                     raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
                 # POST to the messages endpoint requires EXECUTE
                 if 'messages' in request.url_rule.rule:
-                    has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.EXECUTE)
+                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.EXECUTE)
                 # otherwise, we require UPDATE
                 else:
-                    has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.UPDATE)
+                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
     if not has_pem:
         logger.info("NOT allowing request.")
         raise PermissionsException("Not authorized -- you do not have access to this {}.".format(noun))
@@ -481,8 +481,12 @@ def get_uid_gid_homedir(actor, user, tenant):
     try:
         use_tas = Config.get('workers', '{}_use_tas_uid'.format(tenant))
     except configparser.NoOptionError:
-        logger.debug("no use_tas_uid config.")
-        use_tas = False
+        logger.debug("no {}_use_tas_uid config.".format(tenant))
+        try:
+            use_tas = Config.get('workers', 'use_tas_uid')
+        except configparser.NoOptionError:
+            logger.debug("no use_tas_uid config.".format(tenant))
+            use_tas = 'false'
     if hasattr(use_tas, 'lower'):
         use_tas = use_tas.lower() == 'true'
     else:
