@@ -302,7 +302,7 @@ class AliasesResource(Resource):
             if hasattr(e, 'data'):
                 msg = e.data.get('message')
             raise DAOError("Invalid alias description. Missing required field: {}".format(msg))
-        if is_hashid(args,get('alias')):
+        if is_hashid(args.get('alias')):
             raise DAOError("Invalid alias description. Alias cannot be an Abaco hash id.")
         return args
 
@@ -332,6 +332,7 @@ class AliasesResource(Resource):
                      "alias: {}".format(alias))
         alias.check_and_create_alias()
         logger.info("alias added for actor: {}.".format(dbid))
+        set_permission(g.user, alias.alias_id, UPDATE)
         return ok(result=alias.display(), msg="Actor alias created successfully.")
 
 class AliasResource(Resource):
@@ -1088,9 +1089,17 @@ class WorkerResource(Resource):
 
 
 class PermissionsResource(Resource):
-    def get(self, actor_id):
-        logger.debug("top of GET /actors/{}/permissions.".format(actor_id))
-        id = g.db_id
+    """This class handles permissions endpoints for all objects that need permissions.
+    The `identifier` is the human-readable id (e.g., actor_id, alias).
+    The code uses the request rule to determine which object is being referenced.
+    """
+    def get(self, identifier):
+        if 'actors/aliases/' in request.url_rule.rule:
+            logger.debug("top of GET /actors/aliases/{}/permissions.".format(identifier))
+            id = Alias.generate_alias_id(g.tenant, identifier)
+        else:
+            logger.debug("top of GET /actors/{}/permissions.".format(identifier))
+            id = g.db_id
         try:
             permissions = get_permissions(id)
         except PermissionsException as e:
@@ -1116,13 +1125,23 @@ class PermissionsResource(Resource):
             The valid values are {}".format(args['level'], PERMISSION_LEVELS))
         return args
 
-    def post(self, actor_id):
-        """Add new permissions for an actor"""
-        logger.debug("top of POST /actors/{}/permissions.".format(actor_id))
-        id = g.db_id
+    def post(self, identifier):
+        """Add new permissions for an object `identifier`."""
+        if 'actors/aliases/' in request.url_rule.rule:
+            logger.debug("top of POST /actors/aliases/{}/permissions.".format(identifier))
+            id = Alias.generate_alias_id(g.tenant, identifier)
+        else:
+            logger.debug("top of POST /actors/{}/permissions.".format(identifier))
+            id = g.db_id
         args = self.validate_post()
-        logger.debug("POST permissions body validated for actor: {}.".format(actor_id))
+        logger.debug("POST permissions body validated for identifier: {}.".format(id))
         set_permission(args['user'], id, PermissionLevel(args['level']))
         logger.info("Permission added for user: {} actor: {} level: {}".format(args['user'], id, args['level']))
         permissions = get_permissions(id)
         return ok(result=permissions, msg="Permission added successfully.")
+
+class ActorPermissionsResource(PermissionsResource):
+    pass
+
+class AliasPermissionsResource(PermissionsResource):
+    pass

@@ -195,32 +195,38 @@ def authorization():
     # request to a specific alias needs to check aliases permissions
     if '/actors/aliases' in request.url_rule.rule:
         alias_id = get_alias_id()
-        # todo - check permissions store
-        return True
-
-    # all other checks are based on actor-id:
-    if request.method == 'GET':
-        # GET requests require READ access
-        has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.READ)
-    elif request.method == 'DELETE':
-        has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.UPDATE)
+        noun = 'alias'
+        if request.method == 'GET':
+            # GET requests require READ access
+            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+            # all other requests require UPDATE access
+        elif request.method in ['DELETE', 'POST', 'PUT']:
+            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
     else:
-        logger.debug("URL rule in request: {}".format(request.url_rule.rule))
-        # first, only admins can create/update actors to be privileged, so check that:
-        if request.method == 'POST' or request.method == 'PUT':
-            check_privileged()
-            # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
-            if 'workers' in request.url_rule.rule:
-                raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
-            # POST to the messages endpoint requires EXECUTE
-            if 'messages' in request.url_rule.rule:
-                has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.EXECUTE)
-            # otherwise, we require UPDATE
-            else:
-                has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.UPDATE)
+        # all other checks are based on actor-id:
+        noun = 'actor'
+        if request.method == 'GET':
+            # GET requests require READ access
+            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.READ)
+        elif request.method == 'DELETE':
+            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
+        else:
+            logger.debug("URL rule in request: {}".format(request.url_rule.rule))
+            # first, only admins can create/update actors to be privileged, so check that:
+            if request.method == 'POST' or request.method == 'PUT':
+                check_privileged()
+                # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
+                if 'workers' in request.url_rule.rule:
+                    raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
+                # POST to the messages endpoint requires EXECUTE
+                if 'messages' in request.url_rule.rule:
+                    has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.EXECUTE)
+                # otherwise, we require UPDATE
+                else:
+                    has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.UPDATE)
     if not has_pem:
         logger.info("NOT allowing request.")
-        raise PermissionsException("Not authorized -- you do not have access to this actor.")
+        raise PermissionsException("Not authorized -- you do not have access to this {}.".format(noun))
 
 
 def check_privileged():
@@ -268,29 +274,32 @@ def check_privileged():
         logger.debug("not trying to use privileged options.")
         return True
 
-def check_permissions(user, actor_id, level):
-    """Check the permissions store for user and level"""
-    logger.debug("Checking user: {} permissions for actor id: {}".format(user, actor_id))
+def check_permissions(user, identifier, level):
+    """Check the permissions store for user and level. Here, `identifier` is a unique id in the
+    permissions_store; e.g., actor db_id or alias_id.
+    """
+    logger.debug("Checking user: {} permissions for identifier: {}".format(user, identifier))
     # get all permissions for this actor
-    permissions = get_permissions(actor_id)
+    permissions = get_permissions(identifier)
     for p_user, p_name in permissions.items():
         # if the actor has been shared with the WORLD_USER anyone can use it
         if p_user == WORLD_USER:
-            logger.info("Allowing request - actor has been shared with the WORLD_USER.")
+            logger.info("Allowing request - {} has been shared with the WORLD_USER.".format(identifier))
             return True
         # otherwise, check if the permission belongs to this user and has the necessary level
         if p_user == user:
             p_pem = codes.PermissionLevel(p_name)
             if p_pem >= level:
-                logger.info("Allowing request - user has appropriate permission with the actor.")
+                logger.info("Allowing request - user has appropriate permission with {}.".format(identifier))
                 return True
             else:
                 # we found the permission for the user but it was insufficient; return False right away
-                logger.info("Found permission {}, rejecting request.".format(level))
+                logger.info("Found permission {} for {}, rejecting request.".format(level, identifier))
                 return False
     # didn't find the user or world_user, return False
-    logger.info("user had no permissions for actor. Actor's permissions: {}".format(permissions))
+    logger.info("user had no permissions for {}. Permissions found: {}".format(identifier, permissions))
     return False
+
 
 def get_db_id():
     """Get the db_id from the request path."""
