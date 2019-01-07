@@ -22,6 +22,20 @@ import util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# configuration --
+
+TEST_MODE = os.environ.get('TEST_MODE', 'simple')
+ACTORS_PER_USER = int(os.environ.get('ACTORS_PER_USER', '5'))
+
+SEND_NUMPY_MSG_WEIGHT = int(os.environ.get('SEND_NUMPY_MSG_WEIGHT', 5))
+NUMPY_SIZE = os.environ.get('NUMPY_SIZE', '1024')
+NUMPY_STD_DEV = os.environ.get('NUMPY_STD_DEV', '50')
+
+SEND_WC_MSG_WEIGHT = int(os.environ.get('SEND_WC_MSG_WEIGHT', 3))
+WC_MESSAGE = os.environ.get('WC_MESSAGE', 'how many words can a words count actor count')
+
+SIMPLE_MSG_COUNT_WEIGHT = int(os.environ.get('SIMPLE_MSG_COUNT_WEIGHT', 100))
+
 def get_credentials():
     config = json.load(open(
         os.path.join(HERE, 'locust_credentials.json')))
@@ -42,28 +56,69 @@ credentials = get_credentials()
 
 
 class BasicAbacoTasks(TaskSet):
+    actor_ids = {'simple': [],
+                 'numpy': [],
+                 'wc': []}
 
-    actor_ids = []
+    numpy_ex_ids = {}
+    wc_ex_ids = {}
+    simple_ex_ids = {}
+
     message_count = 0
 
-    def get_random_aid(self):
-        if len(self.actor_ids) <= 0:
-            return
-        return self.actor_ids[random.randint(0, len(self.actor_ids)-1)]
+    def get_random_aid(self, typ='simple'):
+        if len(self.actor_ids[typ]) <= 0:
+            return None
+        return self.actor_ids[typ][random.randint(0, len(self.actor_ids[typ]) - 1)]
 
-    def register_simple_actor(self):
+    def register_actor(self, image='abacosamples/test', typ='simple'):
         rsp = self.client.post('/actors{}'.format(credentials['url_suffix']),
                                headers=credentials['headers'],
-                               json={'image': 'abacosamples/test'})
-        self.actor_ids.append(rsp.json().get('result').get('id'))
+                               json={'image': image})
+        self.actor_ids[typ].append(rsp.json().get('result').get('id'))
 
-    def delete_actor(self):
-        aid = self.actor_ids.pop()
+    def register_multiple_actors(self):
+        # every user registers one numpy actor, one sleep loop, and one wc actor:
+        self.register_actor(image='abacosamples/numpy_mult', typ='numpy')
+        # self.register_actor(image='abacosamples/sleep_loop', typ='sleep_loop')
+        self.register_actor(image='abacosamples/wc', typ='wc')
+        for i in range(ACTORS_PER_USER):
+            self.register_actor()
+
+    def delete_actor(self, typ='simple'):
+        aid = self.actor_ids[typ].pop()
         self.client.delete('/actors{}/{}'.format(credentials['url_suffix'], aid),
                            headers=credentials['headers'])
 
+    def send_message(self, aid=None, typ='simple'):
+        if not aid:
+            aid = self.get_random_aid(typ=typ)
+        if typ == 'simple':
+            data = {'message': 'test {}'.format(self.message_count)}
+            rsp = self.client.post('/actors{}/{}/messages'.format(credentials['url_suffix'], aid),
+                                   headers=credentials['headers'],
+                                   data=data)
+        if typ == 'numpy':
+            data = {'size': NUMPY_SIZE,
+                    'std_dev': NUMPY_STD_DEV}
+            rsp = self.client.post('/actors{}/{}/messages'.format(credentials['url_suffix'], aid),
+                                   headers=credentials['headers'],
+                                   json=data)
+        if typ == 'wc':
+            data = {'message': WC_MESSAGE}
+            rsp = self.client.post('/actors{}/{}/messages'.format(credentials['url_suffix'], aid),
+                                   headers=credentials['headers'],
+                                   data=data)
+        try:
+            return aid, rsp.json()['result']['executionId']
+        except:
+            raise Exception("Did not get execution id for actor id: {} type: {}".format(aid, typ))
+
     def on_start(self):
-        self.register_simple_actor()
+        if TEST_MODE.lower() == 'simple':
+            self.register_actor()
+        else:
+            self.register_multiple_actors()
 
     def on_stop(self):
         self.delete_actor()
@@ -79,21 +134,88 @@ class BasicAbacoTasks(TaskSet):
         self.client.get('/actors{}/{}'.format(credentials['url_suffix'], aid),
                         headers=credentials['headers'])
 
-    @task(5)
+    def check_ex_status(self, aid, eid):
+        rsp = self.client.get('/actors{}/{}/executions/{}'.format(credentials['url_suffix'], aid, eid),
+                              headers=credentials['headers'], name='/actors/{}/executions/EID'.format(aid))
+        if rsp.json()['result']['status'] == 'COMPLETE':
+            return True
+        return False
+
+    @task(7)
     def get_actor_executions(self):
-        aid = self.get_random_aid()
-        self.client.get('/actors{}/{}/executions'.format(credentials['url_suffix'], aid),
-                        headers=credentials['headers'])
+        # check all numpy --
+        for aid in self.numpy_ex_ids.keys():
+            done = False
+            while len(self.numpy_ex_ids[aid]) > 0 and not done:
+                eid = self.numpy_ex_ids[aid][0]
+                if self.check_ex_status(aid, eid):
+                    self.numpy_ex_ids[aid].pop(0)
+                else:
+                    done = True
 
-    @task(1)
+        # check all wc --
+        for aid in self.wc_ex_ids.keys():
+            done = False
+            while len(self.wc_ex_ids[aid]) > 0 and not done:
+                eid = self.wc_ex_ids[aid][0]
+                if self.check_ex_status(aid, eid):
+                    self.wc_ex_ids[aid].pop(0)
+                else:
+                    done = True
+
+        # check all simple --
+        for aid in self.simple_ex_ids.keys():
+            done = False
+            while len(self.simple_ex_ids[aid]) > 0 and not done:
+                eid = self.simple_ex_ids[aid][0]
+                if self.check_ex_status(aid, eid):
+                    self.simple_ex_ids[aid].pop(0)
+                else:
+                    done = True
+
+    @task(2)
     def send_actor_message(self):
-        aid = self.get_random_aid()
-        rsp = self.client.post('/actors{}/{}/messages'.format(credentials['url_suffix'], aid),
-                               headers=credentials['headers'],
-                               data={'message': 'test {}'.format(self.message_count)})
-        self.message_count += 1
+        # each time called there is a 1/SEND_NUMPY_MSG_WEIGHT chance a numpy message is sent
+        if not TEST_MODE == 'simple':
+            send_numpy_message = random.randint(1, SEND_NUMPY_MSG_WEIGHT) <= 1
+            if send_numpy_message:
+                aid, ex_id = self.send_message(typ='numpy')
+                if aid not in self.numpy_ex_ids.keys():
+                    self.numpy_ex_ids[aid] = [ex_id]
+                else:
+                    self.numpy_ex_ids[aid].append(ex_id)
+                self.message_count += 1
 
-
+            # each time called there is a 1/SEND_WC_MSG_WEIGHT chance a wc message is sent
+            send_wc_message = random.randint(1, SEND_WC_MSG_WEIGHT) <= 1
+            if send_wc_message:
+                aid, ex_id = self.send_message(typ='wc')
+                if aid not in self.wc_ex_ids.keys():
+                    self.wc_ex_ids[aid] = [ex_id]
+                else:
+                    self.wc_ex_ids[aid].append(ex_id)
+                self.message_count += 1
+        weight = random.randint(1, SIMPLE_MSG_COUNT_WEIGHT)
+        aid = self.get_random_aid(typ='simple')
+        if weight < 70:
+            num_simple_messages = 1
+        elif weight < 80:
+            num_simple_messages = 2
+        elif weight < 90:
+            num_simple_messages = 3
+        elif weight < 97:
+            num_simple_messages = 4
+        elif weight < 99:
+            num_simple_messages = 10
+        else:
+            num_simple_messages = 100
+        for i in range(num_simple_messages):
+            aid, ex_id = self.send_message(aid=aid, typ='simple')
+            if aid not in self.simple_ex_ids.keys():
+                self.simple_ex_ids[aid] = [ex_id]
+            else:
+                self.simple_ex_ids[aid].append(ex_id)
+            self.message_count += 1
 
 class AbacoApiUser(HttpLocust):
     host = credentials.get('api_server')
