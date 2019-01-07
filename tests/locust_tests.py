@@ -97,18 +97,21 @@ class BasicAbacoTasks(TaskSet):
             data = {'message': 'test {}'.format(self.message_count)}
             rsp = self.client.post('/actors{}/{}/messages'.format(credentials['url_suffix'], aid),
                                    headers=credentials['headers'],
-                                   data=data)
+                                   data=data,
+                                   name='/actors/{}/messages'.format(typ))
         if typ == 'numpy':
             data = {'size': NUMPY_SIZE,
                     'std_dev': NUMPY_STD_DEV}
             rsp = self.client.post('/actors{}/{}/messages'.format(credentials['url_suffix'], aid),
                                    headers=credentials['headers'],
-                                   json=data)
+                                   json=data,
+                                   name='/actors/{}/messages'.format(typ))
         if typ == 'wc':
             data = {'message': WC_MESSAGE}
             rsp = self.client.post('/actors{}/{}/messages'.format(credentials['url_suffix'], aid),
                                    headers=credentials['headers'],
-                                   data=data)
+                                   data=data,
+                                   name='/actors/{}/messages'.format(typ))
         try:
             return aid, rsp.json()['result']['executionId']
         except:
@@ -134,9 +137,10 @@ class BasicAbacoTasks(TaskSet):
         self.client.get('/actors{}/{}'.format(credentials['url_suffix'], aid),
                         headers=credentials['headers'])
 
-    def check_ex_status(self, aid, eid):
+    def check_ex_status(self, aid, eid, typ):
         rsp = self.client.get('/actors{}/{}/executions/{}'.format(credentials['url_suffix'], aid, eid),
-                              headers=credentials['headers'], name='/actors/{}/executions/EID'.format(aid))
+                              headers=credentials['headers'],
+                              name='/actors/{}/messages'.format(typ))
         if rsp.json()['result']['status'] == 'COMPLETE':
             return True
         return False
@@ -148,7 +152,7 @@ class BasicAbacoTasks(TaskSet):
             done = False
             while len(self.numpy_ex_ids[aid]) > 0 and not done:
                 eid = self.numpy_ex_ids[aid][0]
-                if self.check_ex_status(aid, eid):
+                if self.check_ex_status(aid, eid, 'numpy'):
                     self.numpy_ex_ids[aid].pop(0)
                 else:
                     done = True
@@ -158,7 +162,7 @@ class BasicAbacoTasks(TaskSet):
             done = False
             while len(self.wc_ex_ids[aid]) > 0 and not done:
                 eid = self.wc_ex_ids[aid][0]
-                if self.check_ex_status(aid, eid):
+                if self.check_ex_status(aid, eid, 'wc'):
                     self.wc_ex_ids[aid].pop(0)
                 else:
                     done = True
@@ -168,7 +172,7 @@ class BasicAbacoTasks(TaskSet):
             done = False
             while len(self.simple_ex_ids[aid]) > 0 and not done:
                 eid = self.simple_ex_ids[aid][0]
-                if self.check_ex_status(aid, eid):
+                if self.check_ex_status(aid, eid, 'simple'):
                     self.simple_ex_ids[aid].pop(0)
                 else:
                     done = True
