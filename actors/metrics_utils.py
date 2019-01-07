@@ -125,9 +125,9 @@ def scale_down(actor_id):
     workers = Worker.get_workers(actor_id)
     logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
     try:
-        if len(workers) == 1:
-            logger.debug("METRICS only one worker, won't scale down")
-        else:
+        # if len(workers) == 1:
+        #     logger.debug("METRICS only one worker, won't scale down")
+        # else:
             while len(workers) > 0:
                 logger.debug('METRICS made it STATUS check')
                 worker = workers.popitem()[1]
