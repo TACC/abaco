@@ -241,7 +241,7 @@ class Spawner(object):
         except SpawnerException as e:
             logger.info("Caught SpawnerException:{}".format(str(e)))
             # in case of an error, put the actor in error state and kill all workers
-            self.error_out_actor(actor_id, workers, e.message)
+            self.error_out_actor(actor_id, worker_id, e.message)
             raise SpawnerException(message=e.message)
         return channels, anon_channels, workers
 
@@ -267,7 +267,7 @@ class Spawner(object):
                     logger.info("Exception was NOT a read timeout; quiting on this worker.")
                     # delete this worker from the workers store:
                     try:
-                        Worker.delete_worker(actor_id, worker_id)
+                        self.kill_worker(actor_id, worker_id)
                     except WorkerException as e:
                         logger.info("Got WorkerException from delete_worker(). "
                                     "worker_id: {}"
@@ -297,18 +297,23 @@ class Spawner(object):
             logger.error("Spawner received an invalid message from worker. Message: ".format(result))
             raise SpawnerException(msg)
 
-    def error_out_actor(self, actor_id, workers, message):
+    def error_out_actor(self, actor_id, worker_id, message):
         """In case of an error, put the actor in error state and kill all workers"""
         Actor.set_status(actor_id, ERROR, status_message=message)
-        for worker in workers:
-            try:
-                self.kill_worker(worker)
-            except DockerError as e:
-                logger.info("Received DockerError trying to kill worker: {}. Exception: {}".format(worker, e))
-                logger.info("Spawner will continue on since this is exception processing.")
+        try:
+            self.kill_worker(actor_id, worker_id)
+        except DockerError as e:
+            logger.info("Received DockerError trying to kill worker: {}. Exception: {}".format(worker_id, e))
+            logger.info("Spawner will continue on since this is exception processing.")
 
-    def kill_worker(self, worker):
-        pass
+    def kill_worker(self, actor_id, worker_id):
+        try:
+            Worker.delete_worker(actor_id, worker_id)
+        except WorkerException as e:
+            logger.info("Got WorkerException from delete_worker(). "
+                        "worker_id: {}"
+                        "Exception: {}".format(worker_id, e))
+
 
 def main():
     # todo - find something more elegant
