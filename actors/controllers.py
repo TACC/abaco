@@ -42,6 +42,10 @@ except:
 ACTOR_MAX_WORKERS = int(ACTOR_MAX_WORKERS)
 logger.info("METRICS - running with ACTOR_MAX_WORKERS = {}".format(ACTOR_MAX_WORKERS))
 
+try:
+    num_init_workers = int(Config.get('workers', 'init_count'))
+except:
+    num_init_workers = 1
 
 class MetricsResource(Resource):
     def get(self):
@@ -56,7 +60,7 @@ class MetricsResource(Resource):
         actor_ids = [
             db_id
             for db_id, actor
-            in actors_store.items() if actor.get('stateless')
+            in actors_store.items() if actor.get('stateless') and not actor.get('status') == 'ERROR'
         ]
 
         ch = CommandChannel()
@@ -66,7 +70,6 @@ class MetricsResource(Resource):
         logger.debug("ACTOR IDS: {}".format(actor_ids))
 
         try:
-            assert len(actor_ids) > 0  # does this work?
             if actor_ids:
                 # Create a gauge for each actor id
                 actor_ids = metrics_utils.create_gauges(actor_ids)
@@ -423,7 +426,8 @@ class ActorsResource(Resource):
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))
-        actor.ensure_one_worker()
+        if num_init_workers > 0:
+            actor.ensure_one_worker()
         logger.debug("ensure_one_worker() called")
         set_permission(g.user, actor.db_id, UPDATE)
         logger.debug("UPDATE permission added to user: {}".format(g.user))
@@ -902,7 +906,7 @@ class MessagesResource(Resource):
                 # try to get data for mime types not recognized by flask. flask creates a python string for these
                 try:
                     args['message'] = json.loads(request.data)
-                except TypeError:
+                except (TypeError, json.decoder.JSONDecodeError):
                     logger.debug("message POST body could not be serialized. args: {}".format(args))
                     raise DAOError('message POST body could not be serialized. Pass JSON data or use the message attribute.')
                 args['_abaco_Content_Type'] = 'str'
