@@ -10,22 +10,23 @@ def main():
     try:
         m = context['message_dict']['text']
         reducer = context['message_dict']['reducer']
-        print "Got JSON."
+        print("Got JSON.")
     except Exception:
-        print "Didnt get JSON, using raw message."
+        print("Didnt get JSON, using raw message.")
         reducer = None
         m = context.raw_message
     wordcount = {}
     for word in m.split():
-        if word in wordcount:
-            wordcount[word] += 1
+        w = word.lower()
+        if w in wordcount:
+            wordcount[w] += 1
         else:
-            wordcount[word] = 1
-    print "Final word count:"
+            wordcount[w] = 1
+    print("Final word count:")
     for k,v in wordcount.items():
-        print "{}: {}".format(k, v)
+        print("{}: {}".format(k, v))
     if reducer:
-        print "Sending message to reducer {}".format(reducer)
+        print("Sending message to reducer {}".format(reducer))
         ag = get_client()
         ag.actors.sendMessage(actorId=reducer, body={'message': {'count': wordcount}})
 
