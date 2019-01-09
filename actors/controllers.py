@@ -14,12 +14,12 @@ from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
-from models import dict_to_camel, display_time, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
+from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
 import codes
-from stores import actors_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
+from stores import actors_store, alias_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
 
@@ -42,6 +42,10 @@ except:
 ACTOR_MAX_WORKERS = int(ACTOR_MAX_WORKERS)
 logger.info("METRICS - running with ACTOR_MAX_WORKERS = {}".format(ACTOR_MAX_WORKERS))
 
+try:
+    num_init_workers = int(Config.get('workers', 'init_count'))
+except:
+    num_init_workers = 1
 
 class MetricsResource(Resource):
     def get(self):
@@ -55,8 +59,8 @@ class MetricsResource(Resource):
 
         actor_ids = [
             db_id
-            for db_id, _
-            in actors_store.items()
+            for db_id, actor
+            in actors_store.items() if actor.get('stateless') and not actor.get('status') == 'ERROR'
         ]
 
         ch = CommandChannel(name='default')
@@ -66,7 +70,6 @@ class MetricsResource(Resource):
         logger.debug("ACTOR IDS: {}".format(actor_ids))
 
         try:
-            assert len(actor_ids) > 0  # does this work?
             if actor_ids:
                 # Create a gauge for each actor id
                 actor_ids = metrics_utils.create_gauges(actor_ids)
@@ -124,9 +127,12 @@ class MetricsResource(Resource):
                     if current_message_count >= 1:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                    elif current_message_count == 0:
-                        metrics_utils.scale_down(actor_id)
-                        logger.debug("METRICS made it to scale down block")
+                # changed - jfs: i think this block needs to run even if allow_autoscaling returns false
+                #           so that scale down can work once message count reaches zero in case where the
+                #           autoscaler previously scaled the worker pool to max_workers:
+                if current_message_count == 0:
+                    metrics_utils.scale_down(actor_id)
+                    logger.debug("METRICS made it to scale down block")
                 else:
                     logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
             except Exception as e:
@@ -279,6 +285,86 @@ class AdminExecutionsResource(Resource):
         return ok(result=result, msg="Executions retrieved successfully.")
 
 
+class AliasesResource(Resource):
+    def get(self):
+        logger.debug("top of GET /aliases")
+
+        aliases = []
+        for k, v in alias_store.items():
+            if v['tenant'] == g.tenant:
+                aliases.append(Alias.from_db(v).display())
+        logger.info("aliases retrieved.")
+        return ok(result=aliases, msg="Aliases retrieved successfully.")
+
+    def validate_post(self):
+        parser = Alias.request_parser()
+        try:
+            args = parser.parse_args()
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            raise DAOError("Invalid alias description. Missing required field: {}".format(msg))
+        if is_hashid(args.get('alias')):
+            raise DAOError("Invalid alias description. Alias cannot be an Abaco hash id.")
+        return args
+
+    def post(self):
+        logger.info("top of POST to register a new alias.")
+        args = self.validate_post()
+        actor_id = args.get('actor_id')
+        if Config.get('web', 'case') == 'camel':
+            actor_id = args.get('actorId')
+        logger.debug("alias post args validated: {}.".format(actor_id))
+        dbid = Actor.get_dbid(g.tenant, actor_id)
+        try:
+            Actor.from_db(actors_store[dbid])
+        except KeyError:
+            logger.debug("did not find actor: {}.".format(dbid))
+            raise ResourceError(
+                "No actor found with id: {}.".format(actor_id), 404)
+        # supply "provided" fields:
+        args['tenant'] = g.tenant
+        args['db_id'] = dbid
+        args['owner'] = g.user
+        args['alias_id'] = Alias.generate_alias_id(g.tenant, args['alias'])
+        args['api_server'] = g.api_server
+        logger.debug("Instantiating alias object. args: {}".format(args))
+        alias = Alias(**args)
+        logger.debug("Alias object instantiated; checking for uniqueness and creating alias. "
+                     "alias: {}".format(alias))
+        alias.check_and_create_alias()
+        logger.info("alias added for actor: {}.".format(dbid))
+        set_permission(g.user, alias.alias_id, UPDATE)
+        return ok(result=alias.display(), msg="Actor alias created successfully.")
+
+class AliasResource(Resource):
+    def get(self, alias):
+        logger.debug("top of GET /actors/aliases/{}".format(alias))
+        alias_id = Alias.generate_alias_id(g.tenant, alias)
+        try:
+            alias = Alias.from_db(alias_store[alias_id])
+        except KeyError:
+            logger.debug("did not find alias with id: {}".format(alias))
+            raise ResourceError(
+                "No alias found: {}.".format(alias), 404)
+        logger.debug("found actor {}".format(alias))
+        return ok(result=alias.display(), msg="Alias retrieved successfully.")
+
+    def delete(self, alias):
+        logger.debug("top of DELETE /actors/aliases/{}".format(alias))
+        alias_id = Alias.generate_alias_id(g.tenant, alias)
+        try:
+            del alias_store[alias_id]
+            # also remove all permissions - there should be at least one permissions associated
+            # with the owner
+            del permissions_store[alias_id]
+            logger.info("alias {} deleted from alias store.".format(alias_id))
+        except Exception as e:
+            logger.info("got Exception {} trying to delete alias {}".format(e, alias_id))
+        return ok(result=None, msg='Alias {} deleted successfully.'.format(alias))
+
+
 class ActorsResource(Resource):
 
     def get(self):
@@ -332,7 +418,8 @@ class ActorsResource(Resource):
         else:
             max_workers = args.get('max_workers')
             args['maxWorkers'] = max_workers
-
+        if max_workers and 'stateless' in args and not args.get('stateless'):
+            raise DAOError("Invalid actor description: stateful actors can only have 1 worker.")
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
@@ -340,7 +427,8 @@ class ActorsResource(Resource):
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))
-        actor.ensure_one_worker()
+        if num_init_workers > 0:
+            actor.ensure_one_worker()
         logger.debug("ensure_one_worker() called")
         set_permission(g.user, actor.db_id, UPDATE)
         logger.debug("UPDATE permission added to user: {}".format(g.user))
@@ -350,19 +438,18 @@ class ActorsResource(Resource):
 class ActorResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
         try:
-            actor = Actor.from_db(actors_store[dbid])
+            actor = Actor.from_db(actors_store[g.db_id])
         except KeyError:
             logger.debug("did not find actor with id: {}".format(actor_id))
             raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
+                "No actor found with identifier: {}.".format(actor_id), 404)
         logger.debug("found actor {}".format(actor_id))
         return ok(result=actor.display(), msg="Actor retrieved successfully.")
 
     def delete(self, actor_id):
         logger.debug("top of DELETE /actors/{}".format(actor_id))
-        id = Actor.get_dbid(g.tenant, actor_id)
+        id = g.db_id
         logger.info("calling shutdown_workers() for actor: {}".format(id))
         shutdown_workers(id)
         logger.debug("shutdown_workers() done")
@@ -394,7 +481,7 @@ class ActorResource(Resource):
 
     def put(self, actor_id):
         logger.debug("top of PUT /actors/{}".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
+        dbid = g.db_id
         try:
             actor = Actor.from_db(actors_store[dbid])
         except KeyError:
@@ -465,6 +552,8 @@ class ActorResource(Resource):
             actor.pop('use_container_uid')
             actor.pop('default_environment')
             actor.pop('max_workers')
+            actor.pop('mem_limit')
+            actor.pop('max_cpus')
 
         # this update overrides all required and optional attributes
         try:
@@ -478,7 +567,9 @@ class ActorResource(Resource):
                 msg = '{}: {}'.format(msg, e)
             raise DAOError("Invalid actor description: {}".format(msg))
         if not actor.stateless and new_fields.get('stateless'):
-            raise DAOError("Invalid actor description: an actor that was not stateless cannot be update to be stateless.")
+            raise DAOError("Invalid actor description: an actor that was not stateless cannot be updated to be stateless.")
+        if not actor.stateless and (new_fields.get('max_workers') or new_fields.get('maxWorkers')):
+            raise DAOError("Invalid actor description: stateful actors can only have 1 worker.")
         actor.update(new_fields)
         return actor
 
@@ -486,7 +577,7 @@ class ActorResource(Resource):
 class ActorStateResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/state".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
+        dbid = g.db_id
         try:
             actor = Actor.from_db(actors_store[dbid])
         except KeyError:
@@ -496,7 +587,7 @@ class ActorStateResource(Resource):
 
     def post(self, actor_id):
         logger.debug("top of POST /actors/{}/state".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
+        dbid = g.db_id
         try:
             actor = Actor.from_db(actors_store[dbid])
         except KeyError:
@@ -523,7 +614,7 @@ class ActorStateResource(Resource):
 class ActorExecutionsResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/executions".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
+        dbid = g.db_id
         try:
             actor = Actor.from_db(actors_store[dbid])
         except KeyError:
@@ -540,7 +631,7 @@ class ActorExecutionsResource(Resource):
 
     def post(self, actor_id):
         logger.debug("top of POST /actors/{}/executions".format(actor_id))
-        id = Actor.get_dbid(g.tenant, actor_id)
+        id = g.db_id
         try:
             actor = Actor.from_db(actors_store[id])
         except KeyError:
@@ -582,26 +673,14 @@ class ActorNoncesResource(Resource):
 
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/nonces".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[dbid])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
+        dbid = g.db_id
         nonces = Nonce.get_nonces(actor_id=dbid)
         return ok(result=[n.display() for n in nonces], msg="Actor nonces retrieved successfully.")
 
     def post(self, actor_id):
         """Create a new nonce for an actor."""
         logger.debug("top of POST /actors/{}/nonces".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[dbid])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
+        dbid = g.db_id
         args = self.validate_post()
         logger.debug("nonce post args validated: {}.".format(actor_id))
 
@@ -656,27 +735,14 @@ class ActorNonceResource(Resource):
     def get(self, actor_id, nonce_id):
         """Lookup details about a nonce."""
         logger.debug("top of GET /actors/{}/nonces/{}".format(actor_id, nonce_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[dbid])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
+        dbid = g.db_id
         nonce = Nonce.get_nonce(actor_id=dbid, nonce_id=nonce_id)
         return ok(result=nonce.display(), msg="Actor nonce retrieved successfully.")
-
 
     def delete(self, actor_id, nonce_id):
         """Delete a nonce."""
         logger.debug("top of DELETE /actors/{}/nonces/{}".format(actor_id, nonce_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[dbid])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
+        dbid = g.db_id
         Nonce.delete_nonce(dbid, nonce_id)
         return ok(result=None, msg="Actor nonce deleted successfully.")
 
@@ -684,13 +750,7 @@ class ActorNonceResource(Resource):
 class ActorExecutionResource(Resource):
     def get(self, actor_id, execution_id):
         logger.debug("top of GET /actors/{}/executions/{}.".format(actor_id, execution_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            actors_store[dbid]
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
+        dbid = g.db_id
         try:
             excs = executions_store[dbid]
         except KeyError:
@@ -708,14 +768,7 @@ class ActorExecutionResource(Resource):
 class ActorExecutionResultsResource(Resource):
     def get(self, actor_id, execution_id):
         logger.debug("top of GET /actors/{}/executions/{}/results".format(actor_id, execution_id))
-        # check that actor exists
-        id = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[id])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
+        id = g.db_id
         ch = ExecutionResultsChannel(actor_id=id, execution_id=execution_id)
         try:
             result = ch.get(timeout=0.1)
@@ -750,7 +803,7 @@ class ActorExecutionLogsResource(Resource):
                                'execution': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc.id)},
                     }
         logger.debug("top of GET /actors/{}/executions/{}/logs.".format(actor_id, execution_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
+        dbid = g.db_id
         try:
             actor = Actor.from_db(actors_store[dbid])
         except KeyError:
@@ -777,17 +830,19 @@ class ActorExecutionLogsResource(Resource):
         return ok(result, msg="Logs retrieved successfully.")
 
 
+def get_messages_hypermedia(actor):
+    return {'_links': {'self': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id),
+                       'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
+                       },
+            }
+
+
 class MessagesResource(Resource):
 
     def get(self, actor_id):
-        def get_hypermedia(actor):
-            return {'_links': {'self': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id),
-                               'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
-                               },
-                       }
         logger.debug("top of GET /actors/{}/messages".format(actor_id))
         # check that actor exists
-        id = Actor.get_dbid(g.tenant, actor_id)
+        id = g.db_id
         try:
             actor = Actor.from_db(actors_store[id])
         except KeyError:
@@ -798,7 +853,25 @@ class MessagesResource(Resource):
         result = {'messages': len(ch._queue._queue)}
         ch.close()
         logger.debug("messages found for actor: {}.".format(actor_id))
-        result.update(get_hypermedia(actor))
+        result.update(get_messages_hypermedia(actor))
+        return ok(result)
+
+    def delete(self, actor_id):
+        logger.debug("top of DELETE /actors/{}/messages".format(actor_id))
+        # check that actor exists
+        id = g.db_id
+        try:
+            actor = Actor.from_db(actors_store[id])
+        except KeyError:
+            logger.debug("did not find actor: {}.".format(actor_id))
+            raise ResourceError(
+                "No actor found with id: {}.".format(actor_id), 404)
+        ch = ActorMsgChannel(actor_id=id)
+        ch._queue._queue.purge()
+        result = {'msg': "Actor mailbox purged."}
+        ch.close()
+        logger.debug("messages purged for actor: {}.".format(actor_id))
+        result.update(get_messages_hypermedia(actor))
         return ok(result)
 
     def validate_post(self):
@@ -835,7 +908,7 @@ class MessagesResource(Resource):
                 # try to get data for mime types not recognized by flask. flask creates a python string for these
                 try:
                     args['message'] = json.loads(request.data)
-                except TypeError:
+                except (TypeError, json.decoder.JSONDecodeError):
                     logger.debug("message POST body could not be serialized. args: {}".format(args))
                     raise DAOError('message POST body could not be serialized. Pass JSON data or use the message attribute.')
                 args['_abaco_Content_Type'] = 'str'
@@ -852,7 +925,7 @@ class MessagesResource(Resource):
                                'messages': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id)},}
 
         logger.debug("top of POST /actors/{}/messages.".format(actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
+        dbid = g.db_id
         try:
             Actor.from_db(actors_store[dbid])
         except KeyError:
@@ -916,12 +989,7 @@ class MessagesResource(Resource):
 class WorkersResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/workers for tenant {}.".format(actor_id, g.tenant))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[dbid])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
+        dbid = g.db_id
         try:
             workers = Worker.get_workers(dbid)
         except WorkerException as e:
@@ -952,7 +1020,7 @@ class WorkersResource(Resource):
     def post(self, actor_id):
         """Ensure a certain number of workers are running for an actor"""
         logger.debug("top of POST /actors/{}/workers.".format(actor_id))
-        id = Actor.get_dbid(g.tenant, actor_id)
+        id = g.db_id
         try:
             actor = Actor.from_db(actors_store[id])
         except KeyError:
@@ -1000,12 +1068,7 @@ class WorkersResource(Resource):
 class WorkerResource(Resource):
     def get(self, actor_id, worker_id):
         logger.debug("top of GET /actors/{}/workers/{}.".format(actor_id, worker_id))
-        id = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[id])
-        except KeyError:
-            logger.debug("Did not find actor: {}.".format(actor_id))
-            raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
+        id = g.db_id
         try:
             worker = Worker.get_worker(id, worker_id)
         except WorkerException as e:
@@ -1019,7 +1082,7 @@ class WorkerResource(Resource):
 
     def delete(self, actor_id, worker_id):
         logger.debug("top of DELETE /actors/{}/workers/{}.".format(actor_id, worker_id))
-        id = Actor.get_dbid(g.tenant, actor_id)
+        id = g.db_id
         try:
             worker = Worker.get_worker(id, worker_id)
         except WorkerException as e:
@@ -1035,14 +1098,17 @@ class WorkerResource(Resource):
 
 
 class PermissionsResource(Resource):
-    def get(self, actor_id):
-        logger.debug("top of GET /actors/{}/permissions.".format(actor_id))
-        id = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[id])
-        except KeyError:
-            logger.debug("Did not find actor: {}.".format(actor_id))
-            raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
+    """This class handles permissions endpoints for all objects that need permissions.
+    The `identifier` is the human-readable id (e.g., actor_id, alias).
+    The code uses the request rule to determine which object is being referenced.
+    """
+    def get(self, identifier):
+        if 'actors/aliases/' in request.url_rule.rule:
+            logger.debug("top of GET /actors/aliases/{}/permissions.".format(identifier))
+            id = Alias.generate_alias_id(g.tenant, identifier)
+        else:
+            logger.debug("top of GET /actors/{}/permissions.".format(identifier))
+            id = g.db_id
         try:
             permissions = get_permissions(id)
         except PermissionsException as e:
@@ -1068,19 +1134,23 @@ class PermissionsResource(Resource):
             The valid values are {}".format(args['level'], PERMISSION_LEVELS))
         return args
 
-    def post(self, actor_id):
-        """Add new permissions for an actor"""
-        logger.debug("top of POST /actors/{}/permissions.".format(actor_id))
-        id = Actor.get_dbid(g.tenant, actor_id)
-        try:
-            Actor.from_db(actors_store[id])
-        except KeyError:
-            logger.debug("Did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "actor not found: {}'".format(actor_id), 404)
+    def post(self, identifier):
+        """Add new permissions for an object `identifier`."""
+        if 'actors/aliases/' in request.url_rule.rule:
+            logger.debug("top of POST /actors/aliases/{}/permissions.".format(identifier))
+            id = Alias.generate_alias_id(g.tenant, identifier)
+        else:
+            logger.debug("top of POST /actors/{}/permissions.".format(identifier))
+            id = g.db_id
         args = self.validate_post()
-        logger.debug("POST permissions body validated for actor: {}.".format(actor_id))
+        logger.debug("POST permissions body validated for identifier: {}.".format(id))
         set_permission(args['user'], id, PermissionLevel(args['level']))
         logger.info("Permission added for user: {} actor: {} level: {}".format(args['user'], id, args['level']))
         permissions = get_permissions(id)
         return ok(result=permissions, msg="Permission added successfully.")
+
+class ActorPermissionsResource(PermissionsResource):
+    pass
+
+class AliasPermissionsResource(PermissionsResource):
+    pass

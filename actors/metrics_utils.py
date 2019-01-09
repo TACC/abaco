@@ -13,7 +13,8 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 message_gauges = {}
-cmd_channel_gauges = {}
+worker_gaueges = {}
+
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
 
 MAX_WORKERS_PER_HOST = Config.get('spawner', 'max_workers_per_host')
@@ -24,29 +25,16 @@ def create_gauges(actor_ids):
     for actor_id in actor_ids:
         if actor_id not in message_gauges.keys():
             try:
-                actor = actors_store[actor_id]
                 g = Gauge(
                     'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
                     'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
                 )
                 message_gauges.update({actor_id: g})
                 logger.debug('Created gauge {}'.format(g))
-                channel_name = actor.get("queue")
-
-                if channel_name and channel_name not in cmd_channel_gauges.keys():
-
-                    command_gauge = Gauge('message_count_for_command_channel_{}'.format(channel_name),
-                                          'Number of messages currently in the Command Channel {}'.format(channel_name))
-                    ch = CommandChannel(name=channel_name)
-                    command_gauge.set(len(ch._queue._queue))
-                    message_gauges.update({channel_name: command_gauge})
-                    logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge._value._value))
-                    ch.close()
             except Exception as e:
                 logger.info("got exception trying to instantiate the Gauge: {}".format(e))
         else:
             g = message_gauges[actor_id]
-
 
         try:
             ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
@@ -57,6 +45,22 @@ def create_gauges(actor_ids):
         ch.close()
         g.set(result['messages'])
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+        if actor_id not in worker_gaueges.keys():
+            try:
+                g = Gauge(
+                    'worker_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                    'Number of workers for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                )
+                worker_gaueges.update({actor_id: g})
+                logger.debug('Created worker gauge {}'.format(g))
+            except Exception as e:
+                logger.info("got exception trying to instantiate the Worker Gauge: {}".format(e))
+        else:
+            g = worker_gaueges[actor_id]
+        workers = Worker.get_workers(actor_id)
+        result = {'workers': len(workers)}
+        g.set(result['workers'])
+
     return actor_ids
 
 def query_message_count_for_actor(actor_id):
@@ -88,11 +92,11 @@ def calc_change_rate(data, last_metric, actor_id):
 
 def allow_autoscaling(cmd_q_len, max_workers, num_workers):
 
-    if cmd_q_len > int(MAX_WORKERS_PER_HOST) or int(num_workers) >= int(max_workers):
+    if cmd_q_len > int(MAX_WORKERS_PER_HOST) or cmd_q_len > 5 or int(num_workers) >= int(max_workers):
+        logger.debug('METRICS NO AUTOSCALE - criteria not met. {} {} '.format(cmd_q_len, num_workers))
         return False
 
-    logger.debug('METRICS NO AUTOSCALE - criteria not met. {} {} '.format(cmd_q_len, num_workers))
-
+    logger.debug('METRICS AUTOSCALE - criteria met. {} {} '.format(cmd_q_len, num_workers))
     return True
 
 
@@ -121,9 +125,9 @@ def scale_down(actor_id):
     workers = Worker.get_workers(actor_id)
     logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
     try:
-        if len(workers) == 1:
-            logger.debug("METRICS only one worker, won't scale down")
-        else:
+        # if len(workers) == 1:
+        #     logger.debug("METRICS only one worker, won't scale down")
+        # else:
             while len(workers) > 0:
                 logger.debug('METRICS made it STATUS check')
                 worker = workers.popitem()[1]

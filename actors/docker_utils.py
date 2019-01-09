@@ -171,7 +171,8 @@ def run_container_with_docker(image,
                                          environment=environment,
                                          volumes=volumes,
                                          host_config=host_config,
-                                         command=command)
+                                         command=command,
+                                         name=name)
         cli.start(container=container.get('Id'))
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
@@ -180,7 +181,7 @@ def run_container_with_docker(image,
     logger.info("container started successfully: {}".format(container))
     return container
 
-def run_worker(image, worker_id):
+def run_worker(image, actor_id, worker_id):
     """
     Run an actor executor worker with a given channel and image.
     :return:
@@ -232,6 +233,8 @@ def run_worker(image, worker_id):
     if hasattr(auto_remove, 'lower'):
         if auto_remove.lower() == 'false':
             auto_remove = False
+        else:
+            auto_remove = True
     elif not auto_remove == True:
         auto_remove = False
     container = run_container_with_docker(image=AE_IMAGE,
@@ -242,7 +245,7 @@ def run_worker(image, worker_id):
                                           mounts=mounts,
                                           log_file=log_file,
                                           auto_remove=auto_remove,
-                                          name='worker_{}'.format(worker_id))
+                                          name='worker_{}_{}'.format(actor_id, worker_id))
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
     logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))
@@ -286,7 +289,9 @@ def execute_actor(actor_id,
                   mounts=[],
                   leave_container=False,
                   fifo_host_path=None,
-                  socket_host_path=None):
+                  socket_host_path=None,
+                  mem_limit=None,
+                  max_cpus=None):
     """
     Creates and runs an actor container and supervises the execution, collecting statistics about resource consumption
     from the Docker daemon.
@@ -304,6 +309,8 @@ def execute_actor(actor_id,
     host_path, container_path and format (which should have value 'ro' or 'rw').
     :param fifo_host_path: If not None, a string representing a path on the host to a FIFO used for passing binary data to the actor.
     :param socket_host_path: If not None, a string representing a path on the host to a socket used for collecting results from the actor.
+    :param mem_limit: The maximum amount of memory the Actor container can use; should be the same format as the --memory Docker flag.
+    :param max_cpus: The maximum number of CPUs each actor will have available to them. Does not guarantee these CPU resources; serves as upper bound.
     :return: result (dict), logs (str) - `result`: statistics about resource consumption; `logs`: output from docker logs.
     """
     logger.debug("top of execute_actor(); (worker {};{})".format(worker_id, execution_id))
@@ -337,7 +344,22 @@ def execute_actor(actor_id,
         binds[m.get('host_path')] = {'bind': m.get('container_path'),
                                      'ro': m.get('format') == 'ro'}
         volumes.append(m.get('host_path'))
-    host_config = cli.create_host_config(binds=binds, privileged=privileged)
+
+    # mem_limit
+    # -1 => unlimited memory
+    if mem_limit == '-1':
+        mem_limit = None
+
+    # max_cpus
+    try:
+        max_cpus = int(max_cpus)
+    except:
+        max_cpus = None
+    # -1 => unlimited cpus
+    if max_cpus == -1:
+        max_cpus = None
+
+    host_config = cli.create_host_config(binds=binds, privileged=privileged, mem_limit=mem_limit, nano_cpus=max_cpus)
     logger.debug("host_config object created by (worker {};{}).".format(worker_id, execution_id))
 
     # write binary data to FIFO if it exists:

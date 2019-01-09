@@ -43,13 +43,10 @@ import requests
 import json
 
 from actors import health, models, codes, stores
-# from util import headers, base_url, case, test_remove_initial_actors, \
-#     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-#     execute_actor, get_tenant
 
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-    execute_actor, get_tenant, priv_headers
+    execute_actor, get_tenant, priv_headers, limited_headers
 
 
 # #################
@@ -126,7 +123,7 @@ def test_cors_options_list_actors(headers):
 
 def test_register_actor(headers):
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite'}
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite', 'stateless': False}
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
@@ -136,9 +133,22 @@ def test_register_actor(headers):
     assert result['name'] == 'abaco_test_suite'
     assert result['id'] is not None
 
+def test_register_alias_actor(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_alias'}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testuser'
+    assert result['image'] == 'jstubbs/abaco_test'
+    assert result['name'] == 'abaco_test_suite_alias'
+    assert result['id'] is not None
+
 def test_register_stateless_actor(headers):
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_statelesss', 'stateless': True}
+    # stateless actors are the default now, so stateless tests should pass without specifying "stateless": True
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_statelesss'}
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
@@ -286,6 +296,23 @@ def test_register_with_invalid_def_env(headers):
     message = data['message']
     assert field in message
 
+def test_cant_register_max_workers_stateful(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'max_workers'
+    if case == 'camel':
+        field = 'maxWorkers'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            'stateless': False,
+            field: 3,
+            }
+    rsp = requests.post(url, json=data, headers=headers)
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+    data = json.loads(rsp.content.decode('utf-8'))
+    message = data['message']
+    assert "stateful actors can only have 1 worker" in message
+
 def test_register_with_put(headers):
     url = '{}/actors'.format(base_url)
     rsp = requests.put(url, headers=headers, data={'image': 'abacosamples/test'})
@@ -298,6 +325,49 @@ def test_cant_update_stateless_actor_state(headers):
     rsp = requests.post(url, headers=headers, data={'state': 'abc'})
     response_format(rsp)
     assert rsp.status_code not in range(1, 399)
+
+# invalid check having to do with authorization
+def test_cant_set_max_workers_limited(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'max_workers'
+    if case == 'camel':
+        field = 'maxWorkers'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            field: 3,
+            }
+    rsp = requests.post(url, json=data, headers=limited_headers())
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+
+def test_cant_set_max_cpus_limited(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'max_cpus'
+    if case == 'camel':
+        field = 'maxCpus'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            field: 3000000000,
+            }
+    rsp = requests.post(url, json=data, headers=limited_headers())
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+
+def test_cant_set_mem_limit_limited(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    field = 'mem_limit'
+    if case == 'camel':
+        field = 'memLimit'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_invalid',
+            field: '3g',
+            }
+    rsp = requests.post(url, json=data, headers=limited_headers())
+    response_format(rsp)
+    assert rsp.status_code not in range(1, 399)
+
+
+# check actors are ready ---
 
 def check_actor_is_ready(headers, actor_id=None):
     count = 0
@@ -315,6 +385,10 @@ def check_actor_is_ready(headers, actor_id=None):
 
 def test_basic_actor_is_ready(headers):
     check_actor_is_ready(headers)
+
+def test_alias_actor_is_ready(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    check_actor_is_ready(headers, actor_id)
 
 def test_stateless_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_statelesss')
@@ -431,6 +505,9 @@ def test_execute_default_env_actor(headers):
     assert 'default_env_key2' in logs
     assert 'default_env_value1' in logs
     assert 'default_env_value1' in logs
+    assert '_abaco_container_repo' in logs
+    assert '_abaco_worker_id' in logs
+    assert '_abaco_actor_name' in logs
 
 def test_execute_func_actor(headers):
     # toy function and list to send as a message:
@@ -527,7 +604,7 @@ def test_execute_actor_json(headers):
 def test_update_actor(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}'.format(base_url, actor_id)
-    data = {'image': 'jstubbs/abaco_test2'}
+    data = {'image': 'jstubbs/abaco_test2', 'stateless': False}
     rsp = requests.put(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
@@ -549,7 +626,7 @@ def test_update_actor_other_user(headers):
     basic_response_checks(rsp)
 
     # now, update the actor with another user:
-    data = {'image': 'jstubbs/abaco_test2'}
+    data = {'image': 'jstubbs/abaco_test2', 'stateless': False}
     url = '{}/actors/{}'.format(base_url, actor_id)
     rsp = requests.put(url, data=data, headers=priv_headers())
     result = basic_response_checks(rsp)
@@ -564,6 +641,168 @@ def test_update_actor_other_user(headers):
         assert not result['last_update_time'] == orig_actor['last_update_time']
     else:
         assert not result['lastUpdateTime'] == orig_actor['lastUpdateTime']
+
+
+# ##########
+# alias API
+# ##########
+
+ALIAS_1 = 'jane'
+ALIAS_2 = 'doe'
+
+def test_add_alias(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/aliases'.format(base_url)
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    data = {'alias': ALIAS_1,
+            field: actor_id}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['alias'] == ALIAS_1
+    assert result[field] == actor_id
+
+def test_add_second_alias(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/aliases'.format(base_url)
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    # it's OK to have two aliases to the same actor
+    data = {'alias': ALIAS_2,
+            field: actor_id}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['alias'] == ALIAS_2
+    assert result[field] == actor_id
+
+def test_cant_add_same_alias(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/aliases'.format(base_url)
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    data = {'alias': ALIAS_1,
+            field: actor_id}
+    rsp = requests.post(url, data=data, headers=headers)
+    assert rsp.status_code == 400
+    data = response_format(rsp)
+    assert 'already exists' in data['message']
+
+def test_list_aliases(headers):
+    url = '{}/actors/aliases'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    for alias in result:
+        assert 'alias' in alias
+        assert field in alias
+
+def test_list_alias(headers):
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    assert field in result
+    assert result[field] == actor_id
+    assert result['alias'] == ALIAS_1
+
+def test_list_alias_permission(headers):
+    # first, get the alias to determine the owner
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    owner = result['owner']
+
+    # now check that owner has an update permission -
+    url = '{}/actors/aliases/{}/permissions'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert owner in result
+    assert result[owner] == 'UPDATE'
+
+def test_other_user_cant_list_alias(headers):
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=priv_headers())
+    data = response_format(rsp)
+    assert rsp.status_code == 400
+    assert 'you do not have access to this alias' in data['message']
+
+def test_add_alias_permission(headers):
+    user = 'testshareuser'
+    data = {'user': user, 'level': 'UPDATE'}
+    url = '{}/actors/aliases/{}/permissions'.format(base_url, ALIAS_1)
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert user in result
+    assert result[user] == 'UPDATE'
+
+def test_other_user_can_now_list_alias(headers):
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=priv_headers())
+    result = basic_response_checks(rsp)
+    assert 'alias' in result
+
+def test_other_user_still_cant_list_actor(headers):
+    # alias permissions do not confer access to the actor itself -
+    url = '{}/actors/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=priv_headers())
+    assert rsp.status_code == 400
+    data = response_format(rsp)
+    assert 'you do not have access to this actor' in data['message']
+
+def test_get_actor_with_alias(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['id'] == actor_id
+
+def test_get_actor_messages_with_alias(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/{}/messages'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert actor_id in result['_links']['self']
+    assert 'messages' in result
+
+def test_get_actor_executions_with_alias(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/{}/executions'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert actor_id in result['_links']['self']
+    assert 'executions' in result
+
+def test_owner_can_delete_alias(headers):
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_2)
+    rsp = requests.delete(url, headers=headers)
+    result = basic_response_checks(rsp)
+
+    # list aliases and make sure it is gone -
+    url = '{}/actors/aliases'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    for alias in result:
+        assert not alias['alias'] == ALIAS_2
+
+def test_other_user_can_delete_shared_alias(headers):
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    rsp = requests.delete(url, headers=priv_headers())
+    basic_response_checks(rsp)
+
+    # list aliases and make sure it is gone -
+    url = '{}/actors/aliases'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    for alias in result:
+        assert not alias['alias'] == ALIAS_1
 
 
 # ################

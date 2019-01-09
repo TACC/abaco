@@ -144,14 +144,31 @@ def subscribe(tenant,
     """
     logger.debug("Top of subscribe().")
     actor_ch = ActorMsgChannel(actor_id)
+
     try:
         leave_containers = Config.get('workers', 'leave_containers')
     except configparser.NoOptionError:
-        logger.info("No leave_containers value confiured.")
+        logger.info("No leave_containers value configured.")
         leave_containers = False
     if hasattr(leave_containers, 'lower'):
         leave_containers = leave_containers.lower() == "true"
     logger.info("leave_containers: {}".format(leave_containers))
+
+    try:
+        mem_limit = Config.get('workers', 'mem_limit')
+    except configparser.NoOptionError:
+        logger.info("No mem_limit value configured.")
+        mem_limit = "-1"
+    mem_limit = str(mem_limit)
+
+    try:
+        max_cpus = Config.get('workers', 'max_cpus')
+    except configparser.NoOptionError:
+        logger.info("No max_cpus value configured.")
+        max_cpus = "-1"
+
+    logger.info("max_cpus: {}".format(max_cpus))
+
     ag = None
     if api_server and client_id and client_secret and access_token and refresh_token:
         logger.info("Creating agave client.")
@@ -274,6 +291,12 @@ def subscribe(tenant,
             privileged = True
         logger.debug("privileged: {}".format(privileged))
 
+        # overlay resource limits if set on actor:
+        if actor.mem_limit:
+            mem_limit = actor.mem_limit
+        if actor.max_cpus:
+            max_cpus = actor.max_cpus
+
         # retrieve the default environment registered with the actor.
         environment = actor['default_environment']
         logger.debug("Actor default environment: {}".format(environment))
@@ -287,7 +310,10 @@ def subscribe(tenant,
         environment['_abaco_access_token'] = ''
         environment['_abaco_actor_dbid'] = actor_id
         environment['_abaco_actor_id'] = actor.id
+        environment['_abaco_worker_id'] = worker_id
+        environment['_abaco_container_repo'] = actor.image
         environment['_abaco_actor_state'] = actor.state
+        environment['_abaco_actor_name'] = actor.name or 'None'
         logger.debug("Overlayed environment: {}".format(environment))
 
         # if we have an agave client, get a fresh set of tokens:
@@ -318,7 +344,9 @@ def subscribe(tenant,
                                                                             mounts,
                                                                             leave_containers,
                                                                             fifo_host_path,
-                                                                            socket_host_path)
+                                                                            socket_host_path,
+                                                                            mem_limit,
+                                                                            max_cpus)
         except DockerStartContainerError as e:
             logger.error("Worker {} got DockerStartContainerError: {} trying to start actor for execution {}."
                          "Placing message back on queue.".format(worker_id, e, execution_id))

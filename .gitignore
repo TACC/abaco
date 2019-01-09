@@ -64,3 +64,4 @@ local-dev.conf.bak
 
 passwords.yml
 *.key
+*.log

@@ -208,6 +208,25 @@ class RedisStore(AbstractStore):
             # the key exists in the store; if it is the value empty, and the field:
         return self._db.transaction(_transaction, key)
 
+    def add_key_val_if_empty(self, key, value):
+        """
+        Atomic ``self[key] = value`` if ``self[key]`` does not exist or is empty.
+        If the key does exist, returns None.
+        """
+        def _transaction(pipe):
+            try:
+                cur = _do_get(pipe.get, key)
+                # if we are here, the key already exists; return None:
+                return None
+            except KeyError:
+                # the key does not exist, so add the value
+                pipe.multi()
+                _do_set(pipe.set, key, value)
+                return value
+        return self._db.transaction(_transaction, key)
+
+
+
     def within_transaction(self, f, key):
         """Execute a callable, f, within a lock on key `key`. The executable, f, should take a single argument that
         is the current value under the key """

@@ -10,8 +10,7 @@ RUN apk add --update g++ -f /var/cache/apk/*
 RUN apk add --update python3-dev -f /var/cache/apk/*
 ADD actors/requirements.txt /requirements.txt
 RUN pip3 install -r /requirements.txt
-RUN pip3 install pytest ipython
-RUN pip3 install locustio
+RUN pip3 install pytest ipython locustio
 
 # todo -- add/remove to toggle between local channelpy and github instance
 # ADD channelpy /channelpy
