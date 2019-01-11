@@ -92,7 +92,7 @@ def calc_change_rate(data, last_metric, actor_id):
 
 def allow_autoscaling(cmd_q_len, max_workers, num_workers):
 
-    if cmd_q_len > int(MAX_WORKERS_PER_HOST) or int(num_workers) >= int(max_workers):
+    if cmd_q_len > int(MAX_WORKERS_PER_HOST) or cmd_q_len > 5 or int(num_workers) >= int(max_workers):
         logger.debug('METRICS NO AUTOSCALE - criteria not met. {} {} '.format(cmd_q_len, num_workers))
         return False
 

@@ -28,6 +28,23 @@ services:
                 reservations:
                     memory: 200M
 
+    grafana:
+        image: grafana/grafana
+        user: "104"
+        depends_on:
+            - prometheus
+        ports:
+            - 3000:3000
+        volumes:
+            - grafana_data:/var/lib/grafana
+            - ./prometheus/grafana/provisioning/:/etc/grafana/provisioning/
+        env_file:
+            - ./prometheus/grafana/config.monitoring
+        networks:
+            - back-tier
+            - front-tier
+        restart: always
+
     metrics:
         image: abaco/core$TAG
         volumes:
@@ -42,6 +59,13 @@ services:
             redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
+
+volumes:
+    grafana_data: {}
+
+networks:
+    front-tier:
+    back-tier:
 
 #    alertmanager:
 #        image: abaco/alert$TAG
