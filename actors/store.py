@@ -250,12 +250,6 @@ class RedisStore(AbstractStore):
 
         :return: 
         """
-        # def _transaction(l):
-        #     l.append(obj)
-        #     _do_set(self._db.set, key, l)
-        #     return None
-        # self.within_transaction(_transaction, key)
-
         with self._db.pipeline() as pipe:
             while 1:
                 try:

@@ -8,7 +8,7 @@
 #  2. docker-compose -f docker-compose-local-db.yml up -d (from within the root directory)
 #  3. docker-compose -f docker-compose-local.yml up -d (from within the root directory)
 # Then, also from the root directory, execute:
-#     docker run -e base_url=http://172.17.0.1:8000 -v $(pwd)/local-dev.conf:/etc/abaco.conf --entrypoint=py.test -it --rm jstubbs/abaco_testsuite /tests/test_store.py
+#     docker run -e base_url=http://172.17.0.1:8000 -v $(pwd)/local-dev.conf:/etc/service.conf --entrypoint=py.test -it --rm abaco/testsuite:dev /tests/test_store.py
 
 
 from _datetime import datetime
