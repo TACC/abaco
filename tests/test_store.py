@@ -8,7 +8,7 @@
 #  2. docker-compose -f docker-compose-local-db.yml up -d (from within the root directory)
 #  3. docker-compose -f docker-compose-local.yml up -d (from within the root directory)
 # Then, also from the root directory, execute:
-#     docker run -e base_url=http://172.17.0.1:8000 -v $(pwd)/local-dev.conf:/etc/abaco.conf --entrypoint=py.test -it --rm jstubbs/abaco_testsuite /tests/test_store.py
+#     docker run -e base_url=http://172.17.0.1:8000 -v $(pwd)/local-dev.conf:/etc/service.conf --entrypoint=py.test -it --rm abaco/testsuite:dev /tests/test_store.py
 
 
 from _datetime import datetime
@@ -169,6 +169,104 @@ def test_within_transaction(st):
     # now, start a transaction in the main thread:
     st.within_transaction(_transaction, 'k')
 
+def test_redis_one_list_pop(st):
+    # mongo store does not support list mutations
+    if not store == 'redis':
+        return
+
+    def _th():
+        """ A separate thread that will compete with the main thread to make mutations to the two lists."""
+        for i in range(n):
+            st.pop_fromlist('l')
+
+    st['l'] = ['a'] * 5000
+    t = threading.Thread(target=_th)
+    t.start()
+    # now, in the main thread, perform the same processing but in reverse
+    for i in range(n):
+        st.pop_fromlist('l')
+    # wait for second thread to complete
+    t.join()
+    # verify that
+    assert len(st['l']) == 5000 - 2*n
+
+def test_redis_one_list_append(st):
+    # mongo store does not support list mutations
+    if not store == 'redis':
+        return
+
+    def _th():
+        """ A separate thread that will compete with the main thread to make mutations to the two lists."""
+        for i in range(n):
+            st.append_tolist('l', 't2')
+
+    st['l'] = []
+    t = threading.Thread(target=_th)
+    t.start()
+    # now, in the main thread, perform the same processing but in reverse
+    for i in range(n):
+        st.append_tolist('l', 't1')
+    # wait for second thread to complete
+    t.join()
+    # verify that
+    assert len(st['l']) == 2*n
+
+def test_redis_one_list_pop_append(st):
+    # mongo store does not support list mutations
+    if not store == 'redis':
+        return
+
+    def _th():
+        """ A separate thread that will compete with the main thread to make mutations to the two lists."""
+        for i in range(n):
+            st.append_tolist('l', 't2_{}'.format(i))
+            st.pop_fromlist('l')
+
+    st['l'] = ['a', 'b', 'c']
+    t = threading.Thread(target=_th)
+    t.start()
+    # now, in the main thread, perform the same processing but in reverse
+    for i in range(n):
+        st.append_tolist('l', 't1_{}'.format(i))
+        st.pop_fromlist('l')
+    # wait for second thread to complete
+    t.join()
+    # verify that free and locked lists each have three items; we cannot gu
+    assert len(st['l']) == 3
+
+def test_redis_two_lists(st):
+    # mongo store does not support list mutations
+    if not store == 'redis':
+        return
+
+    def _th():
+        """ A separate thread that will compete with the main thread to make mutations to the two lists."""
+        # first, get the first free element
+        for i in range(n):
+            # first, get the first free item and move it to the locked list
+            first_free = st.pop_fromlist('free', 0)
+            st.append_tolist('locked', first_free)
+            # now, get first locked and move to free list
+            first_locked = st.pop_fromlist('locked', 0)
+            st.append_tolist('free', first_locked)
+
+    st['free'] = ['a', 'b', 'c']
+    st['locked'] = ['1', '2', '3']
+    t = threading.Thread(target=_th)
+    t.start()
+    # now, in the main thread, perform the same processing but in reverse
+    for i in range(n):
+        # first, get the first locked item and move it to the free list
+        first_locked = st.pop_fromlist('locked', 0)
+        st.append_tolist('free', first_locked)
+        # now, get first free and move to locked list
+        first_free = st.pop_fromlist('free', 0)
+        st.append_tolist('locked', first_free)
+    # wait for second thread to complete
+    t.join()
+    # verify that free and locked lists each have three items; we cannot gu
+    assert len(st['free']) == 3
+    assert len(st['locked']) == 3
 
 def test_set_with_expiry2(st):
     # in our tests, the mongo expiry functionality is NOT dependable; it seems to eventually remove the key but the time
