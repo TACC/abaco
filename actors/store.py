@@ -225,7 +225,51 @@ class RedisStore(AbstractStore):
                 return value
         return self._db.transaction(_transaction, key)
 
+    def pop_fromlist(self, key, idx=-1):
+        """
+        Atomic self[key].pop(idx); assumes the data structure under `key` is a list.
+        
+        :return: 
+        """
+        with self._db.pipeline() as pipe:
+            while 1:
+                try:
+                    pipe.watch(key)
+                    cur = _do_get(pipe.get, key)
+                    value = cur.pop(idx)
+                    pipe.multi()
+                    _do_set(pipe.set, key, cur)
+                    pipe.execute()
+                    return value
+                except redis.WatchError:
+                    continue
 
+    def append_tolist(self, key, obj):
+        """
+        Atomic self[key].append(obj); assumes the data structure under `key` is a list.
+
+        :return: 
+        """
+        # def _transaction(l):
+        #     l.append(obj)
+        #     _do_set(self._db.set, key, l)
+        #     return None
+        # self.within_transaction(_transaction, key)
+
+        with self._db.pipeline() as pipe:
+            while 1:
+                try:
+                    pipe.watch(key)
+                    cur = _do_get(pipe.get, key)
+                    cur.append(obj)
+                    pipe.multi()
+                    _do_set(pipe.set, key, cur)
+                    pipe.execute()
+                    return None
+                except redis.WatchError:
+                    continue
+                finally:
+                    pipe.reset()
 
     def within_transaction(self, f, key):
         """Execute a callable, f, within a lock on key `key`. The executable, f, should take a single argument that
