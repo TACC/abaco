@@ -16,6 +16,7 @@ Notes:
 import json
 import os
 import random
+import uuid
 
 from locust import HttpLocust, TaskSet, task, events
 import util
@@ -25,6 +26,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # configuration --
 
 TEST_MODE = os.environ.get('TEST_MODE', 'simple')
+DELETE_ACTORS = os.environ.get('DELETE_ACTORS', 'false')
+
 ACTORS_PER_USER = int(os.environ.get('ACTORS_PER_USER', '5'))
 
 SEND_NUMPY_MSG_WEIGHT = int(os.environ.get('SEND_NUMPY_MSG_WEIGHT', 5))
@@ -56,15 +59,17 @@ credentials = get_credentials()
 
 
 class BasicAbacoTasks(TaskSet):
-    actor_ids = {'simple': [],
-                 'numpy': [],
-                 'wc': []}
-
-    numpy_ex_ids = {}
-    wc_ex_ids = {}
-    simple_ex_ids = {}
-
     message_count = 0
+
+    def __init__(self, *args, **kwargs):
+        self.numpy_ex_ids = {}
+        self.wc_ex_ids = {}
+        self.simple_ex_ids = {}
+        self.actor_ids = {'simple': [],
+                 'numpy': [],
+                 'wc': [],
+                 'sleep': []}
+        super().__init__(*args, **kwargs)
 
     def get_random_aid(self, typ='simple'):
         if len(self.actor_ids[typ]) <= 0:
@@ -75,7 +80,23 @@ class BasicAbacoTasks(TaskSet):
         rsp = self.client.post('/actors{}'.format(credentials['url_suffix']),
                                headers=credentials['headers'],
                                json={'image': image})
-        self.actor_ids[typ].append(rsp.json().get('result').get('id'))
+        rsp.raise_for_status()
+        try:
+            data = rsp.json()
+        except Exception as e:
+            print("Unexpected response from POST /actors, response: {}; content: {} exception: {}".format(rsp, rsp.content, e))
+            print("Response request: {}".format(rsp.request))
+            raise Exception()
+        try:
+            aid = data.get('result').get('id')
+        except Exception as e:
+            print("Unexpected response from POST /actors, response: {}; content: {} exception: {}".format(rsp, rsp.content, e))
+            print("Response request: {}".format(rsp.request))
+            raise Exception("Unexpected response from POST /actors, response: {}; content: {} exception: {}".format(rsp, rsp.content, e))
+        try:
+            self.actor_ids[typ].append(aid)
+        except Exception as e:
+            raise Exception("Unexpected response from POST /actors, response: {}; content: {} exception: {}".format(rsp, rsp.content, e))
 
     def register_multiple_actors(self):
         # every user registers one numpy actor, one sleep loop, and one wc actor:
@@ -122,9 +143,19 @@ class BasicAbacoTasks(TaskSet):
             self.register_actor()
         else:
             self.register_multiple_actors()
+        self.uid = str(uuid.uuid1()).split('-')[0]
+        with open('/tmp/actors_report_{}.json'.format(self.uid), 'w') as f:
+            json.dump(self.actor_ids, f)
 
     def on_stop(self):
-        self.delete_actor()
+        if DELETE_ACTORS.lower == 'true':
+            self.delete_actor()
+        with open('/tmp/numpy_executions_report_{}.json'.format(self.uid), 'w') as f:
+            json.dump(self.numpy_ex_ids, f)
+        with open('/tmp/wc_executions_report_{}.json'.format(self.uid), 'w') as f:
+            json.dump(self.wc_ex_ids, f)
+        with open('/tmp/simple_executions_report_{}.json'.format(self.uid), 'w') as f:
+            json.dump(self.simple_ex_ids, f)
 
     @task(10)
     def list_actors(self):
