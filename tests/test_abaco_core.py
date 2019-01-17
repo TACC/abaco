@@ -41,6 +41,7 @@ import cloudpickle
 import pytest
 import requests
 import json
+import pytest
 
 from actors import health, models, codes, stores
 
@@ -642,6 +643,33 @@ def test_update_actor_other_user(headers):
     else:
         assert not result['lastUpdateTime'] == orig_actor['lastUpdateTime']
 
+# #############
+# actor queue
+#     tests
+###############
+
+CH_NAME_1 = 'test_queue'
+CH_NAME_2 = 'other'
+
+
+@pytest.mark.queuetest
+def test_create_actor_with_custom_queue_name(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {
+        'image': 'jstubbs/abaco_test',
+        'name': 'abaco_test_suite',
+        'stateless': False,
+        'queue': CH_NAME_1
+    }
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['queue'] == CH_NAME_1
+
+
+@pytest.mark.queuetest
+def test_actor_msg_goes_to_custom_queue(headers):
+    pass
+
 
 # ##########
 # alias API
@@ -650,6 +678,7 @@ def test_update_actor_other_user(headers):
 ALIAS_1 = 'jane'
 ALIAS_2 = 'doe'
 
+@pytest.mark.aliastest
 def test_add_alias(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     url = '{}/actors/aliases'.format(base_url)
@@ -663,6 +692,8 @@ def test_add_alias(headers):
     assert result['alias'] == ALIAS_1
     assert result[field] == actor_id
 
+
+@pytest.mark.aliastest
 def test_add_second_alias(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     url = '{}/actors/aliases'.format(base_url)
@@ -677,6 +708,8 @@ def test_add_second_alias(headers):
     assert result['alias'] == ALIAS_2
     assert result[field] == actor_id
 
+
+@pytest.mark.aliastest
 def test_cant_add_same_alias(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     url = '{}/actors/aliases'.format(base_url)
@@ -690,6 +723,8 @@ def test_cant_add_same_alias(headers):
     data = response_format(rsp)
     assert 'already exists' in data['message']
 
+
+@pytest.mark.aliastest
 def test_list_aliases(headers):
     url = '{}/actors/aliases'.format(base_url)
     rsp = requests.get(url, headers=headers)
@@ -701,6 +736,8 @@ def test_list_aliases(headers):
         assert 'alias' in alias
         assert field in alias
 
+
+@pytest.mark.aliastest
 def test_list_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
     rsp = requests.get(url, headers=headers)
@@ -713,6 +750,8 @@ def test_list_alias(headers):
     assert result[field] == actor_id
     assert result['alias'] == ALIAS_1
 
+
+@pytest.mark.aliastest
 def test_list_alias_permission(headers):
     # first, get the alias to determine the owner
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
@@ -727,6 +766,8 @@ def test_list_alias_permission(headers):
     assert owner in result
     assert result[owner] == 'UPDATE'
 
+
+@pytest.mark.aliastest
 def test_other_user_cant_list_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
     rsp = requests.get(url, headers=priv_headers())
@@ -734,6 +775,8 @@ def test_other_user_cant_list_alias(headers):
     assert rsp.status_code == 400
     assert 'you do not have access to this alias' in data['message']
 
+
+@pytest.mark.aliastest
 def test_add_alias_permission(headers):
     user = 'testshareuser'
     data = {'user': user, 'level': 'UPDATE'}
@@ -743,12 +786,16 @@ def test_add_alias_permission(headers):
     assert user in result
     assert result[user] == 'UPDATE'
 
+
+@pytest.mark.aliastest
 def test_other_user_can_now_list_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
     rsp = requests.get(url, headers=priv_headers())
     result = basic_response_checks(rsp)
     assert 'alias' in result
 
+
+@pytest.mark.aliastest
 def test_other_user_still_cant_list_actor(headers):
     # alias permissions do not confer access to the actor itself -
     url = '{}/actors/{}'.format(base_url, ALIAS_1)
@@ -757,6 +804,8 @@ def test_other_user_still_cant_list_actor(headers):
     data = response_format(rsp)
     assert 'you do not have access to this actor' in data['message']
 
+
+@pytest.mark.aliastest
 def test_get_actor_with_alias(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     url = '{}/actors/{}'.format(base_url, ALIAS_1)
@@ -764,6 +813,8 @@ def test_get_actor_with_alias(headers):
     result = basic_response_checks(rsp)
     assert result['id'] == actor_id
 
+
+@pytest.mark.aliastest
 def test_get_actor_messages_with_alias(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     url = '{}/actors/{}/messages'.format(base_url, ALIAS_1)
@@ -772,6 +823,8 @@ def test_get_actor_messages_with_alias(headers):
     assert actor_id in result['_links']['self']
     assert 'messages' in result
 
+
+@pytest.mark.aliastest
 def test_get_actor_executions_with_alias(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     url = '{}/actors/{}/executions'.format(base_url, ALIAS_1)
@@ -780,6 +833,8 @@ def test_get_actor_executions_with_alias(headers):
     assert actor_id in result['_links']['self']
     assert 'executions' in result
 
+
+@pytest.mark.aliastest
 def test_owner_can_delete_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_2)
     rsp = requests.delete(url, headers=headers)
@@ -792,6 +847,8 @@ def test_owner_can_delete_alias(headers):
     for alias in result:
         assert not alias['alias'] == ALIAS_2
 
+
+@pytest.mark.aliastest
 def test_other_user_can_delete_shared_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
     rsp = requests.delete(url, headers=priv_headers())
