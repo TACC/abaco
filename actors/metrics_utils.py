@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 message_gauges = {}
 worker_gaueges = {}
-
+cmd_channel_gauges = {}
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
 
 MAX_WORKERS_PER_HOST = Config.get('spawner', 'max_workers_per_host')
@@ -25,16 +25,29 @@ def create_gauges(actor_ids):
     for actor_id in actor_ids:
         if actor_id not in message_gauges.keys():
             try:
+                actor = actors_store[actor_id]
                 g = Gauge(
                     'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
                     'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
                 )
                 message_gauges.update({actor_id: g})
                 logger.debug('Created gauge {}'.format(g))
+                channel_name = actor.get("queue")
+
+                if channel_name and channel_name not in cmd_channel_gauges.keys():
+
+                    command_gauge = Gauge('message_count_for_command_channel_{}'.format(channel_name),
+                                          'Number of messages currently in the Command Channel {}'.format(channel_name))
+                    ch = CommandChannel(name=channel_name)
+                    command_gauge.set(len(ch._queue._queue))
+                    message_gauges.update({channel_name: command_gauge})
+                    logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge._value._value))
+                    ch.close()
             except Exception as e:
                 logger.info("got exception trying to instantiate the Gauge: {}".format(e))
         else:
             g = message_gauges[actor_id]
+
 
         try:
             ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
