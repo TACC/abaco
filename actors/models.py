@@ -943,7 +943,7 @@ class Worker(AbacoDAO):
         clients could be attempting to delete workers at the same time. Pass db_id as `actor_id`
         parameter.
         """
-        logger.debug("top of delete_worker().")
+        logger.debug("top of delete_worker(). actor_id: {}; worker_id: {}".format(actor_id, worker_id))
         try:
             wk = workers_store.pop_field(actor_id, worker_id)
             logger.info("worker deleted. actor: {}. worker: {}.".format(actor_id, worker_id))
@@ -1048,6 +1048,15 @@ class Worker(AbacoDAO):
         self['last_health_check_time'] = display_time(last_health_check_time_str)
         self['create_time'] = display_time(create_time_str)
         return self.case()
+
+class PregenClient(AbacoDAO):
+    """
+    Data access object for pregenerated OAuth clients for worker. Use of these clients requires an initial
+    load script to populate the pregen_clients store with clients available for use.
+
+    Each client object
+    """
+    pass
 
 class Client(AbacoDAO):
     """
