@@ -908,6 +908,11 @@ class Worker(AbacoDAO):
         # first, see if the attribute is already in the object:
         if hasattr(self, name):
             return
+        # next, see if it was passed:
+        try:
+            return d[name]
+        except KeyError:
+            pass
         # time fields
         if name == 'create_time':
             time_str = get_current_utc_time()
