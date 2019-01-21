@@ -9,7 +9,9 @@ ab-web_vmware ansible_ssh_host=129.114.60.211 ansible_ssh_private_key_file=~/.ss
 [compute]
 sd2e04_vmware ansible_ssh_host=129.114.99.137 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=0
 sd2e11_vmware ansible_ssh_host=129.114.99.249 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=1
-jup_work13_vmware ansible_ssh_host=129.114.97.188 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=2
+sd2e13_vmware ansible_ssh_host=129.114.99.162 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=2
+# jup_work13_vmware ansible_ssh_host=129.114.97.188 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=2
+
 
 [web]
 sd2e03_vmware ansible_ssh_host=129.114.99.136 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
