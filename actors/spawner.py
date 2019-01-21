@@ -182,7 +182,7 @@ class Spawner(object):
                 # we need to ignore errors when generating clients because it's possible it is not set up for a specific
                 # tenant. we log it instead.
                 if client_msg.get('status') == 'error':
-                    logger.info("Error generating client: {}".format(client_msg.get('message')))
+                    logger.error("Error generating client: {}".format(client_msg.get('message')))
                     channel.put({'status': 'ok',
                                  'actor_id': actor_id,
                                  'tenant': tenant,
