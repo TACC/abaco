@@ -103,6 +103,8 @@ clientg:
         # add the following pair of credentials for each tenant wanting client generation
         _abaco_DEV-DEVELOP_username: testotheruser
         _abaco_DEV-DEVELOP_password: testotheruser
+#        _abaco_DEV-STAGING_username: abaco1
+#        _abaco_DEV-STAGING_password: abaco1
 
 health:
     image: abaco/core$TAG
@@ -113,6 +115,7 @@ health:
         - ./local-dev.conf:/etc/service.conf
         - ./abaco.log:/var/log/service.log
     environment:
+        abaco_conf_host_path: ${abaco_path}/local-dev.conf
         mongo_password:
         redis_password:
         TAS_ROLE_ACCT:
