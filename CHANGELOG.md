@@ -1,6 +1,48 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 0.12.0 - 2019-01-21
+### Added
+- Add support for actor aliases allowing operators to refer to actors and associated endpoints via a self-defined identifier (alias) instead of the actor id.
+- Add support for actor resource limits for cpu and memory. These can be globally configured, and, with admin privileges, overriden on a per-actor basis at registration and update (`max_cpus`/`maxCpus` and `mem_limit`/`memLimit`).
+- Add support for endpoint `DELETE /actors/{aid}/messages` to purge an actor's mailbox.
+- The fields  `actor_name`, `worker_id`, `container_repo` are now available in the context for an actor execution.
+- Add support for atomic list mutations on the Redis store class.
+- Grafana config added to Promtheus auto-scaler component.
+- `len(clients_store)` is now a Prometheus gauge metric.
+- Improved logging in spawner, worker, health, clientg and models modules.
+
+### Changed
+- By default, actors are now registered as stateless. This means, by default, the state API will not be available but autoscaling will.
+- Improve error handling when clientg process receives an error generating an OAuth client or token.
+- Fix bug where workers API reported worker create time incorrectly.
+- The locust load test suite application was expanded to allow additional types of actors to be registered and executed; addtionally, bugs were corrected and configuration improved.
+- The autoscaler now honors a `max_workers` field for each actor; it also only runs scale up method if the command queue is less than a configurable max length.
+- Fixed bug in scale-down method of autoscaler preventing scale down when actor had exactly 1 worker.
+- Some aspects of the health process were changed to better integrate with the autoscaler.
+- Fixed bug preventing health process from restarting crashed spawner correctly.
+- Fixed bug in kill_worker causing database integrity issues when pull_image failed with an exception.
+- Worker containers are now named by their actor and worker id for ease of identifying them.
+- Fixed a bug where a results channel was not always closed properly, causing undue resource usage.
+
+### Removed
+- No change
+
+
+## 0.11.0 - 2018-10-16
+### Added
+- A new sleep_loop sample was added for replicating actor executions with varying execution lengths.
+
+### Changed
+- The channels module was refactored to give clients more control over acking/nacking messages, and whether to pre-fetch messages. This fixes a bug where messages could get lost when a worker crashes in certain ways.
+- The core code was upgraded to Python 3.6.6 and the base images were updated to Alpine 3.8.
+- The admin API now returns workers as a list, and a few other small bugs were fixed.
+- Several updates and fixes were made to the Admin Dashboard application.
+
+### Removed
+- No change
+
+
 ## 0.10.0 - 2018-08-01
 ### Added
 - New endpoints in the Admin API, `/actors/v2/admin/workers` and ``/actors/v2/admin/executions`, for retrieving data
