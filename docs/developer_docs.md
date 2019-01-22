@@ -238,7 +238,7 @@ $ docker build -t abaco/dashboard -f Dockerfile-dashboard .
 4. Start the dashboard app with docker-compose by running the following from the project root:
 
 ```shell
-$ docker-compose -f docker-compose-dashboard up -d
+$ docker-compose -f docker-compose-dashboard.yml up -d
 ```
 
 
@@ -320,7 +320,6 @@ Making requests to the local development stack is easy using the requests librar
 >>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=headers).json()
 
 ```
-
 Auto-Scaling
 ------------
 
@@ -338,3 +337,4 @@ Prometheus works by doing a GET request to the `/metrics` endpoint of Abaco, whi
 6. Prometheus scrapes the `/metrics` endpoint and saves the metrics data to its time-series database. 
 
 Prometheus has some configuration files, found in the prometheus directory. Here, there is also a Dockerfile. The autoscaling feature uses a separate docker-compose file, `docker-compose-prom`.
+=======
