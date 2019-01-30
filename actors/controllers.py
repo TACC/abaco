@@ -386,6 +386,12 @@ class ActorsResource(Resource):
         parser = Actor.request_parser()
         try:
             args = parser.parse_args()
+            if args['queue']:
+                queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+                valid_queues = queues_list.split(',')
+                if args['queue'] not in valid_queues:
+                    raise BadRequest('Invalid queue name.')
+
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
@@ -398,7 +404,7 @@ class ActorsResource(Resource):
     def post(self):
         logger.info("top of POST to register a new actor.")
         args = self.validate_post()
-        logger.debug("LOOK HERE {}".format(args))
+
         logger.debug("validate_post() successful")
         args['tenant'] = g.tenant
         args['api_server'] = g.api_server
@@ -497,6 +503,11 @@ class ActorResource(Resource):
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant
+        if args['queue']:
+            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+            valid_queues = queues_list.split(',')
+            if args['queue'] not in valid_queues:
+                raise BadRequest('Invalid queue name.')
         # user can force an update by setting the force param:
         update_image = args.get('force')
         if not update_image and args['image'] == previous_image:
