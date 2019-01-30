@@ -20,7 +20,7 @@ from config import Config
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
 from models import Actor, Worker
 from channels import ClientsChannel, CommandChannel, WorkerChannel
-from stores import actors_store, clients_store, workers_store
+from stores import actors_store, clients_store, executions_store, workers_store
 from worker import shutdown_worker
 
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
@@ -31,6 +31,9 @@ AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
 from agaveflask.logs import get_logger, get_log_file_strategy
 logger = get_logger(__name__)
 
+# max executions allowed in a mongo document; if the total executions for a given actor exceeds this number,
+# the health process will place
+MAX_EXECUTIONS_PER_MONGO_DOC = 25000
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
@@ -124,6 +127,33 @@ def clean_up_clients_store():
 
         else:
             logger.info("worker {} still here. ignoring client {}.".format(wid, client))
+
+def batch_executions(aid):
+    """
+    Batch the executions for a specific actor id, `aid`. Should be the database id.
+    :param aid:
+    :return:
+    """
+    # make a local copy of the executions -
+    d = executions_store[aid]
+    # fix an ordering of keys -
+    ld = list(d)
+    if len(d) <= MAX_EXECUTIONS_PER_MONGO_DOC:
+        return
+    # split executions into two dicts -
+    d2 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if d[k].get('status') == 'COMPLETE'}
+    d3 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if not d[k].get('status') == 'COMPLETE'}
+    d3.update({k: d[k] for k in ld[MAX_EXECUTIONS_PER_MONGO_DOC: ]})
+    executions_store[aid] = d3
+    # get next index of historical docs -
+    i = 1
+    while True:
+        try:
+            executions_store['{}_HIST_{}'.format(aid, i)]
+            i = i + 1
+        except KeyError:
+            break
+    executions_store['{}_HIST_{}'.format(aid, i)] = d2
 
 
 def check_worker_health(actor_id, worker):
@@ -282,17 +312,13 @@ def main():
         logger.critical("No spawners running! Launching new spawner..")
         command = 'python3 -u /actors/spawner.py'
         # check logging strategy to determine log file name:
-        if get_log_file_strategy() == 'split':
-            log_file = 'spawner.log'
-        else:
-            log_file = 'service.log'
         try:
             run_container_with_docker(AE_IMAGE,
                                       command,
                                       name='abaco_spawner_0',
-                                      environment={'AE_IMAGE': AE_IMAGE},
+                                      environment={'AE_IMAGE': AE_IMAGE.split(':')[0]},
                                       mounts=[],
-                                      log_file=log_file)
+                                      log_file=None)
         except Exception as e:
             logger.critical("Could not restart spawner. Exception: {}".format(e))
     try:

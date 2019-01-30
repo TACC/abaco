@@ -19,7 +19,7 @@ from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Executi
 
 from mounts import get_all_mounts
 import codes
-from stores import actors_store, alias_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
+from stores import actors_store, alias_store, clients_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
 
@@ -34,6 +34,9 @@ rate_gauges = {}
 last_metric = {}
 command_gauge = Gauge('message_count_for_command_channel_default',
                       'Number of messages currently in the Default Command Channel')
+
+clients_gauge = Gauge('clients_count_for_clients_store',
+                      'Number of clients currently in the clients_store')
 
 try:
     ACTOR_MAX_WORKERS = Config.get("spawner", "max_workers_per_actor")

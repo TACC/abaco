@@ -23,6 +23,7 @@ health:
     command: /actors/health_check.sh
     environment:
         AE_IMAGE: "{{ docker_user }}/core"
+        abaco_conf_host_path: ${abaco_path}/local-dev.conf
 {% if tas_role_account is defined %}
         TAS_ROLE_ACCT: {{ tas_role_account }}
         TAS_ROLE_PASS: {{ tas_role_password }}
