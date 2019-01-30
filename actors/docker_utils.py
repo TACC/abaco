@@ -93,22 +93,20 @@ def list_all_containers():
     cli = docker.APIClient(base_url=dd, version="auto")
     # todo -- finish
 
-def container_running(image=None, name=None):
-    """Check if there is a running container for an image.
-    image should be fully qualified; e.g. image='jstubbs/abaco_core'
-    Can pass wildcards in name using * character; e.g. name='abaco_spawner*'
+def container_running(name=None):
+    """Check if there is a running container whose name contains the string, `name`. Note that this function will
+    return True if any running container has a name which contains the input `name`.
+
     """
     logger.debug("top of container_running().")
     filters = {}
     if name:
         filters['name'] = name
-    if image:
-        filters['image'] = image
     cli = docker.APIClient(base_url=dd, version="auto")
     try:
         containers = cli.containers(filters=filters)
     except Exception as e:
-        msg = "There was an error checking container_running for image: {}. Exception: {}".format(image, e)
+        msg = "There was an error checking container_running for name: {}. Exception: {}".format(name, e)
         logger.error(msg)
         raise DockerError(msg)
     logger.debug("found containers: {}".format(containers))
