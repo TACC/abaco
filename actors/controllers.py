@@ -32,11 +32,11 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
-command_gauge = Gauge('message_count_for_command_channel_default',
-                      'Number of messages currently in the Default Command Channel')
 
 clients_gauge = Gauge('clients_count_for_clients_store',
                       'Number of clients currently in the clients_store')
+
+
 
 try:
     ACTOR_MAX_WORKERS = Config.get("spawner", "max_workers_per_actor")
@@ -49,6 +49,7 @@ try:
     num_init_workers = int(Config.get('workers', 'init_count'))
 except:
     num_init_workers = 1
+
 
 class MetricsResource(Resource):
     def get(self):
@@ -65,12 +66,6 @@ class MetricsResource(Resource):
             for db_id, actor
             in actors_store.items() if actor.get('stateless') and not actor.get('status') == 'ERROR'
         ]
-
-        ch = CommandChannel(name='default')
-        command_gauge.set(len(ch._queue._queue))
-        logger.debug("METRICS COMMAND CHANNEL DEFAULT size: {}".format(command_gauge._value._value))
-        ch.close()
-        logger.debug("ACTOR IDS: {}".format(actor_ids))
 
         try:
             if actor_ids:
