@@ -717,8 +717,8 @@ def test_update_actor_other_user(headers):
 ###############
 
 
-CH_NAME_1 = 'test_queue'
-CH_NAME_2 = 'other'
+CH_NAME_1 = 'special'
+CH_NAME_2 = 'default'
 
 
 @pytest.mark.queuetest
@@ -755,27 +755,34 @@ def test_actor_msg_goes_to_custom_queue(headers):
     assert len(ch._queue._queue) > 0
 
 
-@pytest.mark.queuetest_fail
-def test_custom_actor_queue_with_autoscaling(headers):
-    url = '{}/{}'.format(base_url, '/actors')
-    data = {
-        'image': 'jstubbs/abaco_test',
-        'name': 'abaco_test_queue3',
-        'stateless': False,
-        'queue': CH_NAME_1
-    }
-    rsp = requests.post(url, data=data, headers=headers)
+# @pytest.mark.queuetest
+# def test_custom_actor_queue_with_autoscaling(headers):
+#     url = '{}/{}'.format(base_url, '/actors')
+#     data = {
+#         'image': 'jstubbs/abaco_test',
+#         'name': 'abaco_test_queue3',
+#         'stateless': False,
+#         'queue': CH_NAME_1
+#     }
+#     rsp = requests.post(url, data=data, headers=headers)
+#     result = basic_response_checks(rsp)
+#     assert result['queue'] == CH_NAME_1
+#
+#     actor_id = get_actor_id(headers, name='abaco_test_queue2')
+#     data = {'message': 'testing execution'}
+#     url = '{}/actors/{}/messages'.format(base_url, actor_id)
+#
+#     for i in range(50):
+#         rsp = requests.post(url, data=data, headers=headers)
+#
+#     url = '{}/actors/{}/workers'.format(base_url, actor_id)
+#     rsp = requests.get(url, headers=headers)
+#     # workers collection returns the tenant_id since it is an admin api
+#     result = basic_response_checks(rsp, check_tenant=False)
+#     assert len(result) > 1
+#     # get the first worker
+#     # worker = result[0]
 
-    actor_id = get_actor_id(headers, name='abaco_test_queue2')
-    data = {'message': 'testing execution'}
-    url = '{}/actors/{}/messages'.format(base_url, actor_id)
-
-    for i in range(10):
-        rsp = requests.post(url, data=data, headers=headers)
-
-    time.sleep(2)
-    workers = models.Worker.get_workers(actor_id)
-    assert len(workers) > 1
 
 
 @pytest.mark.queuetest
