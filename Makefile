@@ -5,11 +5,28 @@
 export abaco_path = ${PWD}
 export TAG = :dev
 
-# Echos path and tag for debug purposes. Starts up local environment(docker containers) in daemon mode
-local-dev:
-	@echo abaco_path=$$abaco_path
-	@echo TAG=$$TAG
+# Builds Docker images to run local-dev (abaco/core, abaco/prom, abaco/nginx, etc.)
+build:
+	# local-dev images
+	@docker pull abaco/core$$TAG
+	@docker pull abaco/nginx$$TAG
+
+	# db images
+	@docker pull rabbitmq:3.5.3-management
+	@docker pull redis
+	@docker pull mongo
+
+	# non-essential images
+	#@docker pull abaco/prom$$TAG
+	#@docker pull abaco/dashboard
+
+# Starts up local environment (docker containers) in daemon mode
+deploy: build
 	@docker-compose up -d
+
+# Runs test suite against current repository
+test: deploy
+	@./build_and_test.sh
 
 # Builds a few sample Docker images
 samples:
@@ -25,14 +42,13 @@ all-samples:
 		fi \
 	done
 
-# Removes/ends all active Docker containers
 clean:
+	@docker-compose down
+
+# Removes/ends all active Docker containers
+force-clean:
 	@docker rm -f `docker ps -aq`
 
 # WARNING: Deletes all non-active Docker images
 prune:
 	@docker system prune -a
-
-# Runs test suite against current repository
-test:
-	@./build_and_test.sh
