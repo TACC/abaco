@@ -84,6 +84,7 @@ spawner:
         redis_password:
         TAS_ROLE_ACCT:
         TAS_ROLE_PASS:
+        queue: default
 
 clientg:
     image: abaco/core$TAG

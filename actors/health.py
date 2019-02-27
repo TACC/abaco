@@ -276,6 +276,69 @@ def check_workers(actor_id, ttl):
         # else:
         #     logger.debug("Worker not in READY status, will postpone.")
 
+def get_host_queues():
+    """
+    Read host_queues string from config and parse to return a Python list.
+    :return: list[str]
+    """
+    try:
+        host_queues_str = Config.get('spawner', 'host_queues')
+        return [ s.strip() for s in host_queues_str.split(',')]
+    except Exception as e:
+        msg = "Got unexpected exception attempting to parse the host_queues config. Exception: {}".format(e)
+        logger.error(e)
+        raise e
+
+def start_spawner(queue, idx='0'):
+    """
+    Start a spawner on this host listening to a queue, `queue`.
+    :param queue: (str) - the queue the spawner should listen to.
+    :param idx: (str) - the index to use as a suffix to the spawner container name.
+    :return:
+    """
+    command = 'python3 -u /actors/spawner.py'
+    name = 'healthg_{}_spawner_{}'.format(queue, idx)
+    environment = {'AE_IMAGE': AE_IMAGE.split(':')[0],
+                   'queue': queue
+                   }
+    # check logging strategy to determine log file name:
+    try:
+        run_container_with_docker(AE_IMAGE,
+                                  command,
+                                  name=name,
+                                  environment=environment,
+                                  mounts=[],
+                                  log_file=None)
+    except Exception as e:
+        logger.critical("Could not restart spawner for queue {}. Exception: {}".format(queue, e))
+
+def check_spawner(queue):
+    """
+    Check the health and existence of a spawner on this host for a particular queue.
+    :param queue: (str) - the queue to check on.
+    :return:
+    """
+    logger.debug("top of check_spawner for queue: {}".format(queue))
+    # spawner container names by convention should have the format <project>_<queue>_spawner_<count>; for example
+    #   abaco_default_spawner_2.
+    # so, we look for container names containing a string with that format:
+    spawner_name_segment = '{}_spawner'.format(queue)
+    if not container_running(name=spawner_name_segment):
+        logger.critical("No spawners running for queue {}! Launching new spawner..".format(queue))
+        start_spawner(queue)
+    else:
+        logger.debug("spawner for queue {} already running.".format(queue))
+
+def check_spawners():
+    """
+    Check health of spawners running on a given host.
+    :return:
+    """
+    logger.debug("top of check_spawners")
+    host_queues = get_host_queues()
+    logger.debug("checking spawners for queues: {}".format(host_queues))
+    for queue in host_queues:
+        check_spawner(queue)
 
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
@@ -300,6 +363,7 @@ def shutdown_all_workers():
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
+    check_spawners()
     try:
         clean_up_ipc_dirs()
     except Exception as e:
@@ -308,19 +372,6 @@ def main():
         ttl = Config.get('workers', 'worker_ttl')
     except Exception as e:
         logger.error("Could not get worker_ttl config. Exception: {}".format(e))
-    if not container_running(name='spawner*'):
-        logger.critical("No spawners running! Launching new spawner..")
-        command = 'python3 -u /actors/spawner.py'
-        # check logging strategy to determine log file name:
-        try:
-            run_container_with_docker(AE_IMAGE,
-                                      command,
-                                      name='abaco_spawner_0',
-                                      environment={'AE_IMAGE': AE_IMAGE.split(':')[0]},
-                                      mounts=[],
-                                      log_file=None)
-        except Exception as e:
-            logger.critical("Could not restart spawner. Exception: {}".format(e))
     try:
         ttl = int(ttl)
     except Exception as e:

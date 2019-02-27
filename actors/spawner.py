@@ -36,7 +36,8 @@ class Spawner(object):
     def __init__(self):
         self.num_workers = int(Config.get('workers', 'init_count'))
         self.secret = os.environ.get('_abaco_secret')
-        self.cmd_ch = CommandChannel()
+        self.queue = os.environ.get('queue', 'default')
+        self.cmd_ch = CommandChannel(name=self.queue)
         self.tot_workers = 0
         try:
             self.host_id = Config.get('spawner', 'host_id')

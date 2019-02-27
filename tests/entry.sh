@@ -5,13 +5,20 @@
 #
 
 # Parameter to the entrypoint.
-TEST=$1
+TEST="$1"
 
 
 
 # if nothing passed, run the full suite
 if [ -z $TEST ]; then
-  py.test /tests/test_abaco_core.py
+  pytest /tests/test_abaco_core.py
+elif [ "$#" -eq 2 ]; then
+  TEST="$1 $2"
+  echo $TEST
+  pytest $TEST
+elif [ "$#" -eq 3 ]; then
+  TEST="$1 $2 $3"
+  pytest $TEST
 else
-  py.test $TEST
+  pytest $TEST
 fi

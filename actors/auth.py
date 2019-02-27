@@ -256,6 +256,11 @@ def check_privileged():
         if data.get('mem_limit') or data.get('memLimit'):
             logger.debug("User is trying to set mem limit")
             raise PermissionsException("Not authorized -- only admins and privileged users can set mem limit.")
+        if data.get('queue'):
+            logger.debug("User is trying to set queue")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set queue.")
+
+
     else:
         logger.debug("user allowed to set privileged.")
 

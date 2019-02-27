@@ -49,10 +49,17 @@ clientg:
     volumes:
         - ./local-dev.conf:/etc/service.conf
 
-spawner:
+default_spawner:
     extends:
         file: docker-compose-local.yml
         service: spawner
+
+special_spawner:
+    extends:
+        file: docker-compose-local.yml
+        service: spawner
+    environment:
+        queue: special
 
 health:
     extends:
