@@ -332,7 +332,7 @@ def main():
             logger.info("spawner made connection to rabbit, entering main loop")
             logger.info("spawner using abaco_conf_host_path={}".format(os.environ.get('abaco_conf_host_path')))
             sp.run()
-        except rabbitpy.exceptions.ConnectionException:
+        except (rabbitpy.exceptions.ConnectionException, RuntimeError):
             # rabbit seems to take a few seconds to come up
             time.sleep(5)
             idx += 1
