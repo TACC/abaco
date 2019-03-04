@@ -757,7 +757,7 @@ def test_actor_uses_custom_queue(headers):
         if len(ch._queue._queue) == 0:
             break
         i = i + 1
-        if i > 5:
+        if i > 10:
             assert False
     # wait for workers to be ready and the shut them down
     url = '{}/actors/{}/workers'.format(base_url, default_queue_actor_id)
