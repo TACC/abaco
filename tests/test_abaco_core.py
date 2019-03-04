@@ -779,6 +779,21 @@ def test_actor_uses_custom_queue(headers):
         url = '{}/actors/{}/workers/{}'.format(base_url, default_queue_actor_id, w['id'])
         rsp = requests.delete(url, headers=headers)
         basic_response_checks(rsp)
+    # check that workers are gone -
+    url = '{}/actors/{}/workers'.format(base_url, default_queue_actor_id)
+    check = True
+    i = 0
+    while check and i < 10:
+        time.sleep(5)
+        rsp = requests.get(url, headers=headers)
+        result = basic_response_checks(rsp)
+        try:
+            if len(result) == 0:
+                check = False
+            else:
+                i = i + 1
+        except:
+            check = False
 
 # @pytest.mark.queuetest
 # def test_custom_actor_queue_with_autoscaling(headers):
