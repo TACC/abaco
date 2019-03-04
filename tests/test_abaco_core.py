@@ -559,7 +559,6 @@ def test_execute_basic_actor(headers):
     data = {'message': 'testing execution'}
     execute_actor(headers, actor_id, data=data)
 
-
 def test_execute_default_env_actor(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_default_env')
     data = {'message': 'testing execution'}
@@ -630,7 +629,6 @@ def test_invalid_method_get_execution(headers):
     assert rsp.status_code == 405
     response_format(rsp)
 
-
 def test_invalid_method_get_execution_logs(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
@@ -641,7 +639,6 @@ def test_invalid_method_get_execution_logs(headers):
     rsp = requests.post(url, headers=headers)
     assert rsp.status_code == 405
     response_format(rsp)
-
 
 def test_list_execution_logs(headers):
     actor_id = get_actor_id(headers)
@@ -663,12 +660,10 @@ def test_list_execution_logs(headers):
     assert '_abaco_execution_id' in result['logs']
     assert '_abaco_Content_Type' in result['logs']
 
-
 def test_execute_actor_json(headers):
     actor_id = get_actor_id(headers)
     data = {'key1': 'value1', 'key2': 'value2'}
     execute_actor(headers, actor_id=actor_id, json_data=data)
-
 
 def test_update_actor(headers):
     actor_id = get_actor_id(headers)
@@ -723,10 +718,10 @@ CH_NAME_2 = 'default'
 
 @pytest.mark.queuetest
 def test_create_actor_with_custom_queue_name(headers):
-    url = '{}/{}'.format(base_url, '/actors')
+    url = '{}/actors'.format(base_url)
     data = {
         'image': 'jstubbs/abaco_test',
-        'name': 'abaco_test_suite',
+        'name': 'abaco_test_suite_queue1_actor1',
         'stateless': False,
         'queue': CH_NAME_1
     }
@@ -736,24 +731,54 @@ def test_create_actor_with_custom_queue_name(headers):
 
 
 @pytest.mark.queuetest
-def test_actor_msg_goes_to_custom_queue(headers):
-    url = '{}/{}'.format(base_url, '/actors')
-    data = {
-        'image': 'jstubbs/abaco_test',
-        'name': 'abaco_test_queue2',
-        'stateless': False,
-        'queue': CH_NAME_1
-    }
+def test_actor_uses_custom_queue(headers):
+    url = '{}/actors'.format(base_url)
+    # get the actor id of an actor registered on the defaul queue:
+    default_queue_actor_id = get_actor_id(headers, name='abaco_test_suite_statelesss')
+    # and the actor id for the actor on the special queue:
+    special_queue_actor_id = get_actor_id(headers, name='abaco_test_suite_queue1_actor1')
+
+    # send a request to start a bunch of workers for that actor; this should keep the default
+    # spawner busy for some time:
+    url = '{}/actors/{}/workers'.format(base_url, default_queue_actor_id)
+    data = {'num': '5'}
     rsp = requests.post(url, data=data, headers=headers)
 
-    actor_id = get_actor_id(headers, name='abaco_test_queue2')
-    data = {'message': 'testing execution'}
-    url = '{}/actors/{}/messages'.format(base_url, actor_id)
+    # now, try to start a second worker for the abaco_test_suite_queue1_actor1 actor.
+    url = '{}/actors/{}/workers'.format(base_url, special_queue_actor_id)
+    data = {'num': '2'}
     rsp = requests.post(url, data=data, headers=headers)
-
+    basic_response_checks(rsp)
+    # ensure that worker is started within a small time window:
     ch = CommandChannel(name=CH_NAME_1)
-    assert len(ch._queue._queue) > 0
-
+    i = 0
+    while True:
+        time.sleep(2)
+        if len(ch._queue._queue) == 0:
+            break
+        i = i + 1
+        if i > 5:
+            assert False
+    # wait for workers to be ready and the shut them down
+    url = '{}/actors/{}/workers'.format(base_url, default_queue_actor_id)
+    check = True
+    i = 0
+    while check and i < 10:
+        time.sleep(5)
+        rsp = requests.get(url, headers=headers)
+        result = basic_response_checks(rsp)
+        for w in result:
+            if w['status'] == 'REQUESTED':
+                i = i + 1
+                continue
+        check = False
+    # remove all workers -
+    rsp = requests.get(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    for w in result:
+        url = '{}/actors/{}/workers/{}'.format(base_url, default_queue_actor_id, w['id'])
+        rsp = requests.delete(url, headers=headers)
+        basic_response_checks(rsp)
 
 # @pytest.mark.queuetest
 # def test_custom_actor_queue_with_autoscaling(headers):
@@ -782,56 +807,6 @@ def test_actor_msg_goes_to_custom_queue(headers):
 #     assert len(result) > 1
 #     # get the first worker
 #     # worker = result[0]
-
-
-
-@pytest.mark.queuetest
-def test_spawners_are_different(headers):
-    # create 2 actors with different queue names
-    # get spawner object
-    # make sure both spawner objects are different
-    # ch = SpawnerWorkerChannel(worker_id='foo')
-
-    # Create actor 1 without custom queue
-    url = '{}/{}'.format(base_url, '/actors')
-    data = {
-        'image': 'jstubbs/abaco_test',
-        'name': 'abaco_test_default',
-        'stateless': False,
-    }
-    rsp = requests.post(url, data=data, headers=headers)
-    actor_id1 = get_actor_id(headers, name='abaco_test_default')
-
-    # Create actor 2 with custom queue
-    url = '{}/{}'.format(base_url, '/actors')
-    data = {
-        'image': 'jstubbs/abaco_test',
-        'name': 'abaco_test_custom',
-        'stateless': False,
-        'queue': CH_NAME_1
-    }
-    rsp = requests.post(url, data=data, headers=headers)
-    actor_id2 = get_actor_id(headers, name='abaco_test_custom')
-
-    # Send lots of messages to actor 1
-
-    # Send only one message to actor 2
-
-    # assert that actor2 has completed while actor 1 has not
-
-    # # Get a worker from actor1
-    # url = '{}/actors/{}/workers'.format(base_url, actor_id1)
-    # rsp = requests.get(url, headers=headers)
-    # # workers collection returns the tenant_id since it is an admin api
-    # result = basic_response_checks(rsp, check_tenant=False)
-    # assert len(result) > 0
-    # # get the first worker
-    # worker1 = result[0]
-    # assert worker1 == 0
-    sp = spawner.Spawner()
-
-
-
 
 
 @pytest.mark.queuetest
@@ -1249,8 +1224,8 @@ def test_invalid_method_get_nonce(headers):
 # ################
 
 def check_worker_fields(worker):
-    assert worker.get('image') == 'jstubbs/abaco_test'
     assert worker.get('status') in ['READY', 'BUSY']
+    assert worker.get('image') == 'jstubbs/abaco_test' or worker.get('image') == 'jstubbs/abaco_test2'
     assert worker.get('location')
     assert worker.get('cid')
     assert worker.get('tenant')
@@ -1263,7 +1238,6 @@ def check_worker_fields(worker):
         assert 'lastExecutionTime' in worker
         assert 'lastHealthCheckTime' in worker
 
-
 def test_list_workers(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}/workers'.format(base_url, actor_id)
@@ -1274,7 +1248,6 @@ def test_list_workers(headers):
     # get the first worker
     worker = result[0]
     check_worker_fields(worker)
-
 
 def test_invalid_method_list_workers(headers):
     actor_id = get_actor_id(headers)
