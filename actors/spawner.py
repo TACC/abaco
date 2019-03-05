@@ -36,7 +36,8 @@ class Spawner(object):
     def __init__(self):
         self.num_workers = int(Config.get('workers', 'init_count'))
         self.secret = os.environ.get('_abaco_secret')
-        self.cmd_ch = CommandChannel()
+        self.queue = os.environ.get('queue', 'default')
+        self.cmd_ch = CommandChannel(name=self.queue)
         self.tot_workers = 0
         try:
             self.host_id = Config.get('spawner', 'host_id')
@@ -159,7 +160,8 @@ class Spawner(object):
         logger.info("Sending messages to new workers over anonymous channels to subscribe to inbox.")
         for idx, channel in enumerate(anon_channels):
             if generate_clients == 'true':
-                logger.info("Getting client for worker {}".format(idx))
+                worker_id = new_workers[list(new_workers)[idx]]['id']
+                logger.info("Getting client for worker number {}, id: {}".format(idx, worker_id))
                 client_ch = ClientsChannel()
                 try:
                     client_msg = client_ch.request_client(tenant=tenant,
@@ -167,19 +169,21 @@ class Spawner(object):
                                                           # new_workers is a dictionary of dictionaries; list(d) creates a
                                                           # list of keys for a dictionary d. hence, the idx^th entry
                                                           # of list(ner_workers) should be the key.
-                                                          worker_id=new_workers[list(new_workers)[idx]]['id'],
+                                                          worker_id=worker_id,
                                                           secret=self.secret)
                 except ChannelTimeoutException as e:
-                    logger.error("Got a ChannelTimeoutException trying to generate a client: {}".format(e))
+                    logger.error("Got a ChannelTimeoutException trying to generate a client for "
+                                 "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
                     # put actor in an error state and return
-                    self.error_out_actor(actor_id, [], str(e))
+                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
+                                                              "worker for this actor. System administrators have been notified.")
                     client_ch.close()
                     return
                 client_ch.close()
                 # we need to ignore errors when generating clients because it's possible it is not set up for a specific
                 # tenant. we log it instead.
                 if client_msg.get('status') == 'error':
-                    logger.info("Error generating client: {}".format(client_msg.get('message')))
+                    logger.error("Error generating client: {}".format(client_msg.get('message')))
                     channel.put({'status': 'ok',
                                  'actor_id': actor_id,
                                  'tenant': tenant,
@@ -313,6 +317,10 @@ class Spawner(object):
             logger.info("Got WorkerException from delete_worker(). "
                         "worker_id: {}"
                         "Exception: {}".format(worker_id, e))
+        except Exception as e:
+            logger.error("Got an unexpected exception from delete_worker(). "
+                        "worker_id: {}"
+                        "Exception: {}".format(worker_id, e))
 
 
 def main():
@@ -324,7 +332,7 @@ def main():
             logger.info("spawner made connection to rabbit, entering main loop")
             logger.info("spawner using abaco_conf_host_path={}".format(os.environ.get('abaco_conf_host_path')))
             sp.run()
-        except rabbitpy.exceptions.ConnectionException:
+        except (rabbitpy.exceptions.ConnectionException, RuntimeError):
             # rabbit seems to take a few seconds to come up
             time.sleep(5)
             idx += 1

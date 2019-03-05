@@ -93,22 +93,20 @@ def list_all_containers():
     cli = docker.APIClient(base_url=dd, version="auto")
     # todo -- finish
 
-def container_running(image=None, name=None):
-    """Check if there is a running container for an image.
-    image should be fully qualified; e.g. image='jstubbs/abaco_core'
-    Can pass wildcards in name using * character; e.g. name='abaco_spawner*'
+def container_running(name=None):
+    """Check if there is a running container whose name contains the string, `name`. Note that this function will
+    return True if any running container has a name which contains the input `name`.
+
     """
     logger.debug("top of container_running().")
     filters = {}
     if name:
         filters['name'] = name
-    if image:
-        filters['image'] = image
     cli = docker.APIClient(base_url=dd, version="auto")
     try:
         containers = cli.containers(filters=filters)
     except Exception as e:
-        msg = "There was an error checking container_running for image: {}. Exception: {}".format(image, e)
+        msg = "There was an error checking container_running for name: {}. Exception: {}".format(name, e)
         logger.error(msg)
         raise DockerError(msg)
     logger.debug("found containers: {}".format(containers))
@@ -119,7 +117,7 @@ def run_container_with_docker(image,
                               name=None,
                               environment={},
                               mounts=[],
-                              log_file='service.log',
+                              log_file=None,
                               auto_remove=False):
     """
     Run a container with docker mounted in it.
@@ -151,6 +149,16 @@ def run_container_with_docker(image,
         msg = "Did not find the abaco_conf_host_path in Config. Exception: {}".format(e)
         logger.error(msg)
         raise DockerError(msg)
+    # also add it to the environment if not already there
+    if 'abaco_conf_host_path' not in environment:
+        environment['abaco_conf_host_path'] = abaco_conf_host_path
+
+    # if not passed, determine what log file to use
+    if not log_file:
+        if get_log_file_strategy() == 'split':
+            log_file = 'worker.log'
+        else:
+            log_file = 'abaco.log'
 
     # mount the logs file.
     volumes.append('/var/log/service.log')
@@ -190,12 +198,6 @@ def run_worker(image, actor_id, worker_id):
     command = 'python3 -u /actors/worker.py'
     logger.debug("docker_utils running worker. image:{}, command:{}".format(
         image, command))
-
-    # determine what log file to use
-    if get_log_file_strategy() == 'split':
-        log_file = 'worker.log'
-    else:
-        log_file = 'abaco.log'
 
     # mount the directory on the host for creating fifos
     try:
@@ -243,7 +245,7 @@ def run_worker(image, actor_id, worker_id):
                                                        'worker_id': worker_id,
                                                        '_abaco_secret': os.environ.get('_abaco_secret')},
                                           mounts=mounts,
-                                          log_file=log_file,
+                                          log_file=None,
                                           auto_remove=auto_remove,
                                           name='worker_{}_{}'.format(actor_id, worker_id))
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.

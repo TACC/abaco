@@ -16,6 +16,7 @@ actors_store = redis_config_store(db='1')
 workers_store = redis_config_store(db='2')
 nonce_store = redis_config_store(db='3')
 alias_store = redis_config_store(db='4')
+pregen_clients = redis_config_store(db='5')
 
 
 # Mongo is used for accounting, permissions and logging data for its scalability.

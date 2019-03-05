@@ -3,11 +3,12 @@
 
 from alpine:3.8
 
-RUN apk add --update musl python3 && rm /var/cache/apk/*
+RUN apk add --update musl python3 && rm -f /var/cache/apk/*
 RUN apk add --update bash && rm -f /var/cache/apk/*
 RUN apk add --update git && rm -f /var/cache/apk/*
-RUN apk add --update g++ -f /var/cache/apk/*
-RUN apk add --update python3-dev -f /var/cache/apk/*
+RUN apk add --update g++ && rm -f /var/cache/apk/*
+RUN apk add --update python3-dev && rm -f /var/cache/apk/*
+RUN apk add --update linux-headers && rm -f /var/cache/apk/*
 ADD actors/requirements.txt /requirements.txt
 RUN pip3 install -r /requirements.txt
 RUN pip3 install pytest ipython locustio
