@@ -203,7 +203,7 @@ def check_workers(actor_id, ttl):
                 ch.close()
             except Exception as e:
                 logger.error("Got an error trying to close the worker channel for dead worker. Exception: {}".format(e))
-        if not result == 'ok':
+        if result and not result == 'ok':
             logger.error("Worker responded unexpectedly: {}, deleting worker.".format(result))
             try:
                 rm_container(worker['cid'])
