@@ -729,7 +729,7 @@ def test_create_actor_with_custom_queue_name(headers):
     result = basic_response_checks(rsp)
     assert result['queue'] == CH_NAME_1
 
-
+@pytest.mark.xfail
 @pytest.mark.queuetest
 def test_actor_uses_custom_queue(headers):
     url = '{}/actors'.format(base_url)
