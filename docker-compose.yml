@@ -1,67 +1,70 @@
 ---
 
-mongo:
-    extends:
-        file: docker-compose-local-db.yml
-        service: mongo
+version: "2"
 
-redis:
-    extends:
-        file: docker-compose-local-db.yml
-        service: redis
+services:
+    mongo:
+        extends:
+            file: docker-compose-local-db.yml
+            service: mongo
 
-rabbit:
-    extends:
-        file: docker-compose-local-db.yml
-        service: rabbit
+    redis:
+        extends:
+            file: docker-compose-local-db.yml
+            service: redis
+
+    rabbit:
+        extends:
+            file: docker-compose-local-db.yml
+            service: rabbit
 
 
-nginx:
-    extends:
-        file: docker-compose-local.yml
-        service: nginx
+    nginx:
+        extends:
+            file: docker-compose-local.yml
+            service: nginx
 
-reg:
-    extends:
-        file: docker-compose-local.yml
-        service: reg
+    reg:
+        extends:
+            file: docker-compose-local.yml
+            service: reg
 
-mes:
-    extends:
-        file: docker-compose-local.yml
-        service: mes
+    mes:
+        extends:
+            file: docker-compose-local.yml
+            service: mes
 
-#metrics:
-#    extends:
-#        file: docker-compose-local.yml
-#        service: metrics
+    metrics:
+        extends:
+            file: docker-compose-local.yml
+            service: metrics
 
-admin:
-    extends:
-        file: docker-compose-local.yml
-        service: admin
+    admin:
+        extends:
+            file: docker-compose-local.yml
+            service: admin
 
-# uncomment to run the client generation
-clientg:
-    extends:
-        file: docker-compose-local.yml
-        service: clientg
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
+    # uncomment to run the client generation
+    clientg:
+        extends:
+            file: docker-compose-local.yml
+            service: clientg
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
 
-default_spawner:
-    extends:
-        file: docker-compose-local.yml
-        service: spawner
+    default_spawner:
+        extends:
+            file: docker-compose-local.yml
+            service: spawner
 
-special_spawner:
-    extends:
-        file: docker-compose-local.yml
-        service: spawner
-    environment:
-        queue: special
+    special_spawner:
+        extends:
+            file: docker-compose-local.yml
+            service: spawner
+        environment:
+            queue: special
 
-health:
-    extends:
-        file: docker-compose-local.yml
-        service: health
+    health:
+        extends:
+            file: docker-compose-local.yml
+            service: health
