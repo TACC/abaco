@@ -1,5 +1,5 @@
 # Test suite for abaco project.
-# Image: jstubbs/abaco_testsuite
+# Image: abaco/testsuite
 
 from alpine:3.8
 
