@@ -12,6 +12,7 @@ services:
 #            - ./images/nginx/sites-enabled:/etc/nginx/sites-enabled
         ports:
             - "8000:80"
+        restart: always
 
     reg:
         image: abaco/core$TAG
