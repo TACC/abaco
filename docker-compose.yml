@@ -2,60 +2,82 @@
 
 version: "2"
 
+networks:
+    abaco:
+        driver: bridge
+
 services:
     mongo:
         extends:
             file: docker-compose-local-db.yml
             service: mongo
+        networks:
+            - abaco
 
     redis:
         extends:
             file: docker-compose-local-db.yml
             service: redis
+        networks:
+            - abaco
 
     rabbit:
         extends:
             file: docker-compose-local-db.yml
             service: rabbit
-
+        networks:
+            - abaco
 
     nginx:
         extends:
             file: docker-compose-local.yml
             service: nginx
+        networks:
+            - abaco
 
     reg:
         extends:
             file: docker-compose-local.yml
             service: reg
+        networks:
+            - abaco
 
     mes:
         extends:
             file: docker-compose-local.yml
             service: mes
+        networks:
+            - abaco
 
     metrics:
         extends:
             file: docker-compose-local.yml
             service: metrics
+        networks:
+            - abaco
 
     admin:
         extends:
             file: docker-compose-local.yml
             service: admin
+        networks:
+            - abaco
 
-    # uncomment to run the client generation
     clientg:
         extends:
             file: docker-compose-local.yml
             service: clientg
         volumes:
             - ./local-dev.conf:/etc/service.conf
+        networks:
+            - abaco
 
     default_spawner:
         extends:
             file: docker-compose-local.yml
             service: spawner
+        networks:
+            - abaco
 
     special_spawner:
         extends:
@@ -63,8 +85,12 @@ services:
             service: spawner
         environment:
             queue: special
+        networks:
+            - abaco
 
     health:
         extends:
             file: docker-compose-local.yml
             service: health
+        networks:
+            - abaco

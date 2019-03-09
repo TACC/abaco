@@ -173,6 +173,15 @@ def run_container_with_docker(image,
     host_config = cli.create_host_config(binds=binds, auto_remove=auto_remove)
     logger.debug("binds: {}".format(binds))
 
+    # add the container to a specific docker network, if configured
+    netconf = None
+    try:
+        docker_network = Config.get('spawner', 'docker_network')
+    except Exception:
+        docker_network = None
+    if docker_network:
+        netconf = cli.create_networking_config({docker_network: cli.create_endpoint_config()})
+
     # create and start the container
     try:
         container = cli.create_container(image=image,
@@ -180,7 +189,8 @@ def run_container_with_docker(image,
                                          volumes=volumes,
                                          host_config=host_config,
                                          command=command,
-                                         name=name)
+                                         name=name,
+                                         networking_config=netconf)
         cli.start(container=container.get('Id'))
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
