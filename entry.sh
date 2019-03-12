@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# If the python code errors, container will exit. As exit code 1
+# corresponds with error and exit code 0 corresponds with success.
+if ! python3 -u /actors/conf_check.py; then
+	echo "Config error!"
+	echo "Stopping container!"
+	exit
+fi
+
 if [ $api = "reg" ]; then
     if [ $server = "dev" ]; then
         python3 -u /actors/reg_api.py
