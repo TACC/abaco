@@ -1,6 +1,16 @@
 """
-Config auditor. Runs before api setup and checks the included .conf file for
-correctness and viability. States errors in logs if error occurs.
+Config auditor. Runs before api startup and checks the included .conf file for
+correctness and viability. Raises errors if errors occur.
+
+Each *_check function covers a particular section of the config file and uses
+the Config.get() function from actors/config.py to check if a value exists. If
+not, an error is raised. Additional checks run for particular options to ensure
+option values are set to proper values.
+
+Background:
+[section]
+option: value
+option: value
 
 To-do:
     - Add warning for when an option is set but not needed.
@@ -9,9 +19,10 @@ To-do:
 from configparser import NoOptionError
 from config import Config
 
-def keyexists(section, option):
+def valexists(section, option):
     """
-    Checks if a key in a section exists, returns True if so, False otherwise.
+    Checks if a value in a section exists, returns True if populated,
+    False otherwise.
     """
     try:
         Config.get(section, option)
@@ -22,6 +33,7 @@ def keyexists(section, option):
 
 def general_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'TAG'.
     """
     section = 'general'
@@ -29,12 +41,13 @@ def general_check():
     # Raises error for required options
     req_options = ['TAG']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
 
 def logs_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'level', 'level.worker', 'level.docker_util',
     'level.spawner', 'level.controllers'.
     """
@@ -43,14 +56,14 @@ def logs_check():
     # Raises error for required options
     req_options = ['level']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
     # Raises error if selected options are not set to ERROR or DEBUG
     err_debug_options = ['level', 'level.worker', 'level.docker_util',
                          'level.spawner', 'level.controllers']
     for option in err_debug_options:
-        if keyexists(section, option):
+        if valexists(section, option):
             if Config.get(section, option) not in ['ERROR', 'DEBUG']:
                 raise ValueError('{}:{} should be set to ERROR or DEBUG'.format(section, option))
 
@@ -58,6 +71,7 @@ def logs_check():
 
 def store_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'mongo_host', 'mongo_port', 'redis_hosts',
     'redis_port', 'mongo_user', 'mongo_password'.
     """
@@ -66,16 +80,17 @@ def store_check():
     # Raises error for required options
     req_options = ['mongo_host', 'mongo_port', 'redis_host', 'redis_port']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
     # Raises error if mongo_user or mongo_password is set without the other
-    if keyexists(section, 'mongo_user') ^ keyexists(section, 'mongo_password'):
+    if valexists(section, 'mongo_user') ^ valexists(section, 'mongo_password'):
         raise ValueError('mongo_user and mongo_password must be set concurrently')
 
 
 def rabbit_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'uri'
     """
     section = 'rabbit'
@@ -83,12 +98,13 @@ def rabbit_check():
     # Raises error for required options
     req_options = ['uri']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
 
 def spawner_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'host_id', 'host_ip', 'abaco_conf_host_path',
     'max_workers_per_host', 'max_workers_per_host', 'max_workers_per_actor'.
     """
@@ -98,12 +114,13 @@ def spawner_check():
     req_options = ['host_id', 'host_ip', 'max_workers_per_host',
                    'max_workers_per_host', 'max_workers_per_actor']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
 
 def docker_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'dd'
     """
     section = 'docker'
@@ -111,12 +128,13 @@ def docker_check():
     # Raises error for required options
     req_options = ['dd']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
 
 def workers_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'init_count', 'max_run_time', 'mem_limit', 'max_cpus',
     'worker_ttl', 'auto_remove', 'generate_clients', 'global_mounts',
     'privileged_mounts', 'leave_containers', 'actor_uid', 'actor_gid',
@@ -129,7 +147,7 @@ def workers_check():
                    'auto_remove', 'generate_clients', 'leave_containers',
                    'use_tas_uid', 'socket_host_path_dir', 'fifo_host_path_dir']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
     # Raises error if 'auto_remove' is not set to true or false
@@ -150,6 +168,7 @@ def workers_check():
 
 def web_check():
     """
+    Checks that all section options are set correctly.
     All section options: 'access_control', 'user_role', 'accept_nonce',
     'tenant_name', 'apim_public_key', 'show_traceback', 'log_ex', 'case',
     'max_content_length'.
@@ -160,7 +179,7 @@ def web_check():
     req_options = ['access_control', 'show_traceback', 'log_ex', 'case',
                    'max_content_length']
     for option in req_options:
-        if not keyexists(section, option):
+        if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
 
     # Raises error if 'access_control' is not set to jwt or none
@@ -170,19 +189,19 @@ def web_check():
     # Raises error if jwt access control is used and 'user_role' or 'apim_public_key' are not set
     if Config.get(section, 'access_control') == 'jwt':
         for jwt_dep in ['user_role', 'apim_public_key']:
-            if not keyexists('web', jwt_dep):
+            if not valexists('web', jwt_dep):
                 raise ValueError("{}:{} must be set if 'access_control' is set to 'jwt'"
                                  .format(section, jwt_dep))
 
     # Raises error if there is no access control and 'accept_nonce' or 'tenant_name' are not set
     if Config.get(section, 'access_control') == 'none':
         for none_dep in ['accept_nonce', 'tenant_name']:
-            if not keyexists('web', none_dep):
+            if not valexists('web', none_dep):
                 raise ValueError("{}:{} must be set if 'access_control' is set to 'none'"
                                  .format(section, none_dep))
 
     # Raises error if 'accept_nonce' is not set to True or False
-    if keyexists(section, 'accept_nonce'):
+    if valexists(section, 'accept_nonce'):
         if Config.get(section, 'accept_nonce') not in ['True', 'False']:
             raise ValueError('{}:{} should be set to True or False'.format(section, 'accept_nonce'))
 
