@@ -20,7 +20,7 @@ from config import Config
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
 from models import Actor, Worker
 from channels import ClientsChannel, CommandChannel, WorkerChannel
-from stores import actors_store, clients_store, workers_store
+from stores import actors_store, clients_store, executions_store, workers_store
 from worker import shutdown_worker
 
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
@@ -31,6 +31,9 @@ AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
 from agaveflask.logs import get_logger, get_log_file_strategy
 logger = get_logger(__name__)
 
+# max executions allowed in a mongo document; if the total executions for a given actor exceeds this number,
+# the health process will place
+MAX_EXECUTIONS_PER_MONGO_DOC = 25000
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
@@ -125,12 +128,39 @@ def clean_up_clients_store():
         else:
             logger.info("worker {} still here. ignoring client {}.".format(wid, client))
 
+def batch_executions(aid):
+    """
+    Batch the executions for a specific actor id, `aid`. Should be the database id.
+    :param aid:
+    :return:
+    """
+    # make a local copy of the executions -
+    d = executions_store[aid]
+    # fix an ordering of keys -
+    ld = list(d)
+    if len(d) <= MAX_EXECUTIONS_PER_MONGO_DOC:
+        return
+    # split executions into two dicts -
+    d2 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if d[k].get('status') == 'COMPLETE'}
+    d3 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if not d[k].get('status') == 'COMPLETE'}
+    d3.update({k: d[k] for k in ld[MAX_EXECUTIONS_PER_MONGO_DOC: ]})
+    executions_store[aid] = d3
+    # get next index of historical docs -
+    i = 1
+    while True:
+        try:
+            executions_store['{}_HIST_{}'.format(aid, i)]
+            i = i + 1
+        except KeyError:
+            break
+    executions_store['{}_HIST_{}'.format(aid, i)] = d2
+
 
 def check_worker_health(actor_id, worker):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
     worker_id = worker.get('id')
-    logger.info("Checking status of worker from db with worker_id: {}".format())
+    logger.info("Checking status of worker from db with worker_id: {}".format(worker_id))
     if not worker_id:
         logger.error("Corrupt data in the workers_store. Worker object without an id attribute. {}".format(worker))
         try:
@@ -203,7 +233,7 @@ def check_workers(actor_id, ttl):
                 ch.close()
             except Exception as e:
                 logger.error("Got an error trying to close the worker channel for dead worker. Exception: {}".format(e))
-        if not result == 'ok':
+        if result and not result == 'ok':
             logger.error("Worker responded unexpectedly: {}, deleting worker.".format(result))
             try:
                 rm_container(worker['cid'])
@@ -214,36 +244,101 @@ def check_workers(actor_id, ttl):
             # worker is healthy so update last health check:
             Worker.update_worker_health_time(actor_id, worker_id)
             logger.info("Worker ok.")
+
         # now check if the worker has been idle beyond the ttl:
-        if ttl < 0:
-            # ttl < 0 means infinite life
-            logger.info("Infinite ttl configured; leaving worker")
-            return
-        # we don't shut down workers that are currently running:
-        if not worker['status'] == codes.BUSY:
-            last_execution = int(float(worker.get('last_execution_time', 0)))
-            # if worker has made zero executions, use the create_time
-            if last_execution == 0:
-                last_execution = worker.get('create_time', 0)
-            logger.debug("using last_execution: {}".format(last_execution))
-            try:
-                last_execution = int(float(last_execution))
-            except:
-                logger.error("Could not case last_execution {} to int(float()".format(last_execution))
-                last_execution = 0
-            if last_execution + ttl < time.time():
-                # shutdown worker
-                logger.info("Shutting down worker beyond ttl.")
-                shutdown_worker(worker['id'])
-            else:
-                logger.info("Still time left for this worker.")
-        elif worker['status'] == codes.ERROR:
+        # if ttl < 0:
+        #     # ttl < 0 means infinite life
+        #     logger.info("Infinite ttl configured; leaving worker")
+        #     return
+        # # we don't shut down workers that are currently running:
+        # if not worker['status'] == codes.BUSY:
+        #     last_execution = int(float(worker.get('last_execution_time', 0)))
+        #     # if worker has made zero executions, use the create_time
+        #     if last_execution == 0:
+        #         last_execution = worker.get('create_time', 0)
+        #     logger.debug("using last_execution: {}".format(last_execution))
+        #     try:
+        #         last_execution = int(float(last_execution))
+        #     except:
+        #         logger.error("Could not case last_execution {} to int(float()".format(last_execution))
+        #         last_execution = 0
+        #     if last_execution + ttl < time.time():
+        #         # shutdown worker
+        #         logger.info("Shutting down worker beyond ttl.")
+        #         shutdown_worker(worker['id'])
+        #     else:
+        #         logger.info("Still time left for this worker.")
+
+        if worker['status'] == codes.ERROR:
             # shutdown worker
             logger.info("Shutting down worker in error status.")
             shutdown_worker(worker['id'])
-        else:
-            logger.debug("Worker not in READY status, will postpone.")
+        # else:
+        #     logger.debug("Worker not in READY status, will postpone.")
 
+def get_host_queues():
+    """
+    Read host_queues string from config and parse to return a Python list.
+    :return: list[str]
+    """
+    try:
+        host_queues_str = Config.get('spawner', 'host_queues')
+        return [ s.strip() for s in host_queues_str.split(',')]
+    except Exception as e:
+        msg = "Got unexpected exception attempting to parse the host_queues config. Exception: {}".format(e)
+        logger.error(e)
+        raise e
+
+def start_spawner(queue, idx='0'):
+    """
+    Start a spawner on this host listening to a queue, `queue`.
+    :param queue: (str) - the queue the spawner should listen to.
+    :param idx: (str) - the index to use as a suffix to the spawner container name.
+    :return:
+    """
+    command = 'python3 -u /actors/spawner.py'
+    name = 'healthg_{}_spawner_{}'.format(queue, idx)
+    environment = {'AE_IMAGE': AE_IMAGE.split(':')[0],
+                   'queue': queue
+                   }
+    # check logging strategy to determine log file name:
+    try:
+        run_container_with_docker(AE_IMAGE,
+                                  command,
+                                  name=name,
+                                  environment=environment,
+                                  mounts=[],
+                                  log_file=None)
+    except Exception as e:
+        logger.critical("Could not restart spawner for queue {}. Exception: {}".format(queue, e))
+
+def check_spawner(queue):
+    """
+    Check the health and existence of a spawner on this host for a particular queue.
+    :param queue: (str) - the queue to check on.
+    :return:
+    """
+    logger.debug("top of check_spawner for queue: {}".format(queue))
+    # spawner container names by convention should have the format <project>_<queue>_spawner_<count>; for example
+    #   abaco_default_spawner_2.
+    # so, we look for container names containing a string with that format:
+    spawner_name_segment = '{}_spawner'.format(queue)
+    if not container_running(name=spawner_name_segment):
+        logger.critical("No spawners running for queue {}! Launching new spawner..".format(queue))
+        start_spawner(queue)
+    else:
+        logger.debug("spawner for queue {} already running.".format(queue))
+
+def check_spawners():
+    """
+    Check health of spawners running on a given host.
+    :return:
+    """
+    logger.debug("top of check_spawners")
+    host_queues = get_host_queues()
+    logger.debug("checking spawners for queues: {}".format(host_queues))
+    for queue in host_queues:
+        check_spawner(queue)
 
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
@@ -268,6 +363,7 @@ def shutdown_all_workers():
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
+    check_spawners()
     try:
         clean_up_ipc_dirs()
     except Exception as e:
@@ -276,23 +372,6 @@ def main():
         ttl = Config.get('workers', 'worker_ttl')
     except Exception as e:
         logger.error("Could not get worker_ttl config. Exception: {}".format(e))
-    if not container_running(name='spawner*'):
-        logger.critical("No spawners running! Launching new spawner..")
-        command = 'python3 -u /actors/spawner.py'
-        # check logging strategy to determine log file name:
-        if get_log_file_strategy() == 'split':
-            log_file = 'spawner.log'
-        else:
-            log_file = 'service.log'
-        try:
-            run_container_with_docker(AE_IMAGE,
-                                      command,
-                                      name='abaco_spawner_0',
-                                      environment={'AE_IMAGE': AE_IMAGE},
-                                      mounts=[],
-                                      log_file=log_file)
-        except Exception as e:
-            logger.critical("Could not restart spawner. Exception: {}".format(e))
     try:
         ttl = int(ttl)
     except Exception as e:

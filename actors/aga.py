@@ -38,9 +38,13 @@ class Token(object):
         self.token_url = urljoin(self.api_server, 'token')
 
     def _token(self, data):
+        logger.debug("top of _token")
         auth = requests.auth.HTTPBasicAuth(self.api_key, self.api_secret)
+        logger.debug("about to make POST request for token; URL: {}; "
+                     "data: {}; auth: {}".format(self.token_url, data, auth))
         resp = requests.post(self.token_url, data=data, auth=auth,
                              verify=self.verify)
+        logger.debug("made request for token; rsp: {}".format(resp))
         resp.raise_for_status()
         self.token_info = resp.json()
         try:
@@ -57,6 +61,7 @@ class Token(object):
         return token
 
     def create(self):
+        logger.debug("top of token.create for username: {}; password: ****".format(self.username))
         data = {'grant_type': 'password',
                 'username': self.username,
                 'password': self.password,
@@ -116,6 +121,7 @@ class Agave(object):
         :type secret: str
         :rtype: None
         """
+        logger.debug("top of set_client")
         self.api_key = key
         self.api_secret = secret
         self.token = Token(
@@ -126,6 +132,7 @@ class Agave(object):
         if self._token:
             pass
         else:
+            logger.debug("calling token.create()")
             self.token.create()
 
 
@@ -150,6 +157,7 @@ class AgaveClientsService(object):
             logger.debug("response from POST to create client: {}; content: {}".format(rsp, rsp.content))
             logger.debug("result from POST to create client: {}".format(result))
             self.parent.set_client(result['consumerKey'], result['consumerSecret'])
+            logger.debug("set_client in parent, returning result.")
             return result
         except Exception as e:
             raise AgaveError('Error creating client: {}'.format(e))

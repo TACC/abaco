@@ -134,13 +134,13 @@ $ docker build -f Dockerfile-test -t abaco/testsuite$TAG .
 To run the functional tests, execute the following:
 
 ```shell
-$ docker run -e base_url=http://172.17.0.1:8000 -e case=camel -v /:/host -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG
+$ docker run --network=abaco_abaco -e base_url=http://nginx -e case=camel -v /:/host -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG
 ```
 
 Run the unit tests with a command similar to the following, changing the test module as the end as necessary:
 
 ```shell
-$ docker run -e base_url=http://172.17.0.1:8000 -v $(pwd)/local-dev.conf:/etc/service.conf --entrypoint=py.test -it --rm abaco/testsuite$TAG /tests/test_store.py
+$ docker run --network=abaco_abaco -e base_url=http://nginx -v $(pwd)/local-dev.conf:/etc/service.conf --entrypoint=py.test -it --rm abaco/testsuite$TAG /tests/test_store.py
 ```
 
 Dev, Staging and Master Branches and Environments
@@ -320,3 +320,21 @@ Making requests to the local development stack is easy using the requests librar
 >>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=headers).json()
 
 ```
+
+Auto-Scaling
+------------
+
+Autoscaling uses [Prometheus](https://prometheus.io), which also provides a convenient dashboard.
+
+Prometheus works by doing a GET request to the `/metrics` endpoint of Abaco, which occurs every 5 seconds. When this GET request happens, the following chain of events occurs:
+1. All current Actors are cycled through, and given a metric for counting the current number of messages in its queue. 
+     * An actor that already has a metric will not receive another one. 
+2. All of the Actor metrics are cycled through, and updated with the Actor's current message count
+3. Each Actor is checked. If an actor has 0 workers, it is given 1 worker. 
+4. Each Actor metric is checked. 
+     * If the message count for the actor is >=1, then that actor is given a new worker. 
+     * If the message count for the actor is 0, then 1 worker is removed from that actor (assuming it has at least 1 worker)
+5. The `/metrics` endpoint is updated with the current values of each metric
+6. Prometheus scrapes the `/metrics` endpoint and saves the metrics data to its time-series database. 
+
+Prometheus has some configuration files, found in the prometheus directory. Here, there is also a Dockerfile. The autoscaling feature uses a separate docker-compose file, `docker-compose-prom`.

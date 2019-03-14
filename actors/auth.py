@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 from agavepy.agave import Agave
 from config import Config
 import codes
-from models import Actor, get_permissions, Nonce
+from models import Actor, Alias, get_permissions, is_hashid, Nonce
 
 from errors import ClientException, ResourceError, PermissionsException
 
@@ -112,6 +112,35 @@ def authorization():
     logic. This function is called by agaveflask after all authentication processing and initial
     authorization logic has run.
     """
+    # first check whether the request is even valid -
+    if hasattr(request, 'url_rule'):
+        logger.debug("request.url_rule: {}".format(request.url_rule))
+        if hasattr(request.url_rule, 'rule'):
+            logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
+        else:
+            logger.info("url_rule has no rule.")
+            raise ResourceError(
+                "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
+    else:
+        logger.info("Request has no url_rule")
+        raise ResourceError(
+            "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
+
+    # get the actor db_id from a possible identifier once and for all -
+    # these routes do not have an actor id in them:
+    if request.url_rule.rule == '/actors' \
+        or request.url_rule.rule == '/actors/' \
+        or '/actors/admin' in request.url_rule.rule \
+        or '/actors/aliases' in request.url_rule.rule:
+        db_id = None
+        logger.debug("setting db_id to None; rule: {}".format(request.url_rule.rule))
+    else:
+        # every other route should have an actor identifier
+        logger.debug("fetching db_id; rule: {}".format(request.url_rule.rule))
+        db_id = get_db_id()
+    g.db_id = db_id
+    logger.debug("db_id: {}".format(db_id))
+
     g.admin = False
     if request.method == 'OPTIONS':
         # allow all users to make OPTIONS requests
@@ -134,17 +163,6 @@ def authorization():
         raise PermissionsException("Not authorized -- missing required role.")
     else:
         logger.debug("User has an abaco role.")
-        if hasattr(request, 'url_rule'):
-            logger.debug("request.url_rule: {}".format(request.url_rule))
-            if hasattr(request.url_rule, 'rule'):
-                logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
-            else:
-                logger.info("url_rule has no rule.")
-                raise ResourceError("Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
-        else:
-            logger.info("Request has no url_rule")
-            raise ResourceError(
-                "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
     logger.debug("request.path: {}".format(request.path))
 
     # the admin role when JWT auth is configured:
@@ -160,7 +178,7 @@ def authorization():
         else:
             raise PermissionsException("Abaco Admin role required.")
 
-    # there are special rules on the root collection:
+    # there are special rules on the actors root collection:
     if '/actors' == request.url_rule.rule or '/actors/' == request.url_rule.rule:
         logger.debug("Checking permissions on root collection.")
         # first, only admins can create/update actors to be privileged, so check that:
@@ -170,31 +188,45 @@ def authorization():
         logger.debug("new actor or GET on root connection. allowing request.")
         return True
 
-    # all other checks are based on actor-id:
-    db_id = get_db_id()
-    logger.debug("db_id: {}".format(db_id))
-    if request.method == 'GET':
-        # GET requests require READ access
-        has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.READ)
-    elif request.method == 'DELETE':
-        has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.UPDATE)
+    # aliases root collection has special rules as well -
+    if '/actors/aliases' == request.url_rule.rule or '/actors/aliases/' == request.url_rule.rule:
+        return True
+
+    # request to a specific alias needs to check aliases permissions
+    if '/actors/aliases' in request.url_rule.rule:
+        alias_id = get_alias_id()
+        noun = 'alias'
+        if request.method == 'GET':
+            # GET requests require READ access
+            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+            # all other requests require UPDATE access
+        elif request.method in ['DELETE', 'POST', 'PUT']:
+            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
     else:
-        logger.debug("URL rule in request: {}".format(request.url_rule.rule))
-        # first, only admins can create/update actors to be privileged, so check that:
-        if request.method == 'POST' or request.method == 'PUT':
-            check_privileged()
-            # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
-            if 'workers' in request.url_rule.rule:
-                raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
-            # POST to the messages endpoint requires EXECUTE
-            if 'messages' in request.url_rule.rule:
-                has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.EXECUTE)
-            # otherwise, we require UPDATE
-            else:
-                has_pem = check_permissions(user=g.user, actor_id=db_id, level=codes.UPDATE)
+        # all other checks are based on actor-id:
+        noun = 'actor'
+        if request.method == 'GET':
+            # GET requests require READ access
+            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.READ)
+        elif request.method == 'DELETE':
+            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
+        else:
+            logger.debug("URL rule in request: {}".format(request.url_rule.rule))
+            # first, only admins can create/update actors to be privileged, so check that:
+            if request.method == 'POST' or request.method == 'PUT':
+                check_privileged()
+                # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
+                if 'workers' in request.url_rule.rule:
+                    raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
+                # POST to the messages endpoint requires EXECUTE
+                if 'messages' in request.url_rule.rule:
+                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.EXECUTE)
+                # otherwise, we require UPDATE
+                else:
+                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
     if not has_pem:
         logger.info("NOT allowing request.")
-        raise PermissionsException("Not authorized -- you do not have access to this actor.")
+        raise PermissionsException("Not authorized -- you do not have access to this {}.".format(noun))
 
 
 def check_privileged():
@@ -209,14 +241,28 @@ def check_privileged():
     # various APIs (e.g., the state api) allow an arbitary JSON serializable objects which won't have a get method:
     if not hasattr(data, 'get'):
         return True
-    if data.get('privileged'):
-        logger.debug("User is trying to set privileged")
+    if not codes.PRIVILEGED_ROLE in g.roles:
+        logger.info("User does not have privileged role.")
         # if we're here, user isn't an admin so must have privileged role:
-        if not codes.PRIVILEGED_ROLE in g.roles:
-            logger.info("User does not have privileged role.")
+        if data.get('privileged'):
+            logger.debug("User is trying to set privileged")
             raise PermissionsException("Not authorized -- only admins and privileged users can make privileged actors.")
-        else:
-            logger.debug("user allowed to set privileged.")
+        if data.get('max_workers') or data.get('maxWorkers'):
+            logger.debug("User is trying to set max_workers")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set max workers.")
+        if data.get('max_cpus') or data.get('maxCpus'):
+            logger.debug("User is trying to set max CPUs")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set max CPUs.")
+        if data.get('mem_limit') or data.get('memLimit'):
+            logger.debug("User is trying to set mem limit")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set mem limit.")
+        if data.get('queue'):
+            logger.debug("User is trying to set queue")
+            raise PermissionsException("Not authorized -- only admins and privileged users can set queue.")
+
+
+    else:
+        logger.debug("user allowed to set privileged.")
 
     # when using the UID associated with the user in TAS, admins can still register actors
     # to use the UID built in the container using the use_container_uid flag:
@@ -233,39 +279,65 @@ def check_privileged():
         logger.debug("not trying to use privileged options.")
         return True
 
-def check_permissions(user, actor_id, level):
-    """Check the permissions store for user and level"""
-    logger.debug("Checking user: {} permissions for actor id: {}".format(user, actor_id))
+def check_permissions(user, identifier, level):
+    """Check the permissions store for user and level. Here, `identifier` is a unique id in the
+    permissions_store; e.g., actor db_id or alias_id.
+    """
+    logger.debug("Checking user: {} permissions for identifier: {}".format(user, identifier))
     # get all permissions for this actor
-    permissions = get_permissions(actor_id)
+    permissions = get_permissions(identifier)
     for p_user, p_name in permissions.items():
         # if the actor has been shared with the WORLD_USER anyone can use it
         if p_user == WORLD_USER:
-            logger.info("Allowing request - actor has been shared with the WORLD_USER.")
+            logger.info("Allowing request - {} has been shared with the WORLD_USER.".format(identifier))
             return True
         # otherwise, check if the permission belongs to this user and has the necessary level
         if p_user == user:
             p_pem = codes.PermissionLevel(p_name)
             if p_pem >= level:
-                logger.info("Allowing request - user has appropriate permission with the actor.")
+                logger.info("Allowing request - user has appropriate permission with {}.".format(identifier))
                 return True
             else:
                 # we found the permission for the user but it was insufficient; return False right away
-                logger.info("Found permission {}, rejecting request.".format(level))
+                logger.info("Found permission {} for {}, rejecting request.".format(level, identifier))
                 return False
     # didn't find the user or world_user, return False
-    logger.info("user had no permissions for actor. Actor's permissions: {}".format(permissions))
+    logger.info("user had no permissions for {}. Permissions found: {}".format(identifier, permissions))
     return False
+
 
 def get_db_id():
     """Get the db_id from the request path."""
+    # logger.debug("top of get_db_id. request.path: {}".format(request.path))
     path_split = request.path.split("/")
     if len(path_split) < 3:
         logger.error("Unrecognized request -- could not find the actor id. path_split: {}".format(path_split))
         raise PermissionsException("Not authorized.")
-    actor_id = path_split[2]
+    # logger.debug("path_split: {}".format(path_split))
+    actor_identifier = path_split[2]
+    # logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    try:
+        actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
+    except KeyError:
+        logger.info("Unrecoginzed actor_identifier: {}. Actor not found".format(actor_identifier))
+        raise ResourceError("Actor with identifier '{}' not found".format(actor_identifier), 404)
+    except Exception as e:
+        msg = "Unrecognized exception trying to resolve actor identifier: {}; " \
+              "exception: {}".format(actor_identifier, e)
+        logger.error(msg)
+        raise ResourceError(msg)
     logger.debug("actor_id: {}".format(actor_id))
     return Actor.get_dbid(g.tenant, actor_id)
+
+def get_alias_id():
+    """Get the alias from the request path."""
+    path_split = request.path.split("/")
+    if len(path_split) < 4:
+        logger.error("Unrecognized request -- could not find the alias. path_split: {}".format(path_split))
+        raise PermissionsException("Not authorized.")
+    alias = path_split[3]
+    logger.debug("alias: {}".format(alias))
+    return Alias.generate_alias_id(g.tenant, alias)
 
 def get_tenant_verify(tenant):
     """Return whether to turn on SSL verification."""
@@ -414,8 +486,12 @@ def get_uid_gid_homedir(actor, user, tenant):
     try:
         use_tas = Config.get('workers', '{}_use_tas_uid'.format(tenant))
     except configparser.NoOptionError:
-        logger.debug("no use_tas_uid config.")
-        use_tas = False
+        logger.debug("no {}_use_tas_uid config.".format(tenant))
+        try:
+            use_tas = Config.get('workers', 'use_tas_uid')
+        except configparser.NoOptionError:
+            logger.debug("no use_tas_uid config.".format(tenant))
+            use_tas = 'false'
     if hasattr(use_tas, 'lower'):
         use_tas = use_tas.lower() == 'true'
     else:

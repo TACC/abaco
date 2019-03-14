@@ -1,60 +1,96 @@
 ---
 
-mongo:
-    extends:
-        file: docker-compose-local-db.yml
-        service: mongo
+version: "2"
 
-redis:
-    extends:
-        file: docker-compose-local-db.yml
-        service: redis
+networks:
+    abaco:
+        driver: bridge
 
-rabbit:
-    extends:
-        file: docker-compose-local-db.yml
-        service: rabbit
+services:
+    mongo:
+        extends:
+            file: docker-compose-local-db.yml
+            service: mongo
+        networks:
+            - abaco
 
+    redis:
+        extends:
+            file: docker-compose-local-db.yml
+            service: redis
+        networks:
+            - abaco
 
-nginx:
-    extends:
-        file: docker-compose-local.yml
-        service: nginx
+    rabbit:
+        extends:
+            file: docker-compose-local-db.yml
+            service: rabbit
+        networks:
+            - abaco
 
-reg:
-    extends:
-        file: docker-compose-local.yml
-        service: reg
+    nginx:
+        extends:
+            file: docker-compose-local.yml
+            service: nginx
+        networks:
+            - abaco
 
-mes:
-    extends:
-        file: docker-compose-local.yml
-        service: mes
+    reg:
+        extends:
+            file: docker-compose-local.yml
+            service: reg
+        networks:
+            - abaco
 
-#metrics:
-#    extends:
-#        file: docker-compose-local.yml
-#        service: metrics
+    mes:
+        extends:
+            file: docker-compose-local.yml
+            service: mes
+        networks:
+            - abaco
 
-admin:
-    extends:
-        file: docker-compose-local.yml
-        service: admin
+    metrics:
+        extends:
+            file: docker-compose-local.yml
+            service: metrics
+        networks:
+            - abaco
 
-# uncomment to run the client generation
-clientg:
-    extends:
-        file: docker-compose-local.yml
-        service: clientg
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
+    admin:
+        extends:
+            file: docker-compose-local.yml
+            service: admin
+        networks:
+            - abaco
 
-spawner:
-    extends:
-        file: docker-compose-local.yml
-        service: spawner
+    clientg:
+        extends:
+            file: docker-compose-local.yml
+            service: clientg
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+        networks:
+            - abaco
 
-health:
-    extends:
-        file: docker-compose-local.yml
-        service: health
+    default_spawner:
+        extends:
+            file: docker-compose-local.yml
+            service: spawner
+        networks:
+            - abaco
+
+    special_spawner:
+        extends:
+            file: docker-compose-local.yml
+            service: spawner
+        environment:
+            queue: special
+        networks:
+            - abaco
+
+    health:
+        extends:
+            file: docker-compose-local.yml
+            service: health
+        networks:
+            - abaco

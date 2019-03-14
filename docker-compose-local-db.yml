@@ -1,26 +1,28 @@
 ---
 
-mongo:
-    image: mongo
-    ports:
-        - "27017:27017"
-#    uncomment to add auth
-#    command: --auth
+version: "2"
+services:
+    mongo:
+        image: mongo
+        ports:
+            - "27017:27017"
+    #    uncomment to add auth
+    #    command: --auth
 
-rabbit:
-    image: rabbitmq:3.5.3-management
-    ports:
-        - "5672:5672"
-        - "15672:15672"
-    environment:
-       RABBITMQ_NODENAME: abaco-rabbit
+    rabbit:
+        image: rabbitmq:3.5.3-management
+        ports:
+            - "5672:5672"
+            - "15672:15672"
+        environment:
+           RABBITMQ_NODENAME: abaco-rabbit
 
-redis:
-    image: redis
-    ports:
-        - "6379:6379"
-# -- uncomment to add auth
-#    volumes:
-#        - ./redis.conf:/etc/redis.conf
-#    command: redis-server /etc/redis.conf --appendonly yes
-# --
+    redis:
+        image: redis
+        ports:
+            - "6379:6379"
+    # -- uncomment to add auth
+    #    volumes:
+    #        - ./redis.conf:/etc/redis.conf
+    #    command: redis-server /etc/redis.conf --appendonly yes
+    # --

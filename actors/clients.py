@@ -23,7 +23,16 @@ class ClientGenerator(object):
 
     def __init__(self):
         self.secret = os.environ.get('_abaco_secret')
-        self.ch = ClientsChannel()
+        ready = False
+        i = 0
+        while not ready:
+            try:
+                self.ch = ClientsChannel()
+                ready = True
+            except RuntimeError as e:
+                i = i + 1
+                if i > 10:
+                    raise e
         self.credentials = {}
         for tenant in get_tenants():
             self.credentials[tenant] = {'username': os.environ.get('_abaco_{}_username'.format(tenant), ''),
@@ -46,13 +55,16 @@ class ClientGenerator(object):
         verify = get_tenant_verify(tenant)
         # generate an Agave client set up for admin_password representing the actor owner:
         logger.info("Attempting to generate an agave client.")
-        return api_server,\
-               Agave(api_server=api_server,
-                     username=username,
-                     password=password,
-                     token_username=actor_owner,
-                     verify=verify)
-
+        try:
+            return api_server, Agave(api_server=api_server,
+                                     username=username,
+                                     password=password,
+                                     token_username=actor_owner,
+                                     verify=verify)
+        except Exception as e:
+            msg = "Got exception trying to instantiate Agave object; exception: {}".format(e)
+            logger.error(msg)
+            raise ClientException(msg)
 
     def run(self):
         """
@@ -118,8 +130,15 @@ class ClientGenerator(object):
 
     def generate_client(self, cmd, owner):
         """Generate an Agave OAuth client whose name is equal to the worker_id that will be using said client."""
+        logger.debug("top of generate_client(); cmd: {}; owner: {}".format(cmd, owner))
         api_server, ag = self.get_agave(cmd['tenant'], actor_owner=owner)
-        ag.clients.create(body={'clientName': cmd['worker_id']})
+        logger.debug("Got agave object; now generating OAuth client.")
+        try:
+            ag.clients.create(body={'clientName': cmd['worker_id']})
+        except Exception as e:
+            msg = "clientg got exception trying to create OAuth client; exception: {}".format(e)
+            logger.error(e)
+            raise ClientException(msg)
         # note - the client generates tokens representing the user who registered the actor
         logger.info("ag.clients.create successful.")
         return api_server,\

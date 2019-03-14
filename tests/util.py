@@ -16,6 +16,9 @@ def headers():
 def priv_headers():
     return get_jwt_headers('/tests/jwt-abaco_privileged')
 
+def limited_headers():
+    return get_jwt_headers('/tests/jwt-abaco_limited')
+
 def get_jwt_headers(file_path='/tests/jwt-abaco_admin'):
     with open(file_path, 'r') as f:
         jwt_default = f.read()
@@ -61,6 +64,7 @@ def response_format(rsp):
     assert 'message' in data.keys()
     assert 'status' in data.keys()
     assert 'version' in data.keys()
+    return data
 
 def basic_response_checks(rsp, check_tenant=True):
     assert rsp.status_code in [200, 201]
