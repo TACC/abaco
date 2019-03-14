@@ -384,6 +384,8 @@ class Alias(AbacoDAO):
 
     # the following nouns cannot be used for an alias as they
     RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin']
+    FORBIDDEN_CHAR = [':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
+
 
     @classmethod
     def generate_alias_id(cls, tenant, alias):
@@ -396,11 +398,20 @@ class Alias(AbacoDAO):
                                   "The following reserved words cannot be used "
                                   "for an alias: {}.".format(self.alias, Alias.RESERVED_WORDS))
 
+    def check_forbidden_char(self):
+        for char in Alias.FORBIDDEN_CHAR:
+            if char in self.alias:
+                raise errors.DAOError("'{}' is a forbidden character. "
+                                      "The following characters cannot be used "
+                                      "for an alias: ['{}'].".format(char, "', '".join(Alias.FORBIDDEN_CHAR)))
+
     def check_and_create_alias(self):
         """Check to see if an alias is unique and create it if so. If not, raises a DAOError."""
 
-        # first, make sure alias is not  a reserved word:
+        # first, make sure alias is not a reserved word:
         self.check_reserved_words()
+        # second, make sure alias is not using a forbidden char:
+        self.check_forbidden_char()
         # attempt to create the alias within a transaction
         obj = alias_store.add_key_val_if_empty(self.alias_id, self)
         if not obj:
@@ -416,7 +427,7 @@ class Alias(AbacoDAO):
         return Alias(**obj)
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/actors/v2/alaises/{}'.format(self.api_server, self.alias),
+        return {'_links': { 'self': '{}/actors/v2/aliases/{}'.format(self.api_server, self.alias),
                             'owner': '{}/profiles/v2/{}'.format(self.api_server, self.owner),
                             'actor': '{}/actors/v2/{}'.format(self.api_server, self.actor_id)
         }}
@@ -446,7 +457,7 @@ class Nonce(AbacoDAO):
          'Permission level associated with this nonce. Default is {}.'.format(EXECUTE), EXECUTE.name),
         ('max_uses', 'optional', 'max_uses', int,
          'Maximum number of times this nonce can be redeemed. Default is unlimited.', -1),
-
+        ('description', 'optional', 'description', str, 'Description of this nonce', ''),
         ('id', 'derived', 'id', str, 'Unique id for this nonce.', None),
         ('actor_id', 'derived', 'actor_id', str, 'The human readable id for the actor associated with this nonce.',
          None),
