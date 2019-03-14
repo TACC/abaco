@@ -1,122 +1,128 @@
 ---
 
-nginx:
-    image: abaco/nginx$TAG
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
-    ports:
-        - "8000:80"
+version: "2"
 
-reg:
-    image: abaco/core$TAG
-    ports:
-        - "5000:5000"
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    environment:
-        server: dev
-        api: reg
-        server: gunicorn
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
+services:
+    nginx:
+        image: abaco/nginx$TAG
+#        image: nginx
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+#            - ./images/nginx/nginx.conf:/etc/nginx/nginx.conf
+#            - ./images/nginx/sites-enabled:/etc/nginx/sites-enabled
+        ports:
+            - "8000:80"
+        restart: always
 
+    reg:
+        image: abaco/core$TAG
+        ports:
+            - "5000:5000"
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        environment:
+            server: dev
+            api: reg
+            server: gunicorn
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
 
-mes:
-    image: abaco/core$TAG
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    ports:
-        - "5001:5000"
-    environment:
-        server: gunicorn
-        api: mes
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
+    mes:
+        image: abaco/core$TAG
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        ports:
+            - "5001:5000"
+        environment:
+            server: gunicorn
+            api: mes
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
 
-#metrics:
-#    image: abaco/core$TAG
-#    volumes:
-#        - ./local-dev.conf:/etc/service.conf
-#        - ./abaco.log:/var/log/service.log
-#    ports:
-#        - "5004:5000"
-#    environment:
-#        server: dev
-#        api: metrics
-#        mongo_password:
-#        redis_password:
-#        TAS_ROLE_ACCT:
-#        TAS_ROLE_PASS:
+    admin:
+        image: abaco/core$TAG
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        ports:
+            - "5003:5000"
+        environment:
+            server: gunicorn
+            api: admin
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
 
+    spawner:
+        image: abaco/core$TAG
+        command: "python3 -u /actors/spawner.py"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        environment:
+            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            _abaco_secret: 123
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+            queue: default
 
-admin:
-    image: abaco/core$TAG
-    volumes:
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    ports:
-        - "5003:5000"
-    environment:
-        server: gunicorn
-        api: admin
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
+    clientg:
+        image: abaco/core$TAG
+        command: "python3 -u /actors/clients.py"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        environment:
+            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            _abaco_secret: 123
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
 
-spawner:
-    image: abaco/core$TAG
-    command: "python3 -u /actors/spawner.py"
-    volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    environment:
-        abaco_conf_host_path: ${abaco_path}/local-dev.conf
-        _abaco_secret: 123
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
+            # add the following pair of credentials for each tenant wanting client generation
+            _abaco_DEV-DEVELOP_username: testotheruser
+            _abaco_DEV-DEVELOP_password: testotheruser
+    #        _abaco_DEV-STAGING_username: abaco1
+    #        _abaco_DEV-STAGING_password: abaco1
 
-clientg:
-    image: abaco/core$TAG
-    command: "python3 -u /actors/clients.py"
-    volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    environment:
-        abaco_conf_host_path: ${abaco_path}/local-dev.conf
-        _abaco_secret: 123
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
+    metrics:
+        image: abaco/core$TAG
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        ports:
+            - "5004:5000"
+        environment:
+            server: dev
+            api: metrics
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
 
-        # add the following pair of credentials for each tenant wanting client generation
-        _abaco_DEV-DEVELOP_username: testotheruser
-        _abaco_DEV-DEVELOP_password: testotheruser
-#        _abaco_DEV-STAGING_username: abaco1
-#        _abaco_DEV-STAGING_password: abaco1
-
-health:
-    image: abaco/core$TAG
-    command: /actors/health_check.sh
-    volumes:
-        - /:/host
-        - /var/run/docker.sock:/var/run/docker.sock
-        - ./local-dev.conf:/etc/service.conf
-        - ./abaco.log:/var/log/service.log
-    environment:
-        abaco_conf_host_path: ${abaco_path}/local-dev.conf
-        mongo_password:
-        redis_password:
-        TAS_ROLE_ACCT:
-        TAS_ROLE_PASS:
+    health:
+        image: abaco/core$TAG
+        command: /actors/health_check.sh
+        volumes:
+            - /:/host
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        environment:
+            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:

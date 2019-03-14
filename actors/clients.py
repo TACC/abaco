@@ -23,7 +23,16 @@ class ClientGenerator(object):
 
     def __init__(self):
         self.secret = os.environ.get('_abaco_secret')
-        self.ch = ClientsChannel()
+        ready = False
+        i = 0
+        while not ready:
+            try:
+                self.ch = ClientsChannel()
+                ready = True
+            except RuntimeError as e:
+                i = i + 1
+                if i > 10:
+                    raise e
         self.credentials = {}
         for tenant in get_tenants():
             self.credentials[tenant] = {'username': os.environ.get('_abaco_{}_username'.format(tenant), ''),

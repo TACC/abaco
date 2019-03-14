@@ -36,7 +36,8 @@ class Spawner(object):
     def __init__(self):
         self.num_workers = int(Config.get('workers', 'init_count'))
         self.secret = os.environ.get('_abaco_secret')
-        self.cmd_ch = CommandChannel()
+        self.queue = os.environ.get('queue', 'default')
+        self.cmd_ch = CommandChannel(name=self.queue)
         self.tot_workers = 0
         try:
             self.host_id = Config.get('spawner', 'host_id')
@@ -331,7 +332,7 @@ def main():
             logger.info("spawner made connection to rabbit, entering main loop")
             logger.info("spawner using abaco_conf_host_path={}".format(os.environ.get('abaco_conf_host_path')))
             sp.run()
-        except rabbitpy.exceptions.ConnectionException:
+        except (rabbitpy.exceptions.ConnectionException, RuntimeError):
             # rabbit seems to take a few seconds to come up
             time.sleep(5)
             idx += 1

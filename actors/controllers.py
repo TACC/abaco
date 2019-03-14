@@ -32,11 +32,11 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
-command_gauge = Gauge('message_count_for_command_channel',
-                      'Number of messages currently in the Command Channel')
 
 clients_gauge = Gauge('clients_count_for_clients_store',
                       'Number of clients currently in the clients_store')
+
+
 
 try:
     ACTOR_MAX_WORKERS = Config.get("spawner", "max_workers_per_actor")
@@ -49,6 +49,7 @@ try:
     num_init_workers = int(Config.get('workers', 'init_count'))
 except:
     num_init_workers = 1
+
 
 class MetricsResource(Resource):
     def get(self):
@@ -65,12 +66,6 @@ class MetricsResource(Resource):
             for db_id, actor
             in actors_store.items() if actor.get('stateless') and not actor.get('status') == 'ERROR'
         ]
-
-        ch = CommandChannel()
-        command_gauge.set(len(ch._queue._queue))
-        logger.debug("METRICS COMMAND CHANNEL size: {}".format(command_gauge._value._value))
-        ch.close()
-        logger.debug("ACTOR IDS: {}".format(actor_ids))
 
         try:
             if actor_ids:
@@ -102,7 +97,7 @@ class MetricsResource(Resource):
             last_metric.update({actor_id: data})
 
             workers = Worker.get_workers(actor_id)
-            actor = actor = actors_store[actor_id]
+            actor = actors_store[actor_id]
             logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
 
             # If this actor has a custom max_workers, use that. Otherwise use default.
@@ -126,7 +121,7 @@ class MetricsResource(Resource):
             # Add a worker if message count reaches a given number
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
-                if metrics_utils.allow_autoscaling(command_gauge._value._value, max_workers, len(workers)):
+                if metrics_utils.allow_autoscaling(max_workers, len(workers)):
                     if current_message_count >= 1:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
@@ -386,6 +381,12 @@ class ActorsResource(Resource):
         parser = Actor.request_parser()
         try:
             args = parser.parse_args()
+            if args['queue']:
+                queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+                valid_queues = queues_list.split(',')
+                if args['queue'] not in valid_queues:
+                    raise BadRequest('Invalid queue name.')
+
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
@@ -398,6 +399,7 @@ class ActorsResource(Resource):
     def post(self):
         logger.info("top of POST to register a new actor.")
         args = self.validate_post()
+
         logger.debug("validate_post() successful")
         args['tenant'] = g.tenant
         args['api_server'] = g.api_server
@@ -496,6 +498,11 @@ class ActorResource(Resource):
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant
+        if args['queue']:
+            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+            valid_queues = queues_list.split(',')
+            if args['queue'] not in valid_queues:
+                raise BadRequest('Invalid queue name.')
         # user can force an update by setting the force param:
         update_image = args.get('force')
         if not update_image and args['image'] == previous_image:
@@ -531,7 +538,8 @@ class ActorResource(Resource):
         logger.info("updated actor {} stored in db.".format(actor_id))
         if update_image:
             worker_ids = [Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)]
-            ch = CommandChannel()
+            # get actor queue name
+            ch = CommandChannel(name=actor.queue)
             ch.put_cmd(actor_id=actor.db_id, worker_ids=worker_ids, image=actor.image, tenant=args['tenant'])
             ch.close()
             logger.debug("put new command on command channel to update actor.")
@@ -1052,7 +1060,7 @@ class WorkersResource(Resource):
                 worker_ids = [Worker.request_worker(tenant=g.tenant,
                                                         actor_id=dbid)]
                 logger.info("New worker id: {}".format(worker_ids[0]))
-                ch = CommandChannel()
+                ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,
                            worker_ids=worker_ids,
                            image=actor.image,

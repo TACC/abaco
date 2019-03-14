@@ -93,22 +93,20 @@ def list_all_containers():
     cli = docker.APIClient(base_url=dd, version="auto")
     # todo -- finish
 
-def container_running(image=None, name=None):
-    """Check if there is a running container for an image.
-    image should be fully qualified; e.g. image='jstubbs/abaco_core'
-    Can pass wildcards in name using * character; e.g. name='abaco_spawner*'
+def container_running(name=None):
+    """Check if there is a running container whose name contains the string, `name`. Note that this function will
+    return True if any running container has a name which contains the input `name`.
+
     """
     logger.debug("top of container_running().")
     filters = {}
     if name:
         filters['name'] = name
-    if image:
-        filters['image'] = image
     cli = docker.APIClient(base_url=dd, version="auto")
     try:
         containers = cli.containers(filters=filters)
     except Exception as e:
-        msg = "There was an error checking container_running for image: {}. Exception: {}".format(image, e)
+        msg = "There was an error checking container_running for name: {}. Exception: {}".format(name, e)
         logger.error(msg)
         raise DockerError(msg)
     logger.debug("found containers: {}".format(containers))
@@ -175,6 +173,15 @@ def run_container_with_docker(image,
     host_config = cli.create_host_config(binds=binds, auto_remove=auto_remove)
     logger.debug("binds: {}".format(binds))
 
+    # add the container to a specific docker network, if configured
+    netconf = None
+    try:
+        docker_network = Config.get('spawner', 'docker_network')
+    except Exception:
+        docker_network = None
+    if docker_network:
+        netconf = cli.create_networking_config({docker_network: cli.create_endpoint_config()})
+
     # create and start the container
     try:
         container = cli.create_container(image=image,
@@ -182,7 +189,8 @@ def run_container_with_docker(image,
                                          volumes=volumes,
                                          host_config=host_config,
                                          command=command,
-                                         name=name)
+                                         name=name,
+                                         networking_config=netconf)
         cli.start(container=container.get('Id'))
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
