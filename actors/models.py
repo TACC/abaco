@@ -447,7 +447,7 @@ class Nonce(AbacoDAO):
          'Permission level associated with this nonce. Default is {}.'.format(EXECUTE), EXECUTE.name),
         ('max_uses', 'optional', 'max_uses', int,
          'Maximum number of times this nonce can be redeemed. Default is unlimited.', -1),
-
+        ('description', 'optional', 'description', str,  'Description of this nonce', ''),
         ('id', 'derived', 'id', str, 'Unique id for this nonce.', None),
         ('actor_id', 'derived', 'actor_id', str, 'The human readable id for the actor associated with this nonce.',
          None),
