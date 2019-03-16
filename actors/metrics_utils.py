@@ -14,28 +14,53 @@ logger = get_logger(__name__)
 
 message_gauges = {}
 worker_gaueges = {}
-
+cmd_channel_gauges = {}
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
 
 MAX_WORKERS_PER_HOST = Config.get('spawner', 'max_workers_per_host')
 
+command_gauge = Gauge(
+    'message_count_for_command_channel',
+    'Number of messages currently in this command channel',
+    ['name'])
 
 def create_gauges(actor_ids):
     logger.debug("METRICS: Made it to create_gauges")
     for actor_id in actor_ids:
-        if actor_id not in message_gauges.keys():
-            try:
-                g = Gauge(
-                    'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                    'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
-                )
-                message_gauges.update({actor_id: g})
-                logger.debug('Created gauge {}'.format(g))
-            except Exception as e:
-                logger.info("got exception trying to instantiate the Gauge: {}".format(e))
-        else:
-            g = message_gauges[actor_id]
 
+        try:
+            actor = actors_store[actor_id]
+
+            # If the actor doesn't have a gauge, add one
+            if actor_id not in message_gauges.keys():
+
+                    g = Gauge(
+                        'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                        'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                    )
+                    message_gauges.update({actor_id: g})
+                    logger.debug('Created gauge {}'.format(g))
+            else:
+                # Otherwise, get this actor's existing gauge
+                g = message_gauges[actor_id]
+
+            # Update this actor's command channel metric
+            channel_name = actor.get("queue")
+
+            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+            valid_queues = queues_list.split(',')
+
+            if not channel_name or channel_name not in valid_queues:
+                channel_name = 'default'
+
+            ch = CommandChannel(name=channel_name)
+            command_gauge.labels(channel_name).set(len(ch._queue._queue))
+            logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge._value._value))
+            ch.close()
+        except Exception as e:
+            logger.info("got exception trying to instantiate the Gauge: {}".format(e))
+
+        # Update this actor's gauge to its current # of messages
         try:
             ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
         except Exception as e:
@@ -45,6 +70,8 @@ def create_gauges(actor_ids):
         ch.close()
         g.set(result['messages'])
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+
+        # add a worker gauge for this actor if one does not exist
         if actor_id not in worker_gaueges.keys():
             try:
                 g = Gauge(
@@ -56,12 +83,17 @@ def create_gauges(actor_ids):
             except Exception as e:
                 logger.info("got exception trying to instantiate the Worker Gauge: {}".format(e))
         else:
+            # Otherwise, get the worker gauge that already exists
             g = worker_gaueges[actor_id]
+
+        # Update this actor's worker IDs
         workers = Worker.get_workers(actor_id)
         result = {'workers': len(workers)}
         g.set(result['workers'])
 
+    # Return actor_ids so we don't have to query for them again later
     return actor_ids
+
 
 def query_message_count_for_actor(actor_id):
     query = {
@@ -92,7 +124,7 @@ def calc_change_rate(data, last_metric, actor_id):
 
 def allow_autoscaling(cmd_q_len, max_workers, num_workers):
 
-    if cmd_q_len > int(MAX_WORKERS_PER_HOST) or cmd_q_len > 5 or int(num_workers) >= int(max_workers):
+    if int(num_workers) >= int(max_workers):
         logger.debug('METRICS NO AUTOSCALE - criteria not met. {} {} '.format(cmd_q_len, num_workers))
         return False
 
@@ -108,7 +140,11 @@ def scale_up(actor_id):
         actor = Actor.from_db(actors_store[actor_id])
         worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
         logger.info("New worker id: {}".format(worker_ids[0]))
-        ch = CommandChannel()
+        if actor.queue:
+            channel_name = actor.queue
+        else:
+            channel_name = 'default'
+        ch = CommandChannel(name=channel_name)
         ch.put_cmd(actor_id=actor.db_id,
                    worker_ids=worker_ids,
                    image=actor.image,
