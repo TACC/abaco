@@ -1029,9 +1029,9 @@ class WorkersResource(Resource):
     def post(self, actor_id):
         """Ensure a certain number of workers are running for an actor"""
         logger.debug("top of POST /actors/{}/workers.".format(actor_id))
-        id = g.db_id
+        dbid = g.db_id
         try:
-            actor = Actor.from_db(actors_store[id])
+            actor = Actor.from_db(actors_store[dbid])
         except KeyError:
             logger.debug("did not find actor: {}.".format(actor_id))
             raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
@@ -1041,8 +1041,7 @@ class WorkersResource(Resource):
         if not num or num == 0:
             logger.debug("did not get a num: {}.".format(actor_id))
             num = 1
-        logger.debug("ensuring at least {} workers. actor: {}.".format(num, actor_id))
-        dbid = Actor.get_dbid(g.tenant, actor_id)
+        logger.debug("ensuring at least {} workers. actor: {}.".format(num, dbid))
         try:
             workers = Worker.get_workers(dbid)
         except WorkerException as e:
