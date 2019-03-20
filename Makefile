@@ -7,18 +7,18 @@ export TAG = :dev
 
 # Builds Docker images to run local-dev (abaco/core, abaco/prom, abaco/nginx, etc.)
 build:
-	# local-dev images
+	### Local Dev Images ###
 	@docker pull abaco/core$$TAG
 	@docker pull abaco/nginx$$TAG
 
-	# db images
+	### Database images ###
 	@docker pull rabbitmq:3.5.3-management
 	@docker pull redis
 	@docker pull mongo
 
-	# non-essential images
-	#@docker pull abaco/prom$$TAG
-	#@docker pull abaco/dashboard
+	### In-Development Images ###
+	@docker pull abaco/prom$$TAG
+	@docker pull abaco/dashboard
 
 # Starts up local environment (docker containers) in daemon mode
 deploy: build
@@ -42,6 +42,7 @@ all-samples:
 		fi \
 	done
 
+# Cleanly remove docker images necessary for local-dev
 clean:
 	@docker-compose down
 
