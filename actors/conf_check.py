@@ -72,8 +72,8 @@ def logs_check():
 def store_check():
     """
     Checks that all section options are set correctly.
-    All section options: 'mongo_host', 'mongo_port', 'redis_hosts',
-    'redis_port', 'mongo_user', 'mongo_password'.
+    All section options: 'mongo_host', 'mongo_port', 'mongo_user',
+    'mongo_password', 'redis_hosts', 'redis_port', 'redis_password'.
     """
     section = 'store'
 
@@ -105,14 +105,16 @@ def rabbit_check():
 def spawner_check():
     """
     Checks that all section options are set correctly.
-    All section options: 'host_id', 'host_ip', 'abaco_conf_host_path',
-    'max_workers_per_host', 'max_workers_per_host', 'max_workers_per_actor'.
+    All section options: 'host_id', 'host_queues', 'host_ip',
+    'abaco_conf_host_path', 'max_workers_per_host', 'max_workers_per_actor',
+    'docker_network'.
     """
     section = 'spawner'
 
     # Raises error for required options
-    req_options = ['host_id', 'host_ip', 'max_workers_per_host',
-                   'max_workers_per_host', 'max_workers_per_actor']
+    req_options = ['host_id', 'host_queues', 'host_ip',
+                   'max_workers_per_host', 'max_workers_per_host',
+                   'max_workers_per_actor']
     for option in req_options:
         if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
@@ -171,13 +173,13 @@ def web_check():
     Checks that all section options are set correctly.
     All section options: 'access_control', 'user_role', 'accept_nonce',
     'tenant_name', 'apim_public_key', 'show_traceback', 'log_ex', 'case',
-    'max_content_length'.
+    'max_content_length', 'all_queues'.
     """
     section = 'web'
 
     # Raises error for required options
     req_options = ['access_control', 'show_traceback', 'log_ex', 'case',
-                   'max_content_length']
+                   'max_content_length', 'all_queues']
     for option in req_options:
         if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
@@ -186,12 +188,11 @@ def web_check():
     if Config.get(section, 'access_control') not in ['jwt', 'none']:
         raise ValueError('{}:{} should be set to jwt or none'.format(section, 'access_control'))
 
-    # Raises error if jwt access control is used and 'user_role' or 'apim_public_key' are not set
+    # Raises error if jwt access control is used and 'apim_public_key' is not set
     if Config.get(section, 'access_control') == 'jwt':
-        for jwt_dep in ['user_role', 'apim_public_key']:
-            if not valexists('web', jwt_dep):
-                raise ValueError("{}:{} must be set if 'access_control' is set to 'jwt'"
-                                 .format(section, jwt_dep))
+        if not valexists('web', 'apim_public_key'):
+            raise ValueError("{}:{} must be set if 'access_control' is set to 'jwt'"
+                             .format(section, 'apim_public_key'))
 
     # Raises error if there is no access control and 'accept_nonce' or 'tenant_name' are not set
     if Config.get(section, 'access_control') == 'none':
@@ -212,6 +213,11 @@ def web_check():
     # Raises error if 'show_traceback' is not set to true or false
     if Config.get(section, 'show_traceback') not in ['true', 'false']:
         raise ValueError('{}:{} should be set to true or false'.format(section, 'show_traceback'))
+
+    host_queues = Config.get('spawner', 'host_queues').replace(',', '').split()
+    all_queues = Config.get('web', 'all_queues').replace(',', '').split()
+    if not set(host_queues).issubset(all_queues):
+        raise ValueError("'spawner:hosts_queues' not subset of 'web:all_queues'.")
 
 def run_all_checks():
     """

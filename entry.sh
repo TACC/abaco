@@ -3,8 +3,7 @@
 # If the python code errors, container will exit. As exit code 1
 # corresponds with error and exit code 0 corresponds with success.
 if ! python3 -u /actors/conf_check.py; then
-	echo "Config error!"
-	echo "Stopping container!"
+	echo "Config error. Stopping Container."
 	exit
 fi
 
