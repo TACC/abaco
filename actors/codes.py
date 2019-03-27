@@ -4,6 +4,7 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 REQUESTED = 'REQUESTED'
+PROCESSING = 'PROCESSING'
 COMPLETE = 'COMPLETE'
 SUBMITTED = 'SUBMITTED'
 READY = 'READY'

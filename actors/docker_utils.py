@@ -62,6 +62,7 @@ def rm_container(cid):
         raise DockerError("Error removing container {}, exception: {}".format(cid, str(e)))
     logger.info("container {} removed.".format(cid))
 
+
 def pull_image(image):
     """
     Update the local registry with an actor's image.

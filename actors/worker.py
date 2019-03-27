@@ -448,6 +448,7 @@ def main(worker_id, image):
 
     # inform spawner that image pulled successfully and, simultaneously,
     # wait to receive message from spawner that it is time to subscribe to the actor channel
+    # TODO - this is where things can hang forever
     logger.debug("Worker waiting on message from spawner...")
     result = spawner_worker_ch.put_sync({'status': 'ok'})
     logger.info("Worker received reply from spawner. result: {}.".format(result))
@@ -503,7 +504,6 @@ if __name__ == '__main__':
     # Worker containers are launched by spawners and spawners pass the initial configuration
     # data for the worker through environment variables.
     logger.info("Inital log for new worker.")
-
     # read channel, worker_id and image from the environment
     worker_id = os.environ.get('worker_id')
     image = os.environ.get('image')

@@ -340,15 +340,22 @@ def check_spawners():
     for queue in host_queues:
         check_spawner(queue)
 
+
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
     logger.info("Entering manage_workers for {}".format(actor_id))
+    logger.info("LOOK HERE - made it to manage_workers")
     try:
         actor = Actor.from_db(actors_store[actor_id])
     except KeyError:
         logger.info("Did not find actor; returning.")
         return
     workers = Worker.get_workers(actor_id)
+    for key in workers:
+        worker = get_worker(key)
+        time_difference = time.time() - worker['create_time']
+        if worker['status'] == 'PROCESSING' and time_difference > 1:
+            logger.info("LOOK HERE - worker creation time {}".format(worker['create_time']))
     #TODO - implement policy
 
 def shutdown_all_workers():
@@ -364,6 +371,7 @@ def shutdown_all_workers():
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
     check_spawners()
+    logger.info("LOOK HERE - made it to health check!")
     try:
         clean_up_ipc_dirs()
     except Exception as e:
@@ -380,8 +388,9 @@ def main():
     ids = get_actor_ids()
     logger.info("Found {} actor(s). Now checking status.".format(len(ids)))
     for id in ids:
+        manage_workers(id)
         check_workers(id, ttl)
-        # manage_workers(id)
+
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
     # check_workers_store(ttl)
 

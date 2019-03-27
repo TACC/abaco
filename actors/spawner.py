@@ -113,6 +113,8 @@ class Spawner(object):
     def process(self, cmd):
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info("Spawner processing new command:{}".format(cmd))
+        logger.info("LOOK HERE - UPDATING WORKER")
+        #TODO UPDATE HERE
         actor_id = cmd['actor_id']
         worker_ids = cmd['worker_ids']
         image = cmd['image']
@@ -121,6 +123,10 @@ class Spawner(object):
         num_workers = cmd.get('num', self.num_workers)
         logger.info("command params: actor_id: {} worker_ids: {} image: {} stop_existing: {} mum_workers: {}".format(
             actor_id, worker_ids, image, tenant, stop_existing, num_workers))
+        for worker_id in worker_ids:
+            worker = Worker.get_worker(actor_id, worker_id)
+            worker['status'] = 'PROCESSING'
+            logger.info("LOOK HERE - WORKER: {}".format(worker['status']))
         try:
             new_channels, anon_channels, new_workers = self.start_workers(actor_id,
                                                                           worker_ids,
