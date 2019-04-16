@@ -22,7 +22,6 @@ services:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
         environment:
-            server: dev
             api: reg
             server: gunicorn
             mongo_password:

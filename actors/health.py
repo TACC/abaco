@@ -13,6 +13,7 @@ import os
 import shutil
 import time
 
+from agaveflask.logs import get_log_file_strategy
 import channelpy
 
 import codes
@@ -298,17 +299,21 @@ def start_spawner(queue, idx='0'):
     """
     command = 'python3 -u /actors/spawner.py'
     name = 'healthg_{}_spawner_{}'.format(queue, idx)
-    environment = {'AE_IMAGE': AE_IMAGE.split(':')[0],
-                   'queue': queue
-                   }
+    environment = os.environ
+    environment.update({'AE_IMAGE': AE_IMAGE.split(':')[0],
+                        'queue': queue,
+    })
     # check logging strategy to determine log file name:
+    log_file = 'abaco.log'
+    if get_log_file_strategy() == 'split':
+        log_file = 'spawner.log'
     try:
         run_container_with_docker(AE_IMAGE,
                                   command,
                                   name=name,
                                   environment=environment,
                                   mounts=[],
-                                  log_file=None)
+                                  log_file=log_file)
     except Exception as e:
         logger.critical("Could not restart spawner for queue {}. Exception: {}".format(queue, e))
 
