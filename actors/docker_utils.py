@@ -15,7 +15,8 @@ logger = get_logger(__name__)
 from channels import ExecutionResultsChannel
 from config import Config
 from codes import BUSY
-from models import Worker, get_current_utc_time
+import globals
+from models import Execution, get_current_utc_time
 
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
 if not TAG[0] == ':':
@@ -327,6 +328,9 @@ def execute_actor(actor_id,
     """
     logger.debug("top of execute_actor(); (worker {};{})".format(worker_id, execution_id))
 
+    # initially set the global force_quit variable to False
+    globals.force_quit = False
+
     # initial stats object, environment, binds and volumes
     result = {'cpu': 0,
               'io': 0,
@@ -490,8 +494,12 @@ def execute_actor(actor_id,
             # to be sure.
     logger.debug("right after attempting to create stats_obj: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                          worker_id, execution_id))
-
-    while running:
+    # a counter of the number of iterations through the main "running" loop;
+    # this counter is used to determine when less frequent actions, such as log aggregation, need to run.
+    loop_idx = 0
+    while running and not globals.force_quit:
+        loop_idx += 1
+        logger.debug("top of while running loop; loop_idx: {}".format(loop_idx))
         datagram = None
         stats = None
         try:
@@ -546,6 +554,12 @@ def execute_actor(actor_id,
                 logger.info("Got KeyError exception trying to grab the io object. "
                             "running: {}; Exception: {}; (worker {};{})".format(running, e, worker_id, execution_id))
 
+        # grab the logs every 5th iteration --
+        if loop_idx % 5 == 0:
+            logs = cli.logs(container.get('Id'))
+            Execution.set_logs(execution_id, logs)
+            logs = None
+
         # checking the container status to see if it is still running ----
         if running:
             logger.debug("about to check container status: {}; (worker {};{})".format(timeit.default_timer(),
@@ -586,10 +600,16 @@ def execute_actor(actor_id,
                 running = False
                 continue
             else:
-                # container still running; check if we are beyond the max_run_time
+                # container still running; check if a force_quit has been sent OR
+                # we are beyond the max_run_time
                 runtime = timeit.default_timer() - start
-                if max_run_time > 0 and max_run_time < runtime:
-                    logger.info("hit runtime limit: {}; (worker {};{})".format(timeit.default_timer(),
+                if globals.force_quit or (max_run_time > 0 and max_run_time < runtime):
+                    logs = cli.logs(container.get('Id'))
+                    if globals.force_quit:
+                        logger.info("issuing force quit: {}; (worker {};{})".format(timeit.default_timer(),
+                                                                               worker_id, execution_id))
+                    else:
+                        logger.info("hit runtime limit: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                worker_id, execution_id))
                     cli.stop(container.get('Id'))
                     running = False
@@ -597,6 +617,7 @@ def execute_actor(actor_id,
                                                                                            worker_id, execution_id))
     logger.info("container stopped:{}; (worker {};{})".format(timeit.default_timer(), worker_id, execution_id))
     stop = timeit.default_timer()
+    globals.force_quit = False
 
     # get info from container execution, including exit code; Exceptions from any of these commands
     # should not cause the worker to shutdown or prevent starting subsequent actor containers.
@@ -621,7 +642,8 @@ def execute_actor(actor_id,
     logger.debug("right after getting container_info: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                  worker_id, execution_id))
     # get logs from container
-    logs = cli.logs(container.get('Id'))
+    if not logs:
+        logs = cli.logs(container.get('Id'))
     if not logs:
         # there are issues where container do not have logs associated with them when they should.
         logger.info("Container id {} had NO logs associated with it. "

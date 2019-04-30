@@ -10,7 +10,7 @@ from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
-from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
+from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import SUBMITTED, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
@@ -772,6 +772,32 @@ class ActorExecutionResource(Resource):
                                                                          actor_id))
             raise ResourceError("Execution not found {}.".format(execution_id))
         return ok(result=exc.display(), msg="Actor execution retrieved successfully.")
+
+    def delete(self, actor_id, execution_id):
+        logger.debug("top of DELETE /actors/{}/executions/{}.".format(actor_id, execution_id))
+        dbid = g.db_id
+        try:
+            excs = executions_store[dbid]
+        except KeyError:
+            logger.debug("did not find executions: {}.".format(actor_id))
+            raise ResourceError("No executions found for actor {}.".format(actor_id))
+        try:
+            exc = Execution.from_db(excs[execution_id])
+        except KeyError:
+            logger.debug("did not find execution: {}. actor: {}.".format(execution_id,
+                                                                         actor_id))
+            raise ResourceError("Execution not found {}.".format(execution_id))
+        # check status of execution:
+        if not exc.status == codes.SUBMITTED:
+            logger.debug("execution not in {} status: {}".format(codes.SUBMITTED, exc.status))
+            raise ResourceError("Cannot force quit an execution not in {} status. "
+                                "Execution was found in status: {}".format(codes.SUBMITTED, exc.status))
+        # send force_quit message to worker:
+        # TODO - should we set the execution status to FORCE_QUIT_REQUESTED?
+        ch = WorkerChannel(worker_id=exc.worker_id)
+        ch.put('force_quit')
+        msg = 'Issued force quit command for execution {}.'.format(execution_id)
+        return ok(result=None, msg=msg)
 
 
 class ActorExecutionResultsResource(Resource):
