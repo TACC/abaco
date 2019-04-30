@@ -479,6 +479,7 @@ def execute_actor(actor_id,
     # timeouts
     ct = 0
     stats_obj = None
+    logs = None
     while ct < 3:
         try:
             stats_obj = stats_cli.stats(container=container.get('Id'), decode=True)
