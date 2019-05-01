@@ -983,10 +983,6 @@ class MessagesResource(Resource):
         if hasattr(g, 'api_server'):
             d['_abaco_api_server'] = g.api_server
             logger.debug("_abaco_api_server: {} added to message.".format(g.api_server))
-        # if hasattr(g, 'jwt'):
-        #     d['_abaco_jwt'] = g.jwt
-        # if hasattr(g, 'jwt_server'):
-        #     d['_abaco_jwt_server'] = g.jwt_server
         if hasattr(g, 'jwt_header_name'):
             d['_abaco_jwt_header_name'] = g.jwt_header_name
             logger.debug("abaco_jwt_header_name: {} added to message.".format(g.jwt_header_name))
