@@ -193,7 +193,7 @@ module, a Python 3-compatible Agave SDK for managing clients.
 The following algorithm is used to start workers with client generation happening when configured accordingly:
 
 1. Spawner receives a message on the Command channel to start one or more new workers.
-2. Spawner starts the worker containers using the configured docker daemon (for now, the local unix socket). It passes the image to use and waits for a message indicating the workers were able to pull the image and start up successfully.
+2. Spawner starts the worker containers using the configured docker daemon (for now, the local unix socket). It passes the image to use and worker_id as environment variables and waits for a message on the SpawnerWorker channel for that worker indicating the workers were able to pull the image and start up successfully.
 3. If the actor already had workers and Spawner was instructed to stop the existing workers, it sends messages to them at this point to shut down.
 4. Spawner checks the `generate_clients` config within the `workers` stanza to see if client generation is enabled.
 5. Spawner sends a message to the clientg agent via the `ClientsChannel` requesting a new client.
