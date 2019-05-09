@@ -121,7 +121,12 @@ def run_container_with_docker(image,
                               auto_remove=False,
                               client_id=None,
                               client_access_token=None,
-                              client_refresh_token=None):
+                              client_refresh_token=None,
+                              actor_id=None,
+                              tenant=None,
+                              api_server=None
+
+):
     """
     Run a container with docker mounted in it.
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().
@@ -163,8 +168,14 @@ def run_container_with_docker(image,
     if 'client_access_token' not in environment:
         environment['client_access_token'] = client_access_token
 
-    if 'client_refresh_token' not in environment:
-        environment['client_refresh_token'] = client_refresh_token
+    if 'actor_id' not in environment:
+        environment['actor_id'] = actor_id
+
+    if 'tenant' not in environment:
+        environment['tenant'] = tenant
+
+    if 'api_server' not in environment:
+        environment['api_server'] = api_server
 
     # if not passed, determine what log file to use
     if not log_file:
@@ -205,6 +216,7 @@ def run_container_with_docker(image,
                                          name=name,
                                          networking_config=netconf)
         cli.start(container=container.get('Id'))
+        logger.info('LOOK HERE - container successfully created! ')
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
         logger.info(msg)
@@ -213,7 +225,14 @@ def run_container_with_docker(image,
     return container
 
 
-def run_worker(image, actor_id, worker_id, client_id, client_access_token, client_refresh_token, tenant):
+def run_worker(image,
+               actor_id,
+               worker_id,
+               client_id,
+               client_access_token,
+               client_refresh_token,
+               tenant,
+               api_server):
     """
     Run an actor executor worker with a given channel and image.
     :return:

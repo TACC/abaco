@@ -3,6 +3,11 @@ from config import Config
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
+SPAWNER_SETUP = 'SPAWNER SETUP'
+PULLING_IMAGE = 'PULLING IMAGE'
+CREATING_CONTAINER = 'CREATING CONTAINER'
+UPDATING_STORE = 'UPDATING STORE'
+
 REQUESTED = 'REQUESTED'
 PROCESSING = 'PROCESSING'
 COMPLETE = 'COMPLETE'

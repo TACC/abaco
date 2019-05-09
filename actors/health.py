@@ -349,7 +349,6 @@ def check_spawners():
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
     logger.info("Entering manage_workers for {}".format(actor_id))
-    logger.info("LOOK HERE - made it to manage_workers")
     try:
         actor = Actor.from_db(actors_store[actor_id])
     except KeyError:
@@ -376,7 +375,6 @@ def shutdown_all_workers():
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
     check_spawners()
-    logger.info("LOOK HERE - made it to health check!")
     try:
         clean_up_ipc_dirs()
     except Exception as e:

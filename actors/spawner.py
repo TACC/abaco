@@ -321,6 +321,7 @@ class Spawner(object):
         client_id = None
         client_access_token = None
         client_refresh_token = None
+        api_server = None
         generate_clients = Config.get('workers', 'generate_clients').lower()
         if generate_clients == "true":
             try:
@@ -343,7 +344,8 @@ class Spawner(object):
                 client_id,
                 client_access_token,
                 client_refresh_token,
-                ch
+                ch,
+                api_server
             )
             logger.info('LOOK HERE - made it out of start_worker')
             ch.close()
@@ -439,6 +441,7 @@ class Spawner(object):
                     client_access_token,
                     client_refresh_token,
                     tenant,
+                    api_server
 
                 )
                 logger.info('LOOK HERE - finished run worker')
@@ -471,7 +474,7 @@ class Spawner(object):
         ch.put('READY')  # TODO - check this
         logger.info('LOOK HERE - sent message through channel')
         worker = Worker(tenant=tenant, **worker_dict)
-        Worker.update_status(actor_id, worker_id, READY)
+        Worker.update_worker_status(actor_id, worker_id, READY)
         # TODO - spawner updates worker db with worker object and status = READY
         # TODO - send message to worker on spawnerworker channel telling worker to subscribe to actor channel
         return worker  #only send ch if ^ this doesn't happen # or some additional stuff

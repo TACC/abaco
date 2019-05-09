@@ -144,7 +144,7 @@ def subscribe(tenant,
     """
     logger.debug("Top of subscribe().")
     actor_ch = ActorMsgChannel(actor_id)
-
+    logger.info(f"LOOK HERE - made it to subscribe - actor ID: {actor_id}")
     try:
         leave_containers = Config.get('workers', 'leave_containers')
     except configparser.NoOptionError:
@@ -185,7 +185,7 @@ def subscribe(tenant,
     t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag))
     t.start()
     logger.info("Worker subscribing to actor channel.")
-
+    logger.info("LOOK HERE - starting subscribe process")
     # keep track of whether we need to update the worker's status back to READY; otherwise, we
     # will hit redis with an UPDATE every time the subscription loop times out (i.e., every 2s)
     update_worker_status = True
@@ -196,17 +196,22 @@ def subscribe(tenant,
 
     # main subscription loop -- processing messages from actor's mailbox
     while keep_running:
+        logger.info("LOOK HERE - made it to keep_running")
         if update_worker_status:
             Worker.update_worker_status(actor_id, worker_id, READY)
+            logger.info("LOOK HERE - updated worker status to READY in SUBSCRIBE")
             update_worker_status = False
         try:
             msg, msg_obj = actor_ch.get_one()
+            logger.info("LOOK HERE - made it to 206")
         except channelpy.ChannelClosedException:
+            logger.info("LOOK HERE - EXITING ")
             logger.info("Channel closed, worker exiting...")
             keep_running = False
             sys.exit()
         logger.info("worker {} processing new msg.".format(worker_id))
 
+        logger.info("LOOK HERE - made it to 212")
         try:
             Worker.update_worker_status(actor_id, worker_id, BUSY)
         except Exception as e:
@@ -332,6 +337,7 @@ def subscribe(tenant,
         else:
             logger.info("Agave client `ag` is None -- not passing access token.")
         logger.info("Passing update environment: {}".format(environment))
+        logger.info("LOOK HERE - about to execute actor")
         try:
             stats, logs, final_state, exit_code, start_time = execute_actor(actor_id,
                                                                             worker_id,
@@ -381,7 +387,7 @@ def subscribe(tenant,
             break
         # ack the message
         msg_obj.ack()
-
+        logger.info("LOOK HERE - container finished successfully ")
         # Add the completed stats to the execution
         logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
         Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)
@@ -463,11 +469,10 @@ def main(worker_id, image):
     #     logger.error("Worker received error message from spawner: {}. Quiting...".format(str(result)))
     #     raise WorkerException(str(result))
 
-    actor_id = result.get('actor_id')
-    tenant = result.get('tenant')
-    logger.info("Worker received ok from spawner. Message: {}, actor_id:{}".format(result, actor_id))
-    api_server = None
-    client_secret = None
+    # actor_id = result.get('actor_id')
+    # tenant = result.get('tenant')
+    # api_server = None
+    # client_secret = None
     logger.info('LOOK HERE - about to update status')
     # if result.get('client') == 'yes':
     #     logger.info("Got client: yes, result: {}".format(result))
@@ -478,6 +483,7 @@ def main(worker_id, image):
     #     refresh_token = result.get('refresh_token')
     # else:
     #     logger.info("Did not get client:yes, got result:{}".format(result))
+    actor_id = os.environ.get('actor_id', None)
     try:
         Actor.set_status(actor_id, READY, status_message=" ")
     except KeyError:
@@ -489,6 +495,10 @@ def main(worker_id, image):
     client_id = os.environ.get('client_id', None)
     client_access_token = os.environ.get('client_access_token', None)
     client_refresh_token = os.environ.get('client_access_token', None)
+
+    tenant = os.environ.get('tenant', None)
+    api_server = os.environ.get('api_server', None)
+    client_secret = os.environ.get('client_secret', None)
 
     logger.info("Actor status set to READY. subscribing to inbox.")
     worker_ch = WorkerChannel(worker_id=worker_id)
