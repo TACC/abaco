@@ -299,7 +299,13 @@ def start_spawner(queue, idx='0'):
     """
     command = 'python3 -u /actors/spawner.py'
     name = 'healthg_{}_spawner_{}'.format(queue, idx)
-    environment = os.environ
+
+    try:
+        environment = dict(os.environ)
+    except Exception as e:
+        environment = {}
+        logger.error("Unable to convert environment to dict; exception: {}".format(e))
+
     environment.update({'AE_IMAGE': AE_IMAGE.split(':')[0],
                         'queue': queue,
     })
