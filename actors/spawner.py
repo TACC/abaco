@@ -59,7 +59,11 @@ class Spawner(object):
             # directly ack the messages from the command channel; problems generated from starting workers are
             # handled downstream; e.g., by setting the actor in an ERROR state; command messages should not be re-queued
             msg_obj.ack()
-            self.process(cmd)
+            try:
+                self.process(cmd)
+            except Exception as e:
+                logger.error("spawner got an exception trying to process cmd: {}. "
+                             "Exception type: {}. Exception: {}".format(cmd, type(e), e))
 
     def get_tot_workers(self):
         logger.debug("top of get_tot_workers")
@@ -107,6 +111,8 @@ class Spawner(object):
                     ch.put('stop-no-delete')
                     logger.info("Sent 'stop-no-delete' message to worker_id: {}".format(worker['id']))
                     ch.close()
+                else:
+                    logger.debug("skipping worker {} as it it not in worker_ids.".format(worker))
         else:
             logger.info("No workers to stop.")
 
@@ -302,9 +308,18 @@ class Spawner(object):
 
     def error_out_actor(self, actor_id, worker_id, message):
         """In case of an error, put the actor in error state and kill all workers"""
+        logger.debug("top of error_out_actor for worker: {}_{}".format(actor_id, worker_id))
         Actor.set_status(actor_id, ERROR, status_message=message)
+        # first we try to stop workers using the "graceful" approach -
+        try:
+            self.stop_workers(actor_id, worker_ids=[])
+            logger.info("Spawner just stopped worker {}_{} in error_out_actor".format(actor_id, worker_id))
+            return
+        except Exception as e:
+            logger.error("spawner got exception trying to run stop_workers. Exception: {}".format(e))
         try:
             self.kill_worker(actor_id, worker_id)
+            logger.info("Spawner just killed worker {}_{} in error_out_actor".format(actor_id, worker_id))
         except DockerError as e:
             logger.info("Received DockerError trying to kill worker: {}. Exception: {}".format(worker_id, e))
             logger.info("Spawner will continue on since this is exception processing.")
