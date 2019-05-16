@@ -363,6 +363,85 @@ class AliasResource(Resource):
         return ok(result=None, msg='Alias {} deleted successfully.'.format(alias))
 
 
+class AliasNoncesResource(Resource):
+    """Manage nonces for an alias"""
+
+    def get(self, alias):
+        logger.debug("top of GET /actors/aliases/{}/nonces".format(alias))
+        dbid = g.db_id
+        nonces = Nonce.get_nonces(actor_id=None, alias=alias)
+        return ok(result=[n.display() for n in nonces], msg="Alias nonces retrieved successfully.")
+
+    def post(self, alias):
+        """Create a new nonce for an alias."""
+        logger.debug("top of POST /actors/aliases/{}/nonces".format(alias))
+        dbid = g.db_id
+        args = self.validate_post()
+        logger.debug("nonce post args validated: {}.".format(alias))
+
+        # supply "provided" fields:
+        args['tenant'] = g.tenant
+        args['api_server'] = g.api_server
+        args['alias'] = alias
+        args['owner'] = g.user
+        args['roles'] = g.roles
+
+        # create and store the nonce:
+        nonce = Nonce(**args)
+        logger.debug("able to create nonce object: {}".format(nonce))
+        Nonce.add_nonce(actor_id=None, alias=alias, nonce=nonce)
+        logger.info("nonce added for alias: {}.".format(alias))
+        return ok(result=nonce.display(), msg="Alias nonce created successfully.")
+
+    def validate_post(self):
+        parser = Nonce.request_parser()
+        try:
+            args = parser.parse_args()
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            raise DAOError("Invalid nonce description: {}".format(msg))
+        # additional checks
+        if 'level' in args:
+            if not args['level'] in PERMISSION_LEVELS:
+                raise DAOError("Invalid nonce description. "
+                               "The level attribute must be one of: {}".format(PERMISSION_LEVELS))
+        if Config.get('web', 'case') == 'snake':
+            if 'max_uses' in args:
+                self.validate_max_uses(args['max_uses'])
+        else:
+            if 'maxUses' in args:
+                self.validate_max_uses(args['maxUses'])
+        return args
+
+    def validate_max_uses(self, max_uses):
+        try:
+            m = int(max_uses)
+        except Exception:
+            raise DAOError("The max uses parameter must be an integer.")
+        if m ==0 or m < -1:
+            raise DAOError("The max uses parameter must be a positive integer or -1 "
+                           "(to denote unlimited uses).")
+
+
+class AliasNonceResource(Resource):
+    """Manage a specific nonce for an alias"""
+
+    def get(self, alias, nonce_id):
+        """Lookup details about a nonce."""
+        logger.debug("top of GET /actors/aliases/{}/nonces/{}".format(alias, nonce_id))
+        nonce = Nonce.get_nonce(actor_id=None, alias=alias, nonce_id=nonce_id)
+        return ok(result=nonce.display(), msg="Alias nonce retrieved successfully.")
+
+    def delete(self, alias, nonce_id):
+        """Delete a nonce."""
+        logger.debug("top of DELETE /actors/aliases/{}/nonces/{}".format(alias, nonce_id))
+        dbid = g.db_id
+        Nonce.delete_nonce(actor_id=None, alias=alias, nonce_id=nonce_id)
+        return ok(result=None, msg="Alias nonce deleted successfully.")
+
+
 class ActorsResource(Resource):
 
     def get(self):
@@ -683,7 +762,7 @@ class ActorNoncesResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/nonces".format(actor_id))
         dbid = g.db_id
-        nonces = Nonce.get_nonces(actor_id=dbid)
+        nonces = Nonce.get_nonces(actor_id=dbid, alias=None)
         return ok(result=[n.display() for n in nonces], msg="Actor nonces retrieved successfully.")
 
     def post(self, actor_id):
@@ -702,7 +781,7 @@ class ActorNoncesResource(Resource):
 
         # create and store the nonce:
         nonce = Nonce(**args)
-        Nonce.add_nonce(dbid, nonce)
+        Nonce.add_nonce(actor_id=dbid, alias=None, nonce=nonce)
         logger.info("nonce added for actor: {}.".format(actor_id))
         return ok(result=nonce.display(), msg="Actor nonce created successfully.")
 
@@ -745,14 +824,14 @@ class ActorNonceResource(Resource):
         """Lookup details about a nonce."""
         logger.debug("top of GET /actors/{}/nonces/{}".format(actor_id, nonce_id))
         dbid = g.db_id
-        nonce = Nonce.get_nonce(actor_id=dbid, nonce_id=nonce_id)
+        nonce = Nonce.get_nonce(actor_id=dbid, alias=None, nonce_id=nonce_id)
         return ok(result=nonce.display(), msg="Actor nonce retrieved successfully.")
 
     def delete(self, actor_id, nonce_id):
         """Delete a nonce."""
         logger.debug("top of DELETE /actors/{}/nonces/{}".format(actor_id, nonce_id))
         dbid = g.db_id
-        Nonce.delete_nonce(dbid, nonce_id)
+        Nonce.delete_nonce(actor_id=dbid, alias=None, nonce_id=nonce_id)
         return ok(result=None, msg="Actor nonce deleted successfully.")
 
 
