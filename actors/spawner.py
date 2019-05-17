@@ -181,15 +181,14 @@ class Spawner(object):
                     client_ch.close()
                     return
                 client_ch.close()
-                # we need to ignore errors when generating clients because it's possible it is not set up for a specific
-                # tenant. we log it instead.
+                # changed - 4/2019: we now put the actor in an error state if we are not able to generate a client,
+                # actor executions that rely on the token can fail unexpectedly.
                 if client_msg.get('status') == 'error':
                     logger.error("Error generating client: {}".format(client_msg.get('message')))
-                    channel.put({'status': 'ok',
-                                 'actor_id': actor_id,
-                                 'tenant': tenant,
-                                 'client': 'no'})
-                    logger.debug("Sent OK message over anonymous worker channel.")
+                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
+                                                              "worker for this actor. System administrators have been notified.")
+                    client_ch.close()
+                    return
                 # else, client was generated successfully:
                 else:
                     logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],

@@ -16,6 +16,7 @@ from codes import ERROR, READY, BUSY, COMPLETE
 from config import Config
 from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
+import globals
 from models import Actor, Execution, Worker
 from stores import actors_store, workers_store
 
@@ -78,9 +79,15 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                 # NOT doing this for now -- deleting entire anon channel instead (see above)
                 # clean up the event queue on this anonymous channel. this should be fixed in channelpy.
                 # ch._queue._event_queue
+        elif msg == 'force_quit':
+            logger.info("Worker with worker_id: {} (actor_id: {}) received a force_quit message, "
+                        "forcing the execution to halt...".format(worker_id, actor_id))
+            globals.force_quit = True
+
         elif msg == 'stop' or msg == 'stop-no-delete':
             logger.info("Worker with worker_id: {} (actor_id: {}) received stop message, "
                         "stopping worker...".format(worker_id, actor_id))
+            globals.keep_running = False
 
             # when an actor's image is updated, old workers are deleted while new workers are
             # created. Deleting the actor msg channel in this case leads to race conditions
@@ -117,7 +124,6 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                 logger.info("Got WorkerException from delete_worker(). "
                             "worker_id: {}"
                             "Exception: {}".format(worker_id, e))
-            keep_running = False
             # delete associated channels:
             if delete_actor_ch:
                 actor_ch.delete()
@@ -126,7 +132,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
             logger.info("Worker with worker_id: {} is now exiting.".format(worker_id))
             _thread.interrupt_main()
             logger.info("main thread interrupted.")
-            os._exit()
+            os._exit(0)
 
 def subscribe(tenant,
               actor_id,
@@ -190,12 +196,11 @@ def subscribe(tenant,
     # will hit redis with an UPDATE every time the subscription loop times out (i.e., every 2s)
     update_worker_status = True
 
-    # shared global tracking whether this worker should keep running; shared between this thread and
-    # the "worker channel processing" thread.
-    global keep_running
+    # global tracks whether this worker should keep running.
+    globals.keep_running = True
 
     # main subscription loop -- processing messages from actor's mailbox
-    while keep_running:
+    while globals.keep_running:
         logger.info("LOOK HERE - made it to keep_running")
         if update_worker_status:
             Worker.update_worker_status(actor_id, worker_id, READY)
@@ -207,7 +212,7 @@ def subscribe(tenant,
         except channelpy.ChannelClosedException:
             logger.info("LOOK HERE - EXITING ")
             logger.info("Channel closed, worker exiting...")
-            keep_running = False
+            globals.keep_running = False
             sys.exit()
         logger.info("worker {} processing new msg.".format(worker_id))
 
@@ -247,7 +252,7 @@ def subscribe(tenant,
             socket_host_path_dir = Config.get('workers', 'socket_host_path_dir')
         except (configparser.NoSectionError, configparser.NoOptionError) as e:
             logger.error("No socket_host_path configured. Cannot manage results data. Nacking message")
-            Actor.set_status(actor_id, ERROR, msg="Abaco instance not configured for results data.")
+            Actor.set_status(actor_id, ERROR, status_message="Abaco instance not configured for results data.")
             msg_obj.nack(requeue=True)
             raise e
         socket_host_path = '{}.sock'.format(os.path.join(socket_host_path_dir, worker_id, execution_id))
@@ -264,7 +269,7 @@ def subscribe(tenant,
                 fifo_host_path_dir = Config.get('workers', 'fifo_host_path_dir')
             except (configparser.NoSectionError, configparser.NoOptionError) as e:
                 logger.error("No fifo_host_path configured. Cannot manage binary data.")
-                Actor.set_status(actor_id, ERROR, msg="Abaco instance not configured for binary data. Nacking message.")
+                Actor.set_status(actor_id, ERROR, status_message="Abaco instance not configured for binary data. Nacking message.")
                 msg_obj.nack(requeue=True)
                 raise e
             fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
@@ -404,8 +409,8 @@ def subscribe(tenant,
             # it is possible that this worker was sent a gracful shutdown command in the other thread
             # and that spawner has already removed this worker from the store.
             logger.info("worker {} got unexpected key error trying to update its execution time. "
-                        "Worker better be shutting down! keep_running: {}".format(worker_id, keep_running))
-            if keep_running:
+                        "Worker better be shutting down! keep_running: {}".format(worker_id, globals.keep_running))
+            if globals.keep_running:
                 logger.error("worker couldn't update's its execution time but keep_running is still true!")
 
         logger.info("worker time stamps updated.")
