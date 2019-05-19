@@ -152,7 +152,10 @@ class AbacoDAO(DbDict):
                     logger.debug("required missing field: {}. ".format(pname))
                     raise errors.DAOError("Required field {} missing.".format(pname))
             elif source == 'optional':
-                value = kwargs.get(pname, default)
+                try:
+                    value = kwargs[pname]
+                except KeyError:
+                    value = kwargs.get(pname, default)
             elif source == 'provided':
                 try:
                     value = kwargs[pname]
@@ -393,6 +396,13 @@ class Alias(AbacoDAO):
         """Generate the alias id from the alias name and tenant."""
         return '{}_{}'.format(tenant, alias)
 
+    @classmethod
+    def generate_alias_from_id(cls, alias_id):
+        """Generate the alias id from the alias name and tenant."""
+        # assumes the format of the alias_id is {tenant}_{alias} where {tenant} does NOT have an underscore (_) char
+        # in it -
+        return alias_id[alias_id.find('_')+1:]
+
     def check_reserved_words(self):
         if self.alias in Alias.RESERVED_WORDS:
             raise errors.DAOError("{} is a reserved word. "
@@ -461,9 +471,9 @@ class Nonce(AbacoDAO):
         ('description', 'optional', 'description', str, 'Description of this nonce', ''),
       
         ('id', 'derived', 'id', str, 'Unique id for this nonce.', None),
-        ('actor_id', 'optional', 'actor_id', str, 'The human readable id for the actor associated with this nonce.',
+        ('actor_id', 'derived', 'actor_id', str, 'The human readable id for the actor associated with this nonce.',
          None),
-        ('alias', 'optional', 'alias', str, 'The alias associated with this nonce.', None),
+        ('alias', 'derived', 'alias', str, 'The alias id associated with this nonce.', None),
         ('create_time', 'derived', 'create_time', str, 'Time stamp (UTC) when this nonce was created.', None),
         ('last_use_time', 'derived', 'last_use_time', str, 'Time stamp (UTC) when thic nonce was last redeemed.', None),
         ('current_uses', 'derived', 'current_uses', int, 'Number of times this nonce has been redeemed.', 0),
@@ -495,12 +505,17 @@ class Nonce(AbacoDAO):
         # either an alias or a db_id must be passed, but not both -
         try:
             self.db_id = d['db_id']
+            self.alias = None
         except KeyError:
             try:
                 self.alias = d['alias']
+                self.db_id = None
+                self.actor_id = None
             except KeyError:
                 logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
                 raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+        if self.alias and self.db_id:
+            raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters present.")
         try:
             self.owner = d['owner']
         except KeyError:
@@ -516,6 +531,7 @@ class Nonce(AbacoDAO):
         self.id = self.get_nonce_id(self.tenant, self.get_uuid())
 
         # derive the actor_id from the db_id if this is an actor nonce:
+        logger.debug("inside get_derived_value for nonce; name={}; d={}".format(name, d))
         if self.db_id:
             self.actor_id = Actor.get_display_id(self.tenant, self.db_id)
 
@@ -547,6 +563,10 @@ class Nonce(AbacoDAO):
         self.update(self.get_hypermedia())
         self.pop('db_id')
         self.pop('tenant')
+        alias_id = self.pop('alias')
+        if alias_id:
+            alias_st = Alias.generate_alias_from_id(alias_id=alias_id)
+            self['alias'] = alias_st
         time_str = self.pop('create_time')
         self['create_time'] = display_time(time_str)
         time_str = self.pop('last_use_time')

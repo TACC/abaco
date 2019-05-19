@@ -157,7 +157,7 @@ def test_register_actor(headers):
     assert result['id'] is not None
 
 
-@pytest.mark.regapi
+@pytest.mark.aliastest
 def test_register_alias_actor(headers):
     url = '{}/{}'.format(base_url, '/actors')
     data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_alias'}
@@ -444,8 +444,7 @@ def check_actor_is_ready(headers, actor_id=None):
 def test_basic_actor_is_ready(headers):
     check_actor_is_ready(headers)
 
-
-@pytest.mark.regapi
+@pytest.mark.aliastest
 def test_alias_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     check_actor_is_ready(headers, actor_id)
@@ -455,8 +454,6 @@ def test_alias_actor_is_ready(headers):
 def test_stateless_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_statelesss')
     check_actor_is_ready(headers, actor_id)
-
-
 
 @pytest.mark.regapi
 def test_default_env_actor_is_ready(headers):
@@ -996,6 +993,31 @@ def test_get_actor_executions_with_alias(headers):
     assert actor_id in result['_links']['self']
     assert 'executions' in result
 
+@pytest.mark.aliastest
+def test_create_unlimited_alias_nonce(headers):
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
+    # passing no data to the POST should use the defaults for a nonce:
+    # unlimited uses and EXECUTE level
+    rsp = requests.post(url, headers=headers)
+    result = basic_response_checks(rsp)
+    check_nonce_fields(result, alias=ALIAS_1, level='EXECUTE', max_uses=-1, current_uses=0, remaining_uses=-1)
+
+@pytest.mark.aliastest
+def test_redeem_unlimted_alias_nonce(headers):
+    # first, get the nonce id:
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    nonce_id = result[0].get('id')
+    # sanity check that alias can be used to get the actor
+    url = '{}/actors/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    basic_response_checks(rsp)
+    # use the nonce-id and the alias to list the actor
+    url = '{}/actors/{}?x-nonce={}'.format(base_url, ALIAS_1, nonce_id)
+    # no JWT header -- we're using the nonce
+    rsp = requests.get(url)
+    basic_response_checks(rsp)
 
 @pytest.mark.aliastest
 def test_owner_can_delete_alias(headers):
@@ -1029,7 +1051,7 @@ def test_other_user_can_delete_shared_alias(headers):
 # nonce API
 # ################
 
-def check_nonce_fields(nonce, actor_id=None, nonce_id=None,
+def check_nonce_fields(nonce, actor_id=None, alias=None, nonce_id=None,
                        current_uses=None, max_uses=None, remaining_uses=None, level=None, owner=None):
     """Basic checks of the nonce object returned from the API."""
     nid = nonce.get('id')
@@ -1045,11 +1067,13 @@ def check_nonce_fields(nonce, actor_id=None, nonce_id=None,
     if level:
         assert nonce.get('level') == level
     assert nonce.get('roles')
+    if alias:
+        assert nonce.get('alias') == alias
 
     # case-specific checks:
     if case == 'snake':
-        assert nonce.get('actor_id')
         if actor_id:
+            assert nonce.get('actor_id')
             assert nonce.get('actor_id') == actor_id
         assert nonce.get('api_server')
         assert nonce.get('create_time')
@@ -1064,8 +1088,8 @@ def check_nonce_fields(nonce, actor_id=None, nonce_id=None,
         if remaining_uses:
             assert nonce.get('remaining_uses') == remaining_uses
     else:
-        assert nonce.get('actorId')
         if actor_id:
+            assert nonce.get('actorId')
             assert nonce.get('actorId') == actor_id
         assert nonce.get('apiServer')
         assert nonce.get('createTime')
@@ -1231,7 +1255,6 @@ def test_invalid_method_get_nonce(headers):
     rsp = requests.post(url, headers=headers)
     assert rsp.status_code == 405
     response_format(rsp)
-
 
 
 # ################

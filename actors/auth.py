@@ -103,13 +103,14 @@ def check_nonce():
     if is_hashid(actor_identifier):
         Nonce.check_and_redeem_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id, level=level)
     else:
-        Nonce.check_and_redeem_nonce(actor_id=None, alias=actor_identifier, nonce_id=nonce_id, level=level)
+        alias_id = Alias.generate_alias_id(tenant=g.tenant, alias=actor_identifier)
+        Nonce.check_and_redeem_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id, level=level)
     # if we were able to redeem the nonce, update auth context with the actor owner data:
     logger.debug("nonce valid and redeemed.")
     if is_hashid(actor_identifier):
         nonce = Nonce.get_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id)
     else:
-        nonce = Nonce.get_nonce(actor_id=None, alias=actor_identifier, nonce_id=nonce_id)
+        nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
     g.user = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = nonce.roles
