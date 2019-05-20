@@ -514,6 +514,13 @@ class Nonce(AbacoDAO):
             except KeyError:
                 logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
                 raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+        if not self.db_id:
+            try:
+                self.alias = d['alias']
+                self.actor_id = None
+            except KeyError:
+                logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
+                raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
         if self.alias and self.db_id:
             raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters present.")
         try:
@@ -531,7 +538,7 @@ class Nonce(AbacoDAO):
         self.id = self.get_nonce_id(self.tenant, self.get_uuid())
 
         # derive the actor_id from the db_id if this is an actor nonce:
-        logger.debug("inside get_derived_value for nonce; name={}; d={}".format(name, d))
+        logger.debug("inside get_derived_value for nonce; name={}; d={}; self={}".format(name, d, self))
         if self.db_id:
             self.actor_id = Actor.get_display_id(self.tenant, self.db_id)
 
