@@ -95,6 +95,7 @@ class CommandChannel(Channel):
         if num:
             msg['num'] = num
         self.put(msg)
+        #TODO make it 1 always - change signature
 
 
 class BinaryChannel(BasicChannel):

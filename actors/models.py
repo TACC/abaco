@@ -1044,6 +1044,9 @@ class Worker(AbacoDAO):
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_status().")
+        # TODO add check for valid state transition - set correct ERROR
+        # get worker's current status and then do V this separately
+        # this is not threadsafe
         try:
             workers_store.update_subfield(actor_id, worker_id, 'status', status)
         except Exception as e:

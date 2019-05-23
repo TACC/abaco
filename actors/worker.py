@@ -433,33 +433,28 @@ def get_container_user(actor):
         user = '{}:{}'.format(uid, gid)
     return user
 
-def main(worker_id, image):
+def main():
     """
     Main function for the worker process.
 
     This function
     """
-    logger.info("Entering main() for worker: {}, image: {}".format(
+    worker_id = os.environ.get('worker_id')
+    image = os.environ.get('image')
+    actor_id = os.environ.get('actor_id')
+
+    client_id = os.environ.get('client_id', None)
+    client_access_token = os.environ.get('client_access_token', None)
+    client_refresh_token = os.environ.get('client_access_token', None)
+    tenant = os.environ.get('tenant', None)
+    api_server = os.environ.get('api_server', None)
+    client_secret = os.environ.get('client_secret', None)
+
+    # TODO - add all vars in this log statement
+    logger.info("Top of main() for worker: {}, image: {}".format(
         worker_id, image))
     spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
 
-    # first, attempt to pull image from docker hub:
-    # VVVVV MOVED TO SPAWNER.PY VVVVV
-    # try:
-    #     logger.info("Worker pulling image {}...".format(image))
-    #     pull_image(image)
-    # except DockerError as e:
-    #     # return a message to the spawner that there was an error pulling image and abort
-    #     # this is not necessarily an error state: the user simply could have provided an
-    #     # image name that does not exist in the registry. This is the first time we would
-    #     # find that out.
-    #     logger.info("worker got a DockerError trying to pull image. Error: {}.".format(e))
-    #     spawner_worker_ch.put({'status': 'error', 'msg': str(e)})
-    #     raise e
-    # logger.info("Image {} pulled successfully.".format(image))
-
-    # inform spawner that image pulled successfully and, simultaneously,
-    # wait to receive message from spawner that it is time to subscribe to the actor channel
     logger.debug("Worker waiting on message from spawner...")
     result = spawner_worker_ch.get()
     logger.info(f"LOOK HERE - got result {result}")
@@ -469,26 +464,15 @@ def main(worker_id, image):
     # to open it.
     spawner_worker_ch.close()
     logger.info('LOOK HERE - closed channel')
-    # if not result:
-    #     # we do not expect to get an error response at this point. this needs investigation
-    #     logger.error("Worker received error message from spawner: {}. Quiting...".format(str(result)))
-    #     raise WorkerException(str(result))
 
-    # actor_id = result.get('actor_id')
-    # tenant = result.get('tenant')
-    # api_server = None
-    # client_secret = None
     logger.info('LOOK HERE - about to update status')
-    # if result.get('client') == 'yes':
-    #     logger.info("Got client: yes, result: {}".format(result))
-    #     api_server = result.get('api_server')
-    #     client_id = result.get('client_id')
-    #     client_secret = result.get('client_secret')
-    #     access_token = result.get('access_token')
-    #     refresh_token = result.get('refresh_token')
-    # else:
-    #     logger.info("Did not get client:yes, got result:{}".format(result))
-    actor_id = os.environ.get('actor_id', None)
+
+    if not client_id:
+        logger.info("Did not get client id.")
+    else:
+        logger.info("Got a client.")
+        # TODO - list all client vars
+
     try:
         Actor.set_status(actor_id, READY, status_message=" ")
     except KeyError:
@@ -497,13 +481,6 @@ def main(worker_id, image):
         # as usual should allow this process to work as expected.
         pass
     logger.info('LOOK HERE - updated actor status')
-    client_id = os.environ.get('client_id', None)
-    client_access_token = os.environ.get('client_access_token', None)
-    client_refresh_token = os.environ.get('client_access_token', None)
-
-    tenant = os.environ.get('tenant', None)
-    api_server = os.environ.get('api_server', None)
-    client_secret = os.environ.get('client_secret', None)
 
     logger.info("Actor status set to READY. subscribing to inbox.")
     worker_ch = WorkerChannel(worker_id=worker_id)
@@ -524,9 +501,5 @@ if __name__ == '__main__':
     # data for the worker through environment variables.
     logger.info("Inital log for new worker.")
 
-    # read channel, worker_id and image from the environment
-    worker_id = os.environ.get('worker_id')
-    image = os.environ.get('image')
-
     # call the main() function:
-    main(worker_id, image)
+    main()

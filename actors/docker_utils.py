@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 from channels import ExecutionResultsChannel
 from config import Config
-from codes import BUSY
+from codes import BUSY, READY
 import globals
 from models import Execution, get_current_utc_time
 
@@ -125,14 +125,14 @@ def run_container_with_docker(image,
                               client_refresh_token=None,
                               actor_id=None,
                               tenant=None,
-                              api_server=None
+                              api_server=None,
+                              client_secret=None
 
 ):
     """
     Run a container with docker mounted in it.
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().
     """
-    # TODO - add client stuff somewhere here
     logger.debug("top of run_container_with_docker().")
     cli = docker.APIClient(base_url=dd, version="auto")
 
@@ -177,6 +177,12 @@ def run_container_with_docker(image,
 
     if 'api_server' not in environment:
         environment['api_server'] = api_server
+
+    if 'client_secret' not in environment:
+        environment['client_secret'] = client_secret
+
+    if 'client_refresh_token' not in environment:
+        environment['client_refresh_token'] = client_refresh_token
 
     # if not passed, determine what log file to use
     if not log_file:
@@ -233,7 +239,8 @@ def run_worker(image,
                client_access_token,
                client_refresh_token,
                tenant,
-               api_server):
+               api_server,
+               client_secret):
     """
     Run an actor executor worker with a given channel and image.
     :return:
@@ -299,10 +306,8 @@ def run_worker(image,
             client_refresh_token=client_refresh_token,
             actor_id=actor_id,
             tenant=tenant,
-            api_server=api_server
-
-            # TODO - add here
-
+            api_server=api_server,
+            client_secret=client_secret
     )
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
@@ -312,7 +317,7 @@ def run_worker(image,
              'location': dd,
              'id': worker_id,
              'cid': container.get('Id'),
-             'status': BUSY, #TODO - change this?
+             'status': READY,
              'host_id': host_id,
              'host_ip': host_ip,
              'last_execution_time': 0,
