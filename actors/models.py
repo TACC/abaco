@@ -152,7 +152,10 @@ class AbacoDAO(DbDict):
                     logger.debug("required missing field: {}. ".format(pname))
                     raise errors.DAOError("Required field {} missing.".format(pname))
             elif source == 'optional':
-                value = kwargs.get(pname, default)
+                try:
+                    value = kwargs[pname]
+                except KeyError:
+                    value = kwargs.get(pname, default)
             elif source == 'provided':
                 try:
                     value = kwargs[pname]
@@ -393,6 +396,13 @@ class Alias(AbacoDAO):
         """Generate the alias id from the alias name and tenant."""
         return '{}_{}'.format(tenant, alias)
 
+    @classmethod
+    def generate_alias_from_id(cls, alias_id):
+        """Generate the alias id from the alias name and tenant."""
+        # assumes the format of the alias_id is {tenant}_{alias} where {tenant} does NOT have an underscore (_) char
+        # in it -
+        return alias_id[alias_id.find('_')+1:]
+
     def check_reserved_words(self):
         if self.alias in Alias.RESERVED_WORDS:
             raise errors.DAOError("{} is a reserved word. "
@@ -463,6 +473,7 @@ class Nonce(AbacoDAO):
         ('id', 'derived', 'id', str, 'Unique id for this nonce.', None),
         ('actor_id', 'derived', 'actor_id', str, 'The human readable id for the actor associated with this nonce.',
          None),
+        ('alias', 'derived', 'alias', str, 'The alias id associated with this nonce.', None),
         ('create_time', 'derived', 'create_time', str, 'Time stamp (UTC) when this nonce was created.', None),
         ('last_use_time', 'derived', 'last_use_time', str, 'Time stamp (UTC) when thic nonce was last redeemed.', None),
         ('current_uses', 'derived', 'current_uses', int, 'Number of times this nonce has been redeemed.', 0),
@@ -491,11 +502,27 @@ class Nonce(AbacoDAO):
         except KeyError:
             logger.error("The nonce controller did not pass api_server to the Nonce model.")
             raise errors.DAOError("Could not instantiate nonce: api_server parameter missing.")
+        # either an alias or a db_id must be passed, but not both -
         try:
             self.db_id = d['db_id']
+            self.alias = None
         except KeyError:
-            logger.error("The nonce controller did not pass db_id to the Nonce model.")
-            raise errors.DAOError("Could not instantiate nonce: db_id parameter missing.")
+            try:
+                self.alias = d['alias']
+                self.db_id = None
+                self.actor_id = None
+            except KeyError:
+                logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
+                raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+        if not self.db_id:
+            try:
+                self.alias = d['alias']
+                self.actor_id = None
+            except KeyError:
+                logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
+                raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+        if self.alias and self.db_id:
+            raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters present.")
         try:
             self.owner = d['owner']
         except KeyError:
@@ -510,8 +537,10 @@ class Nonce(AbacoDAO):
         # generate a nonce id:
         self.id = self.get_nonce_id(self.tenant, self.get_uuid())
 
-        # derive the actor_id from the db_id
-        self.actor_id = Actor.get_display_id(self.tenant, self.db_id)
+        # derive the actor_id from the db_id if this is an actor nonce:
+        logger.debug("inside get_derived_value for nonce; name={}; d={}; self={}".format(name, d, self))
+        if self.db_id:
+            self.actor_id = Actor.get_display_id(self.tenant, self.db_id)
 
         # time fields
         time_str = get_current_utc_time()
@@ -541,11 +570,25 @@ class Nonce(AbacoDAO):
         self.update(self.get_hypermedia())
         self.pop('db_id')
         self.pop('tenant')
+        alias_id = self.pop('alias')
+        if alias_id:
+            alias_st = Alias.generate_alias_from_id(alias_id=alias_id)
+            self['alias'] = alias_st
         time_str = self.pop('create_time')
         self['create_time'] = display_time(time_str)
         time_str = self.pop('last_use_time')
         self['last_use_time'] = display_time(time_str)
         return self.case()
+
+    @classmethod
+    def get_validate_nonce_key(cls, actor_id, alias):
+        if not actor_id and not alias:
+            raise errors.DAOError('add_nonce did not receive an alias or an actor_id')
+        if actor_id and alias:
+            raise errors.DAOError('add_nonce received both an alias and an actor_id')
+        if actor_id:
+            return actor_id
+        return alias
 
     @classmethod
     def get_tenant_from_nonce_id(cls, nonce_id):
@@ -555,45 +598,49 @@ class Nonce(AbacoDAO):
         return nonce_id.rsplit('_', 1)[0]
 
     @classmethod
-    def get_nonces(cls, actor_id):
+    def get_nonces(cls, actor_id, alias):
         """Retrieve all nonces for an actor. Pass db_id as `actor_id` parameter."""
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonces = nonce_store[actor_id]
+            nonces = nonce_store[nonce_key]
         except KeyError:
             # return an empty Abaco dict if not found
             return AbacoDAO()
         return [Nonce(**nonce) for _, nonce in nonces.items()]
 
     @classmethod
-    def get_nonce(cls, actor_id, nonce_id):
+    def get_nonce(cls, actor_id, alias, nonce_id):
         """Retrieve a nonce for an actor. Pass db_id as `actor_id` parameter."""
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce = nonce_store[actor_id][nonce_id]
+            nonce = nonce_store[nonce_key][nonce_id]
             return Nonce(**nonce)
         except KeyError:
             raise errors.DAOError("Nonce not found.")
 
     @classmethod
-    def add_nonce(cls, actor_id, nonce):
+    def add_nonce(cls, actor_id, alias, nonce):
         """
         Atomically append a new nonce to the nonce_store for an actor. 
         The actor_id parameter should be the db_id and the nonce parameter should be a nonce object
         created from the contructor.
         """
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce_store.update(actor_id, nonce.id, nonce)
-            logger.debug("nonce {} appended to nonces for actor {}".format(nonce.id, actor_id))
+            nonce_store.update(nonce_key, nonce.id, nonce)
+            logger.debug("nonce {} appended to nonces for actor/alias {}".format(nonce.id, nonce_key))
         except KeyError:
-            nonce_store[actor_id] = {nonce.id: nonce}
-            logger.debug("nonce {} added for actor {}".format(nonce.id, actor_id))
+            nonce_store[nonce_key] = {nonce.id: nonce}
+            logger.debug("nonce {} added for actor/alias {}".format(nonce.id, nonce_key))
 
     @classmethod
-    def delete_nonce(cls, actor_id, nonce_id):
+    def delete_nonce(cls, actor_id, alias, nonce_id):
         """Delete a nonce from the nonce_store."""
-        nonce_store.pop_field(actor_id, nonce_id)
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
+        nonce_store.pop_field(nonce_key, nonce_id)
 
     @classmethod
-    def check_and_redeem_nonce(cls, actor_id, nonce_id, level):
+    def check_and_redeem_nonce(cls, actor_id, alias, nonce_id, level):
         """
         Atomically, check for the existence of a nonce for a given actor_id and redeem it if it
         has not expired. Otherwise, raises PermissionsError. 
@@ -602,7 +649,7 @@ class Nonce(AbacoDAO):
             """
             This function can be passed to nonce_store.within_transaction() to atomically check 
             whether a nonce is expired and, if not, redeem a use. The parameter, nonces, should
-            be the value under the key `actor_id` associated with the nonce.
+            be the value under the key `nonce_key` associated with the nonce.
             """
             # first pull the nonce from the nonces parameter
             try:
@@ -622,12 +669,12 @@ class Nonce(AbacoDAO):
                     logger.debug("nonce has infinite uses. updating nonce.")
                     nonce['current_uses'] += 1
                     nonce['last_use_time'] = get_current_utc_time()
-                    nonce_store.update(actor_id, nonce_id, nonce)
+                    nonce_store.update(nonce_key, nonce_id, nonce)
                 elif nonce['remaining_uses'] > 0:
                     logger.debug("nonce still has uses remaining. updating nonce.")
                     nonce['current_uses'] += 1
                     nonce['remaining_uses'] -= 1
-                    nonce_store.update(actor_id, nonce_id, nonce)
+                    nonce_store.update(nonce_key, nonce_id, nonce)
                 else:
                     logger.debug("nonce did not have at least 1 use remaining.")
                     raise errors.PermissionsException("No remaining uses left for this nonce.")
@@ -635,13 +682,14 @@ class Nonce(AbacoDAO):
                 logger.debug("nonce did not have a remaining_uses attribute.")
                 raise errors.PermissionsException("No remaining uses left for this nonce.")
 
-        # first, make sure the nonce exists for the actor id:
+        # first, make sure the nonce exists for the nonce_key:
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce_store[actor_id][nonce_id]
+            nonce_store[nonce_key][nonce_id]
         except KeyError:
             raise errors.PermissionsException("Nonce does not exist.")
         # atomically, check if the nonce is still valid and add a use if so:
-        nonce_store.within_transaction(_transaction, actor_id)
+        nonce_store.within_transaction(_transaction, nonce_key)
 
 
 class Execution(AbacoDAO):

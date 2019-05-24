@@ -94,13 +94,23 @@ def check_nonce():
     g.api_server = get_api_server(g.tenant)
     logger.debug("tenant associated with nonce: {}".format(g.tenant))
     # get the actor_id base on the request path
-    actor_id = get_db_id()
-    logger.debug("db_id: {}".format(actor_id))
+    actor_id, actor_identifier = get_db_id()
+    logger.debug("db_id: {}; actor_identifier: {}".format(actor_id, actor_identifier))
     level = required_level(request)
-    Nonce.check_and_redeem_nonce(actor_id, nonce_id, level)
+
+    # if the actor_identifier is an alias, then the nonce must be attached to that, so we must pass that in the
+    # nonce check:
+    if is_hashid(actor_identifier):
+        Nonce.check_and_redeem_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id, level=level)
+    else:
+        alias_id = Alias.generate_alias_id(tenant=g.tenant, alias=actor_identifier)
+        Nonce.check_and_redeem_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id, level=level)
     # if we were able to redeem the nonce, update auth context with the actor owner data:
     logger.debug("nonce valid and redeemed.")
-    nonce = Nonce.get_nonce(actor_id, nonce_id)
+    if is_hashid(actor_identifier):
+        nonce = Nonce.get_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id)
+    else:
+        nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
     g.user = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = nonce.roles
@@ -137,7 +147,7 @@ def authorization():
     else:
         # every other route should have an actor identifier
         logger.debug("fetching db_id; rule: {}".format(request.url_rule.rule))
-        db_id = get_db_id()
+        db_id, _ = get_db_id()
     g.db_id = db_id
     logger.debug("db_id: {}".format(db_id))
 
@@ -307,7 +317,7 @@ def check_permissions(user, identifier, level):
 
 
 def get_db_id():
-    """Get the db_id from the request path."""
+    """Get the db_id and actor_identifier from the request path."""
     # logger.debug("top of get_db_id. request.path: {}".format(request.path))
     path_split = request.path.split("/")
     if len(path_split) < 3:
@@ -327,7 +337,7 @@ def get_db_id():
         logger.error(msg)
         raise ResourceError(msg)
     logger.debug("actor_id: {}".format(actor_id))
-    return Actor.get_dbid(g.tenant, actor_id)
+    return Actor.get_dbid(g.tenant, actor_id), actor_identifier
 
 def get_alias_id():
     """Get the alias from the request path."""
