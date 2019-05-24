@@ -323,6 +323,7 @@ class Spawner(object):
         Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
         logger.info("LOOK HERE - worker status updated to SPAWNER_SETUP")
         client_id = None
+        client_secret = None
         client_access_token = None
         client_refresh_token = None
         api_server = None
