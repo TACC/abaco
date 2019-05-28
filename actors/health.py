@@ -397,7 +397,7 @@ def main():
     ids = get_actor_ids()
     logger.info("Found {} actor(s). Now checking status.".format(len(ids)))
     for id in ids:
-        manage_workers(id)
+        # manage_workers(id)
         check_workers(id, ttl)
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
