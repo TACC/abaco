@@ -447,7 +447,7 @@ def main():
 
     client_id = os.environ.get('client_id', None)
     client_access_token = os.environ.get('client_access_token', None)
-    client_refresh_token = os.environ.get('client_access_token', None)
+    client_refresh_token = os.environ.get('client_refresh_token', None)
     tenant = os.environ.get('tenant', None)
     api_server = os.environ.get('api_server', None)
     client_secret = os.environ.get('client_secret', None)
