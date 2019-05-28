@@ -41,7 +41,7 @@ class Token(object):
         logger.debug("top of _token")
         auth = requests.auth.HTTPBasicAuth(self.api_key, self.api_secret)
         logger.debug("about to make POST request for token; URL: {}; "
-                     "data: {}; auth: {}".format(self.token_url, data, auth))
+                     "data: {}; auth: {}:{}".format(self.token_url, data, self.api_key, self.api_secret))
         resp = requests.post(self.token_url, data=data, auth=auth,
                              verify=self.verify)
         logger.debug("made request for token; rsp: {}".format(resp))
