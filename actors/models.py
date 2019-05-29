@@ -335,10 +335,9 @@ class Actor(AbacoDAO):
                 worker_id))
             ch = CommandChannel(name=self.queue)
             ch.put_cmd(actor_id=self.db_id,
-                       worker_ids=worker_ids,
+                       worker_id=worker_ids,
                        image=self.image,
                        tenant=self.tenant,
-                       num=1,
                        stop_existing=False)
             ch.close()
             return worker_ids
@@ -1043,8 +1042,23 @@ class Worker(AbacoDAO):
     @classmethod
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
-        logger.debug("top of update_worker_status().")
+        logger.debug("LOOK HERE top of update_worker_status().")
         # TODO add check for valid state transition - set correct ERROR
+        # REQUESTED -> SPAWNER_SETUP
+        # SPAWNER_SETUP -> PULLING_IMAGE
+        # PULLING_IMAGE -> CREATING_CONTAINER
+        # CREATING_CONTAINER -> UPDATING_STORE
+        # UPDATING_STORE -> READY
+        # READY -> BUSY -> READY ... etc
+
+
+        prev_status = workers_store[actor_id][worker_id]['status']
+
+        
+
+        worker = workers_store[actor_id][worker_id]
+        logger.info(f"LOOK HERE Worker status will be changed from {worker['status']} to {status}")
+
         # get worker's current status and then do V this separately
         # this is not threadsafe
         try:
@@ -1052,7 +1066,7 @@ class Worker(AbacoDAO):
         except Exception as e:
             logger.error("Got exception trying to update worker {} subfield status to {}; "
                          "e: {}; type(e)".format(worker_id, status, e, type(e)))
-        logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
+        logger.info("LOOK HERE worker status updated to: {}. worker_id: {}".format(status, worker_id))
 
     def get_uuid_code(self):
         """ Return the Agave code for this object.

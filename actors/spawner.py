@@ -310,12 +310,12 @@ class Spawner(object):
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info("LOOK HERE - Spawner processing new command:{}".format(cmd))
         actor_id = cmd['actor_id']
-        worker_id = cmd['worker_ids'][0]
+        worker_id = cmd['worker_id'][0]
         image = cmd['image']
         tenant = cmd['tenant']
         stop_existing = cmd.get('stop_existing', True)
-        num_workers = cmd.get('num', self.num_workers) #TODO this should be 1 - clean up
-        logger.info("LOOK HERE command params: actor_id: {} worker_ids: {} image: {} stop_existing: {} mum_workers: {}".format(
+        num_workers = 1
+        logger.info("LOOK HERE command params: actor_id: {} worker_ids: {} image: {} stop_existing: {} num_workers: {}".format(
             actor_id, worker_id, image, tenant, stop_existing, num_workers))
         logger.info("LOOK HERE - getting worker")
 
@@ -326,6 +326,7 @@ class Spawner(object):
         client_access_token = None
         client_refresh_token = None
         api_server = None
+        client_secret = None
 
         # First, get oauth clients for the worker
         generate_clients = Config.get('workers', 'generate_clients').lower()
