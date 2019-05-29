@@ -337,4 +337,4 @@ Prometheus works by doing a GET request to the `/metrics` endpoint of Abaco, whi
 6. Prometheus scrapes the `/metrics` endpoint and saves the metrics data to its time-series database. 
 
 Prometheus has some configuration files, found in the prometheus directory. Here, there is also a Dockerfile. The autoscaling feature uses a separate docker-compose file, `docker-compose-prom`.
-=======
+
