@@ -201,6 +201,7 @@ The following algorithm is used to start workers with client generation happenin
 7. Spawner updates worker store with container ID and status of READY
 8. Spawner sends a message on the spawnerworker channel (which only the worker is subscribed to) to let it know that it is ready.
 
+Each worker goes through different states, depending on where it is in the creation process. A finite state machine can be used to describe these states: 
 ![Worker State Diagram](https://github.com/TACC/abaco/blob/worker-management/docs/worker-state-diagram.png "Worker State diagram")
 
 
