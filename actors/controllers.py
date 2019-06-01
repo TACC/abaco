@@ -1285,7 +1285,6 @@ class WorkersResource(Resource):
                            worker_ids=worker_ids,
                            image=actor.image,
                            tenant=g.tenant,
-                           num=1,
                            stop_existing=False)
             ch.close()
             logger.info("Message put on command channel for new worker ids: {}".format(worker_ids))

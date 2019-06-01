@@ -149,7 +149,6 @@ def scale_up(actor_id):
                    worker_ids=worker_ids,
                    image=actor.image,
                    tenant=tenant,
-                   num=1,
                    stop_existing=False)
         ch.close()
         logger.debug('METRICS Added worker successfully for {}'.format(actor_id))

@@ -65,7 +65,6 @@ def minimal_test():
                worker_ids=worker_ids,
                image=actor.image,
                tenant=actor.tenant,
-               num=1,
                stop_existing=False)
 
     # send a message to the actor's inbox
