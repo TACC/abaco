@@ -100,19 +100,29 @@ def check_execution_details(result, actor_id, exc_id):
     assert 'runtime' in result
 
 
-def execute_actor(headers, actor_id, data=None, json_data=None, binary=None):
+def execute_actor(headers, actor_id, data=None, json_data=None, binary=None, synchronous=False):
     url = '{}/actors/{}/messages'.format(base_url, actor_id)
-    #
-    # actor_id = get_actor_id(headers)
-    # data = {'message': 'testing execution'}
+    params = {}
+    if synchronous:
+        # url += '?_abaco_synchronous=true'
+        params = {'_abaco_synchronous': 'true'}
     if data:
-        rsp = requests.post(url, data=data, headers=headers)
+        rsp = requests.post(url, data=data, headers=headers, params=params)
     elif json_data:
-        rsp = requests.post(url, json=json_data, headers=headers)
+        rsp = requests.post(url, json=json_data, headers=headers, params=params)
     elif binary:
-        rsp = requests.post(url, data=binary, headers=headers)
+        rsp = requests.post(url, data=binary, headers=headers, params=params)
     else:
         raise Exception # invalid
+    # in the synchronous case, the result should be the actual execution result logs
+    if synchronous:
+        assert rsp.status_code in [200]
+        logs = rsp.content.decode()
+        assert logs is not None
+        print("synchronous logs: {}".format(logs))
+        assert 'Contents of MSG' in logs
+        return None
+    # asynchronous case -----
     result = basic_response_checks(rsp)
     if data:
         assert data.get('message') in result.get('msg')

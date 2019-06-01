@@ -9,5 +9,5 @@ sleep 30 #120
 while :
 do
     python3 -u /actors/health.py
-    sleep 20 # 600
+    sleep 600  #20
 done
