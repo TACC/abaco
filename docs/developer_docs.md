@@ -315,9 +315,10 @@ Making requests to the local development stack is easy using the requests librar
 
 ```shell
 >>> from util import *
+>>> hs = get_jwt_headers()
 >>> import requests
->>> requests.get('{}/actors'.format(base_url), headers=headers).json()
->>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=headers).json()
+>>> requests.get('{}/actors'.format(base_url), headers=hs).json()
+>>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=hs).json()
 
 ```
 Auto-Scaling
