@@ -247,28 +247,28 @@ def check_workers(actor_id, ttl):
             logger.info("Worker ok.")
 
         # now check if the worker has been idle beyond the ttl:
-        # if ttl < 0:
-        #     # ttl < 0 means infinite life
-        #     logger.info("Infinite ttl configured; leaving worker")
-        #     return
-        # # we don't shut down workers that are currently running:
-        # if not worker['status'] == codes.BUSY:
-        #     last_execution = int(float(worker.get('last_execution_time', 0)))
-        #     # if worker has made zero executions, use the create_time
-        #     if last_execution == 0:
-        #         last_execution = worker.get('create_time', 0)
-        #     logger.debug("using last_execution: {}".format(last_execution))
-        #     try:
-        #         last_execution = int(float(last_execution))
-        #     except:
-        #         logger.error("Could not case last_execution {} to int(float()".format(last_execution))
-        #         last_execution = 0
-        #     if last_execution + ttl < time.time():
-        #         # shutdown worker
-        #         logger.info("Shutting down worker beyond ttl.")
-        #         shutdown_worker(worker['id'])
-        #     else:
-        #         logger.info("Still time left for this worker.")
+        if ttl < 0:
+            # ttl < 0 means infinite life
+            logger.info("Infinite ttl configured; leaving worker")
+            return
+        # we don't shut down workers that are currently running:
+        if not worker['status'] == codes.BUSY:
+            last_execution = int(float(worker.get('last_execution_time', 0)))
+            # if worker has made zero executions, use the create_time
+            if last_execution == 0:
+                last_execution = worker.get('create_time', 0)
+            logger.debug("using last_execution: {}".format(last_execution))
+            try:
+                last_execution = int(float(last_execution))
+            except:
+                logger.error("Could not case last_execution {} to int(float()".format(last_execution))
+                last_execution = 0
+            if last_execution + ttl < time.time():
+                # shutdown worker
+                logger.info("Shutting down worker beyond ttl.")
+                shutdown_worker(worker['id'])
+            else:
+                logger.info("Still time left for this worker.")
 
         if worker['status'] == codes.ERROR:
             # shutdown worker
@@ -397,7 +397,7 @@ def main():
     ids = get_actor_ids()
     logger.info("Found {} actor(s). Now checking status.".format(len(ids)))
     for id in ids:
-        manage_workers(id)
+        # manage_workers(id)
         check_workers(id, ttl)
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects

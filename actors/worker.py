@@ -136,6 +136,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
 
 def subscribe(tenant,
               actor_id,
+              image,
               worker_id,
               api_server,
               client_id,
@@ -380,7 +381,8 @@ def subscribe(tenant,
             break
         except Exception as e:
             logger.error("Worker {} got an unexpected exception trying to run actor for execution: {}."
-                         "Putting the actor in error status and shutting down workers. Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
+                         "Putting the actor in error status and shutting down workers. "
+                         "Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
             Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
             # the execute_actor function raises a DockerStartContainerError if it met an exception before starting the
             # actor container; if the container was started, then another exception should be raised. Therefore,
@@ -445,7 +447,7 @@ def main():
 
     client_id = os.environ.get('client_id', None)
     client_access_token = os.environ.get('client_access_token', None)
-    client_refresh_token = os.environ.get('client_access_token', None)
+    client_refresh_token = os.environ.get('client_refresh_token', None)
     tenant = os.environ.get('tenant', None)
     api_server = os.environ.get('api_server', None)
     client_secret = os.environ.get('client_secret', None)
@@ -486,6 +488,7 @@ def main():
     worker_ch = WorkerChannel(worker_id=worker_id)
     subscribe(tenant,
               actor_id,
+              image,
               worker_id,
               api_server,
               client_id,

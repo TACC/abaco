@@ -193,12 +193,17 @@ module, a Python 3-compatible Agave SDK for managing clients.
 The following algorithm is used to start workers with client generation happening when configured accordingly:
 
 1. Spawner receives a message on the Command channel to start one or more new workers.
-2. Spawner starts the worker containers using the configured docker daemon (for now, the local unix socket). It passes the image to use and worker_id as environment variables and waits for a message on the SpawnerWorker channel for that worker indicating the workers were able to pull the image and start up successfully.
-3. If the actor already had workers and Spawner was instructed to stop the existing workers, it sends messages to them at this point to shut down.
-4. Spawner checks the `generate_clients` config within the `workers` stanza to see if client generation is enabled.
-5. Spawner sends a message to the clientg agent via the `ClientsChannel` requesting a new client.
-6. Clientg responds to Spawner with a message containing the client key and secret, access token, and refresh token if client generation was successful.
-7. Once all workers have responded healthy and all clients have been generated, Spawner sends a final message to each worker instructing them to subscribe to the actor mailbox channel. This message will contain the client credentials and tokens if those were generated.
+2. Spawner checks the `generate_clients` config within the `workers` stanza to see if client generation is enabled.
+3. Spawner sends a message to the clientg agent via the `ClientsChannel` requesting a new client.
+4. Clientg responds to Spawner with a message containing the client key and secret, access token, and refresh token if client generation was successful.
+5. Spawner pulls the docker image
+6. Spawner starts the worker containers using the configured docker daemon (for now, the local unix socket). It passes the image to use and worker_id as environment variables and waits for a message on the SpawnerWorker channel for that worker indicating the workers were able to pull the image and start up successfully.
+7. Spawner updates worker store with container ID and status of READY
+8. Spawner sends a message on the spawnerworker channel (which only the worker is subscribed to) to let it know that it is ready.
+
+Each worker goes through different states, depending on where it is in the creation process. A finite state machine can be used to describe these states: 
+![Worker State Diagram](https://github.com/TACC/abaco/blob/worker-management/docs/worker-state-diagram.png "Worker State diagram")
+
 
 Dependence on Docker Version
 ----------------------------
@@ -315,9 +320,10 @@ Making requests to the local development stack is easy using the requests librar
 
 ```shell
 >>> from util import *
+>>> hs = get_jwt_headers()
 >>> import requests
->>> requests.get('{}/actors'.format(base_url), headers=headers).json()
->>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=headers).json()
+>>> requests.get('{}/actors'.format(base_url), headers=hs).json()
+>>> requests.post('{}/actors'.format(base_url), data={'image': 'abacosamples/py3_func:dev'}, headers=hs).json()
 
 ```
 Auto-Scaling
@@ -337,4 +343,4 @@ Prometheus works by doing a GET request to the `/metrics` endpoint of Abaco, whi
 6. Prometheus scrapes the `/metrics` endpoint and saves the metrics data to its time-series database. 
 
 Prometheus has some configuration files, found in the prometheus directory. Here, there is also a Dockerfile. The autoscaling feature uses a separate docker-compose file, `docker-compose-prom`.
-=======
+

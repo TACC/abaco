@@ -222,6 +222,18 @@ def test_register_actor_func(headers):
     assert result['name'] == 'abaco_test_suite_func'
     assert result['id'] is not None
 
+@pytest.mark.regapi
+def test_register_actor_sleep_loop(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/sleep_loop', 'name': 'abaco_test_suite_sleep_loop'}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testuser'
+    assert result['image'] == 'abacosamples/sleep_loop'
+    assert result['name'] == 'abaco_test_suite_sleep_loop'
+    assert result['id'] is not None
 
 @pytest.mark.regapi
 def test_invalid_method_get_actor(headers):
@@ -466,6 +478,10 @@ def test_func_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_func')
     check_actor_is_ready(headers, actor_id)
 
+@pytest.mark.regapi
+def test_sleep_loop_actor_is_ready(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_sleep_loop')
+    check_actor_is_ready(headers, actor_id)
 
 @pytest.mark.regapi
 def test_executions_empty_list(headers):
@@ -590,6 +606,41 @@ def test_execute_func_actor(headers):
     result = cloudpickle.loads(rsp.content)
     assert result == 17
 
+def test_execute_and_delete_sleep_loop_actor(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_sleep_loop')
+    url = '{}/actors/{}/messages'.format(base_url, actor_id)
+    # send the sleep loop actor a very long execution so that we can delete it before it ends.
+    data = {"sleep": 1, "iterations": 999}
+
+    rsp = requests.post(url, json=data, headers=headers)
+    # get the execution id -
+    rsp_data = json.loads(rsp.content.decode('utf-8'))
+    result = rsp_data['result']
+    if case == 'snake':
+        assert result.get('execution_id')
+        exc_id = result.get('execution_id')
+    else:
+        assert result.get('executionId')
+        exc_id = result.get('executionId')
+    # now let's kill the execution -
+    time.sleep(1)
+    url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exc_id)
+    rsp = requests.delete(url, headers=headers)
+    assert rsp.status_code in [200, 201, 202, 203, 204]
+    # make sure execution is stopped in a timely manner
+    i = 0
+    stopped = False
+    while i < 20:
+        rsp = requests.get(url, headers=headers)
+        rsp_data = json.loads(rsp.content.decode('utf-8'))
+        status = rsp_data['result']['status']
+        if status == 'COMPLETE':
+            stopped = True
+            break
+        time.sleep(1)
+        i += 1
+    assert stopped
+
 def test_list_execution_details(headers):
     actor_id = get_actor_id(headers)
     # get execution id
@@ -703,11 +754,16 @@ def test_update_actor_other_user(headers):
     else:
         assert not result['lastUpdateTime'] == orig_actor['lastUpdateTime']
 
+def test_execute_basic_actor_synchronous(headers):
+    actor_id = get_actor_id(headers)
+    data = {'message': 'testing execution'}
+    execute_actor(headers, actor_id, data=data, synchronous=True)
+
+
 ###############
 # actor queue
 #     tests
 ###############
-
 
 CH_NAME_1 = 'special'
 CH_NAME_2 = 'default'
