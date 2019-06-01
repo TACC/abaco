@@ -6,13 +6,14 @@ import rabbitpy
 
 from channelpy.exceptions import ChannelTimeoutException
 
-from codes import ERROR
+from codes import ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY
 from config import Config
-from docker_utils import DockerError, run_worker
+from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
 from models import Actor, Worker
 from stores import workers_store
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
+from health import get_worker
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
@@ -116,7 +117,7 @@ class Spawner(object):
         else:
             logger.info("No workers to stop.")
 
-    def process(self, cmd):
+    def process_old(self, cmd):
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info("Spawner processing new command:{}".format(cmd))
         actor_id = cmd['actor_id']
@@ -233,7 +234,7 @@ class Spawner(object):
                 logger.error("Got exception trying to delete spawnerworker channel: {}".format(e))
         logger.info("Done processing command.")
 
-    def start_workers(self, actor_id, worker_ids, image, tenant, num_workers):
+    def start_workers_old(self, actor_id, worker_ids, image, tenant, num_workers):
         logger.info("starting {} workers. actor_id: {} image: {}".format(str(self.num_workers), actor_id, image))
         channels = []
         anon_channels = []
@@ -254,9 +255,9 @@ class Spawner(object):
             raise SpawnerException(message=e.message)
         return channels, anon_channels, workers
 
-    def start_worker(self, image, tenant, actor_id, worker_id):
+    def start_worker_old(self, image, tenant, actor_id, worker_id):
         ch = SpawnerWorkerChannel(worker_id=worker_id)
-        # start an actor executor container and wait for a confirmation that image was pulled.
+
         attempts = 0
         while True:
             try:
@@ -305,6 +306,186 @@ class Spawner(object):
             msg = "Got an error status from worker: {}. Raising an exception.".format(str(result))
             logger.error("Spawner received an invalid message from worker. Message: ".format(result))
             raise SpawnerException(msg)
+
+    def process(self, cmd):
+        logger.info("LOOK HERE - starting spawner process")
+        """Main spawner method for processing a command from the CommandChannel."""
+        logger.info("LOOK HERE - Spawner processing new command:{}".format(cmd))
+        actor_id = cmd['actor_id']
+        worker_id = cmd['worker_ids'][0]
+        image = cmd['image']
+        tenant = cmd['tenant']
+        stop_existing = cmd.get('stop_existing', True)
+        num_workers = cmd.get('num', self.num_workers) #TODO this should be 1 - clean up
+        logger.info("LOOK HERE command params: actor_id: {} worker_ids: {} image: {} stop_existing: {} mum_workers: {}".format(
+            actor_id, worker_id, image, tenant, stop_existing, num_workers))
+        logger.info("LOOK HERE - getting worker")
+
+        # Status: REQUESTED -> SPAWNER_SETUP
+        Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
+        logger.info("LOOK HERE - worker status updated to SPAWNER_SETUP")
+        client_id = None
+        client_access_token = None
+        client_refresh_token = None
+        api_server = None
+
+        # First, get oauth clients for the worker
+        generate_clients = Config.get('workers', 'generate_clients').lower()
+        if generate_clients == "true":
+            logger.info("LOOK HERE - starting client generation")
+
+            client_id, \
+            client_access_token, \
+            client_refresh_token, \
+            api_server, \
+            client_secret = self.client_generation(actor_id, worker_id, tenant)
+
+        ch = SpawnerWorkerChannel(worker_id=worker_id)
+
+        logger.info("LOOK HERE - attempting to start worker")
+        worker = self.start_worker(
+            image,
+            tenant,
+            actor_id,
+            worker_id,
+            client_id,
+            client_access_token,
+            client_refresh_token,
+            ch,
+            api_server,
+            client_secret
+        )
+        logger.info('LOOK HERE - made it out of start_worker')
+        ch.close()
+
+
+        logger.info("Created new worker: {}".format(worker))
+
+        if stop_existing:
+            logger.info("Stopping existing workers: {}".format(worker_id))
+            # TODO - update status to stop_requested
+            self.stop_workers(actor_id, [worker_id])
+
+
+    def client_generation(self, actor_id, worker_id, tenant):
+        client_ch = ClientsChannel()
+        try:
+            client_msg = client_ch.request_client(
+                tenant=tenant,
+                actor_id=actor_id,
+                worker_id=worker_id,
+                secret=self.secret
+            )
+        except Exception as e:
+            logger.error("Got a ChannelTimeoutException trying to generate a client for "
+                         "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+            # put worker in an error state and return
+            self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
+                                                      "worker for this actor. System administrators have been notified.")
+            client_ch.close()
+            Worker.update_worker_status(actor_id, worker_id, ERROR)
+            logger.critical("Client generation FAILED.")
+            raise e
+
+        client_ch.close()
+
+
+        if client_msg.get('status') == 'error':
+            logger.error("Error generating client: {}".format(client_msg.get('message')))
+            Worker.update_worker_status(actor_id, worker_id, ERROR)
+            raise SpawnerException("Error generating client") #TODO - clean up error message
+        # else, client was generated successfully:
+        else:
+            logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],
+                                                          client_msg['access_token'],
+                                                          client_msg['refresh_token']))
+            return client_msg['client_id'], \
+                   client_msg['access_token'],  \
+                   client_msg['refresh_token'], \
+                   client_msg['api_server'], \
+                   client_msg['client_secret']
+
+    def start_worker(self,
+                     image,
+                     tenant,
+                     actor_id,
+                     worker_id,
+                     client_id,
+                     client_access_token,
+                     client_refresh_token,
+                     ch,
+                     api_server,
+                     client_secret):
+
+        # start an actor executor container and wait for a confirmation that image was pulled.
+        attempts = 0
+        # worker = get_worker(worker_id)
+        # worker['status'] = PULLING_IMAGE
+        Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE)
+        try:
+            logger.info("LOOK HERE - PULLING IMAGE")
+            logger.info("Worker pulling image {}...".format(image))
+            pull_image(image)
+        except DockerError as e:
+            # return a message to the spawner that there was an error pulling image and abort
+            # this is not necessarily an error state: the user simply could have provided an
+            # image name that does not exist in the registry. This is the first time we would
+            # find that out.
+            logger.info("worker got a DockerError trying to pull image. Error: {}.".format(e))
+            raise e
+        logger.info("Image {} pulled successfully.".format(image))
+        # Done pulling image
+        # Run Worker Container
+        while True:
+            try:
+                Worker.update_worker_status(actor_id, worker_id, CREATING_CONTAINER)
+                logger.info('LOOK HERE - creating worker container')
+                worker_dict = run_worker(
+                    image,
+                    actor_id,
+                    worker_id,
+                    client_id,
+                    client_access_token,
+                    client_refresh_token,
+                    tenant,
+                    api_server,
+                    client_secret
+
+                )
+                logger.info('LOOK HERE - finished run worker')
+                logger.info(f'LOOK HERE - worker dict: {worker_dict}')
+            except DockerError as e:
+                logger.error("Spawner got a docker exception from run_worker; Exception: {}".format(e))
+                if 'read timeout' in e.message:
+                    logger.info("Exception was a read timeout; trying run_worker again..")
+                    time.sleep(5)
+                    attempts = attempts + 1
+                    if attempts > 20:
+                        msg = "Spawner continued to get DockerError for 20 attempts. Exception: {}".format(e)
+                        logger.critical(msg)
+                        raise SpawnerException(msg)
+                    continue
+                else:
+                    logger.info("Exception was NOT a read timeout; quiting on this worker.")
+                    # delete this worker from the workers store:
+                    try:
+                        self.kill_worker(actor_id, worker_id)
+                    except WorkerException as e:
+                        logger.info("Got WorkerException from delete_worker(). "
+                                    "worker_id: {}"
+                                    "Exception: {}".format(worker_id, e))
+
+                    raise SpawnerException(message="Unable to start worker; error: {}".format(e))
+            break
+        logger.info('LOOK HERE - finished loop')
+        worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)
+        # finalize worker with READY status
+        worker = Worker(tenant=tenant, **worker_dict)
+        logger.info("calling add_worker for worker: {}.".format(worker))
+        Worker.add_worker(actor_id, worker)
+
+        ch.put('READY')  # step 4
+        logger.info('LOOK HERE - sent message through channel')
 
     def error_out_actor(self, actor_id, worker_id, message):
         """In case of an error, put the actor in error state and kill all workers"""

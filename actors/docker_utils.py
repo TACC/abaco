@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 from channels import ExecutionResultsChannel
 from config import Config
-from codes import BUSY
+from codes import BUSY, READY
 import globals
 from models import Execution, get_current_utc_time
 
@@ -119,7 +119,16 @@ def run_container_with_docker(image,
                               environment={},
                               mounts=[],
                               log_file=None,
-                              auto_remove=False):
+                              auto_remove=False,
+                              client_id=None,
+                              client_access_token=None,
+                              client_refresh_token=None,
+                              actor_id=None,
+                              tenant=None,
+                              api_server=None,
+                              client_secret=None
+
+):
     """
     Run a container with docker mounted in it.
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().
@@ -153,6 +162,27 @@ def run_container_with_docker(image,
     # also add it to the environment if not already there
     if 'abaco_conf_host_path' not in environment:
         environment['abaco_conf_host_path'] = abaco_conf_host_path
+
+    if 'client_id' not in environment:
+        environment['client_id'] = client_id
+
+    if 'client_access_token' not in environment:
+        environment['client_access_token'] = client_access_token
+
+    if 'actor_id' not in environment:
+        environment['actor_id'] = actor_id
+
+    if 'tenant' not in environment:
+        environment['tenant'] = tenant
+
+    if 'api_server' not in environment:
+        environment['api_server'] = api_server
+
+    if 'client_secret' not in environment:
+        environment['client_secret'] = client_secret
+
+    if 'client_refresh_token' not in environment:
+        environment['client_refresh_token'] = client_refresh_token
 
     # if not passed, determine what log file to use
     if not log_file:
@@ -193,6 +223,7 @@ def run_container_with_docker(image,
                                          name=name,
                                          networking_config=netconf)
         cli.start(container=container.get('Id'))
+        logger.info('LOOK HERE - container successfully created! ')
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
         logger.info(msg)
@@ -200,7 +231,16 @@ def run_container_with_docker(image,
     logger.info("container started successfully: {}".format(container))
     return container
 
-def run_worker(image, actor_id, worker_id):
+
+def run_worker(image,
+               actor_id,
+               worker_id,
+               client_id,
+               client_access_token,
+               client_refresh_token,
+               tenant,
+               api_server,
+               client_secret):
     """
     Run an actor executor worker with a given channel and image.
     :return:
@@ -250,15 +290,25 @@ def run_worker(image, actor_id, worker_id):
             auto_remove = True
     elif not auto_remove == True:
         auto_remove = False
-    container = run_container_with_docker(image=AE_IMAGE,
-                                          command=command,
-                                          environment={'image': image,
-                                                       'worker_id': worker_id,
-                                                       '_abaco_secret': os.environ.get('_abaco_secret')},
-                                          mounts=mounts,
-                                          log_file=None,
-                                          auto_remove=auto_remove,
-                                          name='worker_{}_{}'.format(actor_id, worker_id))
+    container = run_container_with_docker(
+        image=AE_IMAGE,
+        command=command,
+        environment={
+            'image': image,
+            'worker_id': worker_id,
+            '_abaco_secret': os.environ.get('_abaco_secret')},
+            mounts=mounts,
+            log_file=None,
+            auto_remove=auto_remove,
+            name='worker_{}_{}'.format(actor_id, worker_id),
+            client_id=client_id,
+            client_access_token=client_access_token,
+            client_refresh_token=client_refresh_token,
+            actor_id=actor_id,
+            tenant=tenant,
+            api_server=api_server,
+            client_secret=client_secret
+    )
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
     logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))
@@ -267,7 +317,7 @@ def run_worker(image, actor_id, worker_id):
              'location': dd,
              'id': worker_id,
              'cid': container.get('Id'),
-             'status': BUSY,
+             'status': READY,
              'host_id': host_id,
              'host_ip': host_ip,
              'last_execution_time': 0,

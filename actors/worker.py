@@ -23,6 +23,10 @@ from stores import actors_store, workers_store
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
+# keep_running will be updated by the thread listening on the worker channel when a graceful shutdown is
+# required.
+keep_running = True
+
 def shutdown_worker(worker_id, delete_actor_ch=True):
     """Gracefully shutdown a single worker."""
     logger.debug("top of shutdown_worker for worker_id: {}".format(worker_id))
@@ -53,6 +57,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
     :param worker_ch:
     :return:
     """
+    global keep_running
     logger.info("Worker subscribing to worker channel...")
     while True:
         msg, msg_obj = worker_ch.get_one()
@@ -145,7 +150,7 @@ def subscribe(tenant,
     """
     logger.debug("Top of subscribe().")
     actor_ch = ActorMsgChannel(actor_id)
-
+    logger.info(f"LOOK HERE - made it to subscribe - actor ID: {actor_id}")
     try:
         leave_containers = Config.get('workers', 'leave_containers')
     except configparser.NoOptionError:
@@ -186,7 +191,7 @@ def subscribe(tenant,
     t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag))
     t.start()
     logger.info("Worker subscribing to actor channel.")
-
+    logger.info("LOOK HERE - starting subscribe process")
     # keep track of whether we need to update the worker's status back to READY; otherwise, we
     # will hit redis with an UPDATE every time the subscription loop times out (i.e., every 2s)
     update_worker_status = True
@@ -196,17 +201,22 @@ def subscribe(tenant,
 
     # main subscription loop -- processing messages from actor's mailbox
     while globals.keep_running:
+        logger.info("LOOK HERE - made it to keep_running")
         if update_worker_status:
             Worker.update_worker_status(actor_id, worker_id, READY)
+            logger.info("LOOK HERE - updated worker status to READY in SUBSCRIBE")
             update_worker_status = False
         try:
             msg, msg_obj = actor_ch.get_one()
+            logger.info("LOOK HERE - made it to 206")
         except channelpy.ChannelClosedException:
+            logger.info("LOOK HERE - EXITING ")
             logger.info("Channel closed, worker exiting...")
             globals.keep_running = False
             sys.exit()
         logger.info("worker {} processing new msg.".format(worker_id))
 
+        logger.info("LOOK HERE - made it to 212")
         try:
             Worker.update_worker_status(actor_id, worker_id, BUSY)
         except Exception as e:
@@ -332,6 +342,7 @@ def subscribe(tenant,
         else:
             logger.info("Agave client `ag` is None -- not passing access token.")
         logger.info("Passing update environment: {}".format(environment))
+        logger.info("LOOK HERE - about to execute actor")
         try:
             stats, logs, final_state, exit_code, start_time = execute_actor(actor_id,
                                                                             worker_id,
@@ -381,7 +392,7 @@ def subscribe(tenant,
             break
         # ack the message
         msg_obj.ack()
-
+        logger.info("LOOK HERE - container finished successfully ")
         # Add the completed stats to the execution
         logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
         Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)
@@ -422,62 +433,46 @@ def get_container_user(actor):
         user = '{}:{}'.format(uid, gid)
     return user
 
-def main(worker_id, image):
+def main():
     """
     Main function for the worker process.
 
     This function
     """
-    logger.info("Entering main() for worker: {}, image: {}".format(
+    worker_id = os.environ.get('worker_id')
+    image = os.environ.get('image')
+    actor_id = os.environ.get('actor_id')
+
+    client_id = os.environ.get('client_id', None)
+    client_access_token = os.environ.get('client_access_token', None)
+    client_refresh_token = os.environ.get('client_access_token', None)
+    tenant = os.environ.get('tenant', None)
+    api_server = os.environ.get('api_server', None)
+    client_secret = os.environ.get('client_secret', None)
+
+    # TODO - add all vars in this log statement
+    logger.info("Top of main() for worker: {}, image: {}".format(
         worker_id, image))
     spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
 
-    # first, attempt to pull image from docker hub:
-    try:
-        logger.info("Worker pulling image {}...".format(image))
-        pull_image(image)
-    except DockerError as e:
-        # return a message to the spawner that there was an error pulling image and abort
-        # this is not necessarily an error state: the user simply could have provided an
-        # image name that does not exist in the registry. This is the first time we would
-        # find that out.
-        logger.info("worker got a DockerError trying to pull image. Error: {}.".format(e))
-        spawner_worker_ch.put({'status': 'error', 'msg': str(e)})
-        raise e
-    logger.info("Image {} pulled successfully.".format(image))
-
-    # inform spawner that image pulled successfully and, simultaneously,
-    # wait to receive message from spawner that it is time to subscribe to the actor channel
     logger.debug("Worker waiting on message from spawner...")
-    result = spawner_worker_ch.put_sync({'status': 'ok'})
+    result = spawner_worker_ch.get()
+    logger.info(f"LOOK HERE - got result {result}")
     logger.info("Worker received reply from spawner. result: {}.".format(result))
 
     # should be OK to close the spawner_worker_ch on the worker side since spawner was first client
     # to open it.
     spawner_worker_ch.close()
+    logger.info('LOOK HERE - closed channel')
 
-    if result['status'] == 'error':
-        # we do not expect to get an error response at this point. this needs investigation
-        logger.error("Worker received error message from spawner: {}. Quiting...".format(str(result)))
-        raise WorkerException(str(result))
+    logger.info('LOOK HERE - about to update status')
 
-    actor_id = result.get('actor_id')
-    tenant = result.get('tenant')
-    logger.info("Worker received ok from spawner. Message: {}, actor_id:{}".format(result, actor_id))
-    api_server = None
-    client_id = None
-    client_secret = None
-    access_token = None
-    refresh_token = None
-    if result.get('client') == 'yes':
-        logger.info("Got client: yes, result: {}".format(result))
-        api_server = result.get('api_server')
-        client_id = result.get('client_id')
-        client_secret = result.get('client_secret')
-        access_token = result.get('access_token')
-        refresh_token = result.get('refresh_token')
+    if not client_id:
+        logger.info("Did not get client id.")
     else:
-        logger.info("Did not get client:yes, got result:{}".format(result))
+        logger.info("Got a client.")
+        # TODO - list all client vars
+
     try:
         Actor.set_status(actor_id, READY, status_message=" ")
     except KeyError:
@@ -485,6 +480,8 @@ def main(worker_id, image):
         # so, the worker should have a stop message waiting for it. starting subscribe
         # as usual should allow this process to work as expected.
         pass
+    logger.info('LOOK HERE - updated actor status')
+
     logger.info("Actor status set to READY. subscribing to inbox.")
     worker_ch = WorkerChannel(worker_id=worker_id)
     subscribe(tenant,
@@ -493,8 +490,8 @@ def main(worker_id, image):
               api_server,
               client_id,
               client_secret,
-              access_token,
-              refresh_token,
+              client_access_token,
+              client_refresh_token,
               worker_ch)
 
 
@@ -504,9 +501,5 @@ if __name__ == '__main__':
     # data for the worker through environment variables.
     logger.info("Inital log for new worker.")
 
-    # read channel, worker_id and image from the environment
-    worker_id = os.environ.get('worker_id')
-    image = os.environ.get('image')
-
     # call the main() function:
-    main(worker_id, image)
+    main()

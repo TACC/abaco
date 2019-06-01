@@ -3,7 +3,14 @@ from config import Config
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
+SPAWNER_SETUP = 'SPAWNER SETUP'
+PULLING_IMAGE = 'PULLING IMAGE'
+CREATING_CONTAINER = 'CREATING CONTAINER'
+UPDATING_STORE = 'UPDATING STORE'
+#TODO: error include prior state ie ERROR previous STATE
+#TODO: comment about order of states
 REQUESTED = 'REQUESTED'
+PROCESSING = 'PROCESSING'
 COMPLETE = 'COMPLETE'
 SUBMITTED = 'SUBMITTED'
 READY = 'READY'
