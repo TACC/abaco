@@ -13,13 +13,15 @@ import os
 import shutil
 import time
 
-from agaveflask.logs import get_log_file_strategy
+from agaveflask.auth import get_api_server
 import channelpy
 
+from aga import Agave
+from auth import get_tenants, get_tenant_verify
 import codes
 from config import Config
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
-from models import Actor, Worker
+from models import Actor, Worker, is_hashid
 from channels import ClientsChannel, CommandChannel, WorkerChannel
 from stores import actors_store, clients_store, executions_store, workers_store
 from worker import shutdown_worker
@@ -85,6 +87,72 @@ def clean_up_ipc_dirs():
     """Remove all directories created for worker sockets and fifos"""
     clean_up_socket_dirs()
     clean_up_fifo_dirs()
+
+def delete_client(ag, client_name):
+    """Remove a client from the APIM."""
+    try:
+        ag.clients.delete(clientName=client_name)
+    except Exception as e:
+        m = 'Not able to delete client from APIM. Got an exception: {}'.format(e)
+        logger.error(m)
+    return None
+
+def clean_up_apim_clients(tenant):
+    """Check the list of clients registered in APIM and remove any that are associated with retired workers."""
+    username = os.environ.get('_abaco_{}_username'.format(tenant), '')
+    password = os.environ.get('_abaco_{}_password'.format(tenant), '')
+    if not username:
+        msg = "Health process did not get a username for tenant {}; " \
+              "returning from clean_up_apim_clients".format(tenant)
+        if tenant in ['SD2E', 'TACC-PROD']:
+            logger.error(msg)
+        else:
+            logger.info(msg)
+        return None
+    if not password:
+        msg = "Health process did not get a password for tenant {}; " \
+              "returning from clean_up_apim_clients".format(tenant)
+        if tenant in ['SD2E', 'TACC-PROD']:
+            logger.error(msg)
+        else:
+            logger.info(msg)
+        return None
+    api_server = get_api_server(tenant)
+    verify = get_tenant_verify(tenant)
+    ag = Agave(api_server=api_server,
+               username=username,
+               password=password,
+               verify=verify)
+    logger.debug("health process created an ag for tenant: {}".format(tenant))
+    try:
+        cs = ag.clients.list()
+        clients = cs.json()['result']
+    except Exception as e:
+        msg = "Health process got an exception trying to retrieve clients; exception: {}".format(e)
+        logger.error(msg)
+        return None
+    for client in clients:
+        # check if the name of the client is an abaco hash (i.e., a worker id). if not, we ignore it from the beginning
+        name = client.get('name')
+        if not is_hashid(name):
+            logger.debug("client {} is not an abaco hash id; skipping.".format(name))
+            continue
+        # we know this client came from a worker, so we need to check to see if the worker is still active;
+        # first check if the worker even exists; if it does, the id will be the client name:
+        worker = get_worker(name)
+        if not worker:
+            logger.info("no worker associated with id: {}; deleting client.".format(name))
+            delete_client(ag, name)
+            logger.info("client {} deleted by health process.".format(name))
+            continue
+        # if the worker exists, we should check the status:
+        status = worker.get('status')
+        if status == codes.ERROR:
+            logger.info("worker {} was in ERROR status so deleting client; worker: {}.".format(name, worker))
+            delete_client(ag, name)
+            logger.info("client {} deleted by health process.".format(name))
+        else:
+            logger.debug("worker {} still active; not deleting client.".format(worker))
 
 def clean_up_clients_store():
     logger.debug("top of clean_up_clients_store")
@@ -399,6 +467,10 @@ def main():
     for id in ids:
         # manage_workers(id)
         check_workers(id, ttl)
+    tenants = get_tenants()
+    for t in tenants:
+        logger.debug("health process cleaning up apim_clients for tenant: {}".format(t))
+        clean_up_apim_clients(t)
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
     # check_workers_store(ttl)

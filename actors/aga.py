@@ -178,3 +178,13 @@ class AgaveClientsService(object):
             return {}
         except Exception as e:
             raise AgaveError('Error creating client: {}'.format(e))
+
+    def list(self):
+        """List all Agave OAuth2 clients."""
+        auth = requests.auth.HTTPBasicAuth(self.parent.username, self.parent.password)
+        try:
+            rsp = requests.get(url='{}/clients/v2'.format(self.parent.api_server), auth=auth)
+            rsp.raise_for_status()
+            return rsp
+        except Exception as e:
+            raise AgaveError('Error listing clients: {}'.format(e))
