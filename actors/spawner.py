@@ -117,207 +117,17 @@ class Spawner(object):
         else:
             logger.info("No workers to stop.")
 
-    def process_old(self, cmd):
-        """Main spawner method for processing a command from the CommandChannel."""
-        logger.info("Spawner processing new command:{}".format(cmd))
-        actor_id = cmd['actor_id']
-        worker_ids = cmd['worker_ids']
-        image = cmd['image']
-        tenant = cmd['tenant']
-        stop_existing = cmd.get('stop_existing', True)
-        num_workers = cmd.get('num', self.num_workers)
-        logger.info("command params: actor_id: {} worker_ids: {} image: {} stop_existing: {} mum_workers: {}".format(
-            actor_id, worker_ids, image, tenant, stop_existing, num_workers))
-        try:
-            new_channels, anon_channels, new_workers = self.start_workers(actor_id,
-                                                                          worker_ids,
-                                                                          image,
-                                                                          tenant,
-                                                                          num_workers)
-        except SpawnerException as e:
-            # for now, start_workers will do clean up for a SpawnerException, so we just need
-            # to return back to the run loop.
-            logger.info("Spawner returning to main run loop.")
-            return
-        logger.info("Created new workers: {}".format(new_workers))
-
-        # stop any existing workers:
-        if stop_existing:
-            logger.info("Stopping existing workers: {}".format(worker_ids))
-            self.stop_workers(actor_id, worker_ids)
-
-        # add workers to store first so that the records will be there when the workers go
-        # to update their status
-        if not stop_existing:
-            # if we're not stopping the existing workers, we need to add each worker to the
-            # actor's collection.
-            for _, worker in new_workers.items():
-                logger.info("calling add_worker for worker: {}.".format(worker))
-                Worker.add_worker(actor_id, worker)
-        else:
-            # since we're stopping the existing workers, the actor's collection should just
-            # be equal to the new_workers.
-            workers_store[actor_id] = new_workers
-            logger.info("workers_store set to new_workers: {}.".format(new_workers))
-
-        # Tell new worker to subscribe to the actor channel.
-        # If abaco is configured to generate clients for the workers, generate them now
-        # and send new workers their clients.
-        generate_clients = Config.get('workers', 'generate_clients').lower()
-        logger.info("Sending messages to new workers over anonymous channels to subscribe to inbox.")
-        for idx, channel in enumerate(anon_channels):
-            if generate_clients == 'true':
-                worker_id = new_workers[list(new_workers)[idx]]['id']
-                logger.info("Getting client for worker number {}, id: {}".format(idx, worker_id))
-                client_ch = ClientsChannel()
-                try:
-                    client_msg = client_ch.request_client(tenant=tenant,
-                                                          actor_id=actor_id,
-                                                          # new_workers is a dictionary of dictionaries; list(d) creates a
-                                                          # list of keys for a dictionary d. hence, the idx^th entry
-                                                          # of list(ner_workers) should be the key.
-                                                          worker_id=worker_id,
-                                                          secret=self.secret)
-                except ChannelTimeoutException as e:
-                    logger.error("Got a ChannelTimeoutException trying to generate a client for "
-                                 "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
-                    # put actor in an error state and return
-                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
-                                                              "worker for this actor. System administrators have been notified.")
-                    client_ch.close()
-                    return
-                client_ch.close()
-                # changed - 4/2019: we now put the actor in an error state if we are not able to generate a client,
-                # actor executions that rely on the token can fail unexpectedly.
-                if client_msg.get('status') == 'error':
-                    logger.error("Error generating client: {}".format(client_msg.get('message')))
-                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
-                                                              "worker for this actor. System administrators have been notified.")
-                    client_ch.close()
-                    return
-                # else, client was generated successfully:
-                else:
-                    logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],
-                                                                  client_msg['access_token'],
-                                                                  client_msg['refresh_token']))
-                    channel.put({'status': 'ok',
-                                 'actor_id': actor_id,
-                                 'tenant': tenant,
-                                 'client': 'yes',
-                                 'client_id': client_msg['client_id'],
-                                 'client_secret': client_msg['client_secret'],
-                                 'access_token': client_msg['access_token'],
-                                 'refresh_token': client_msg['refresh_token'],
-                                 'api_server': client_msg['api_server'],
-                                 })
-                    logger.debug("Sent OK message AND client over anonymous worker channel.")
-            else:
-                logger.info("Not generating clients. Config value was: {}".format(generate_clients))
-                channel.put({'status': 'ok',
-                             'actor_id': actor_id,
-                             'tenant': tenant,
-                             'client': 'no'})
-                logger.debug("Sent OK message over anonymous worker channel.")
-            # @TODO -
-            # delete the anonymous channel from this thread but sleep first to avoid the race condition.
-            time.sleep(1.5)
-            channel.delete()
-
-        # due to the race condition deleting channels (potentially before all workers have received all messages)
-        # we put a sleep here.
-        time.sleep(1)
-        for ch in new_channels:
-            try:
-                # the new_channels are the spawnerworker channels so they can be deleted.
-                ch.delete()
-            except Exception as e:
-                logger.error("Got exception trying to delete spawnerworker channel: {}".format(e))
-        logger.info("Done processing command.")
-
-    def start_workers_old(self, actor_id, worker_ids, image, tenant, num_workers):
-        logger.info("starting {} workers. actor_id: {} image: {}".format(str(self.num_workers), actor_id, image))
-        channels = []
-        anon_channels = []
-        workers = {}
-        try:
-            for i in range(num_workers):
-                worker_id = worker_ids[i]
-                logger.info("starting worker {} with id: {}".format(i, worker_id))
-                ch, anon_ch, worker = self.start_worker(image, tenant, actor_id, worker_id)
-                logger.debug("channel for worker {} is: {}".format(str(i), ch.name))
-                channels.append(ch)
-                anon_channels.append(anon_ch)
-                workers[worker_id] = worker
-        except SpawnerException as e:
-            logger.info("Caught SpawnerException:{}".format(str(e)))
-            # in case of an error, put the actor in error state and kill all workers
-            self.error_out_actor(actor_id, worker_id, e.message)
-            raise SpawnerException(message=e.message)
-        return channels, anon_channels, workers
-
-    def start_worker_old(self, image, tenant, actor_id, worker_id):
-        ch = SpawnerWorkerChannel(worker_id=worker_id)
-
-        attempts = 0
-        while True:
-            try:
-                worker_dict = run_worker(image, actor_id, worker_id)
-            except DockerError as e:
-                logger.error("Spawner got a docker exception from run_worker; Exception: {}".format(e))
-                if 'read timeout' in e.message:
-                    logger.info("Exception was a read timeout; trying run_worker again..")
-                    time.sleep(5)
-                    attempts = attempts + 1
-                    if attempts > 20:
-                        msg = "Spawner continued to get DockerError for 20 attempts. Exception: {}".format(e)
-                        logger.critical(msg)
-                        raise SpawnerException(msg)
-                    continue
-                else:
-                    logger.info("Exception was NOT a read timeout; quiting on this worker.")
-                    # delete this worker from the workers store:
-                    try:
-                        self.kill_worker(actor_id, worker_id)
-                    except WorkerException as e:
-                        logger.info("Got WorkerException from delete_worker(). "
-                                    "worker_id: {}"
-                                    "Exception: {}".format(worker_id, e))
-
-                    raise SpawnerException(message="Unable to start worker; error: {}".format(e))
-            break
-        worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)
-        worker = Worker(tenant=tenant, **worker_dict)
-        logger.info("worker started successfully, waiting on ack that image was pulled...")
-        result = ch.get()
-        logger.debug("Got response back from worker. Response: {}".format(result))
-        if result.get('status') == 'error':
-            # there was a problem pulling the image; put the actor in an error state:
-            msg = "Got an error back from the worker. Message: {}",format(result)
-            logger.info(msg)
-            if 'msg' in result:
-                raise SpawnerException(message=result['msg'])
-            else:
-                logger.error("Spawner received invalid message from worker. 'msg' field missing. Message: {}".format(result))
-                raise SpawnerException(message="Internal error starting worker process.")
-        elif result['value']['status'] == 'ok':
-            logger.debug("received ack from worker.")
-            return ch, result['reply_to'], worker
-        else:
-            msg = "Got an error status from worker: {}. Raising an exception.".format(str(result))
-            logger.error("Spawner received an invalid message from worker. Message: ".format(result))
-            raise SpawnerException(msg)
-
     def process(self, cmd):
         logger.info("LOOK HERE - starting spawner process")
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info("LOOK HERE - Spawner processing new command:{}".format(cmd))
         actor_id = cmd['actor_id']
-        worker_id = cmd['worker_id'][0]
+        worker_id = cmd['worker_id']
         image = cmd['image']
         tenant = cmd['tenant']
         stop_existing = cmd.get('stop_existing', True)
         num_workers = 1
-        logger.info("LOOK HERE command params: actor_id: {} worker_ids: {} image: {} "
+        logger.info("LOOK HERE command params: actor_id: {} worker_id: {} image: {} tenant: {}"
                     "stop_existing: {} num_workers: {}".format(actor_id, worker_id, image, tenant, stop_existing, num_workers))
 
         logger.info("LOOK HERE - getting worker")
@@ -364,7 +174,7 @@ class Spawner(object):
             logger.error(msg)
             self.error_out_actor(actor_id, worker_id, msg)
             if client_id:
-                self.delete_client(tenant, actor_id, worker_id, client_id, secret)
+                self.delete_client(tenant, actor_id, worker_id, client_id, client_secret)
             return
 
         logger.debug("Returned from start_worker; Created new worker: {}".format(worker))
@@ -421,16 +231,16 @@ class Spawner(object):
         clients_ch = ClientsChannel()
         msg = clients_ch.request_delete_client(tenant=tenant,
                                                actor_id=actor_id,
-                                               worker_id=wid,
-                                               client_id=client_key,
+                                               worker_id=worker_id,
+                                               client_id=client_id,
                                                secret=secret)
         if msg['status'] == 'ok':
             logger.info("Client delete request completed successfully for "
-                        "worker_id: {}, client_id: {}.".format(wid, client_key))
+                        "worker_id: {}, client_id: {}.".format(worker_id, client_id))
         else:
             logger.error("Error deleting client for "
-                         "worker_id: {}, client_id: {}. Message: {}".format(wid, msg['message'], client_key, msg))
-        client_ch.close()
+                         "worker_id: {}, client_id: {}. Message: {}".format(worker_id, msg['message'], client_id, msg))
+        clients_ch.close()
 
     def start_worker(self,
                      image,

@@ -650,10 +650,10 @@ class ActorResource(Resource):
         actors_store[actor.db_id] = actor.to_db()
         logger.info("updated actor {} stored in db.".format(actor_id))
         if update_image:
-            worker_ids = [Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)]
+            worker_id = Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)
             # get actor queue name
             ch = CommandChannel(name=actor.queue)
-            ch.put_cmd(actor_id=actor.db_id, worker_ids=worker_ids, image=actor.image, tenant=args['tenant'])
+            ch.put_cmd(actor_id=actor.db_id, worker_id=worker_id, image=actor.image, tenant=args['tenant'])
             ch.close()
             logger.debug("put new command on command channel to update actor.")
         # put could have been issued by a user with
@@ -1277,17 +1277,17 @@ class WorkersResource(Resource):
             for idx in range(num_to_add):
                 # send num_to_add messages to add 1 worker so that messages are spread across multiple
                 # spawners.
-                worker_ids = [Worker.request_worker(tenant=g.tenant,
-                                                        actor_id=dbid)]
-                logger.info("New worker id: {}".format(worker_ids[0]))
+                worker_id = Worker.request_worker(tenant=g.tenant,
+                                                        actor_id=dbid)
+                logger.info("New worker id: {}".format(worker_id[0]))
                 ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,
-                           worker_ids=worker_ids,
+                           worker_id=worker_id,
                            image=actor.image,
                            tenant=g.tenant,
                            stop_existing=False)
             ch.close()
-            logger.info("Message put on command channel for new worker ids: {}".format(worker_ids))
+            logger.info("Message put on command channel for new worker ids: {}".format(worker_id))
             return ok(result=None, msg="Scheduled {} new worker(s) to start. Previously, there were {} workers.".format(num_to_add, current_number_workers))
         else:
             return ok(result=None, msg="Actor {} already had {} worker(s).".format(actor_id, num))

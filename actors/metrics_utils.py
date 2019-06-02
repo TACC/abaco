@@ -138,15 +138,15 @@ def scale_up(actor_id):
     try:
         # create a worker & add to this actor
         actor = Actor.from_db(actors_store[actor_id])
-        worker_ids = [Worker.request_worker(tenant=tenant, actor_id=aid)]
-        logger.info("New worker id: {}".format(worker_ids[0]))
+        worker_id = Worker.request_worker(tenant=tenant, actor_id=aid)
+        logger.info("New worker id: {}".format(worker_id))
         if actor.queue:
             channel_name = actor.queue
         else:
             channel_name = 'default'
         ch = CommandChannel(name=channel_name)
         ch.put_cmd(actor_id=actor.db_id,
-                   worker_ids=worker_ids,
+                   worker_id=worker_id,
                    image=actor.image,
                    tenant=tenant,
                    stop_existing=False)

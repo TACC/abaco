@@ -333,17 +333,16 @@ class Actor(AbacoDAO):
         worker_id = Worker.ensure_one_worker(self.db_id, self.tenant)
         logger.debug("Worker.ensure_one_worker returned worker_id: {}".format(worker_id))
         if worker_id:
-            worker_ids = [worker_id]
-            logger.info("Actor.ensure_one_worker() putting message on command channel for worker_id: {}".format(
-                worker_id))
+            logger.info("Actor.ensure_one_worker() putting message on command "
+                        "channel for worker_id: {}".format(worker_id))
             ch = CommandChannel(name=self.queue)
             ch.put_cmd(actor_id=self.db_id,
-                       worker_id=worker_ids,
+                       worker_id=worker_id,
                        image=self.image,
                        tenant=self.tenant,
                        stop_existing=False)
             ch.close()
-            return worker_ids
+            return worker_id
         else:
             logger.debug("Actor.ensure_one_worker() returning None.")
             return None
