@@ -9,10 +9,6 @@ server {
         root /;
     }
 
-    location /metrics {
-        proxy_pass http://metrics:5000/metrics;
-    }
-
     location ~* ^/actors/admin(.*) {
         proxy_pass http://admin:5000/actors/admin$1$is_args$args;
     }
