@@ -122,15 +122,14 @@ def calc_change_rate(data, last_metric, actor_id):
     return change_rate
 
 
-def allow_autoscaling(cmd_q_len, max_workers, num_workers):
+def allow_autoscaling(max_workers, num_workers):
 
     if int(num_workers) >= int(max_workers):
-        logger.debug('METRICS NO AUTOSCALE - criteria not met. {} {} '.format(cmd_q_len, num_workers))
+        logger.debug('METRICS NO AUTOSCALE - criteria not met. {} '.format(num_workers))
         return False
 
-    logger.debug('METRICS AUTOSCALE - criteria met. {} {} '.format(cmd_q_len, num_workers))
+    logger.debug('METRICS AUTOSCALE - criteria met. {} '.format(num_workers))
     return True
-
 
 def scale_up(actor_id):
     tenant, aid = actor_id.decode('utf8').split('_')
@@ -138,7 +137,7 @@ def scale_up(actor_id):
     try:
         # create a worker & add to this actor
         actor = Actor.from_db(actors_store[actor_id])
-        worker_id = Worker.request_worker(tenant=tenant, actor_id=aid)
+        worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
         logger.info("New worker id: {}".format(worker_id))
         if actor.queue:
             channel_name = actor.queue

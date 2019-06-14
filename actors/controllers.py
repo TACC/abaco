@@ -56,6 +56,12 @@ except:
 
 class MetricsResource(Resource):
     def get(self):
+        enable_autoscaling = Config.get('workers', 'autoscaling')
+        if hasattr(enable_autoscaling, 'lower'):
+            if not enable_autoscaling.lower() == 'true':
+                return
+        else:
+            return
         actor_ids = self.get_metrics()
         self.check_metrics(actor_ids)
         # self.add_workers(actor_ids)
@@ -92,45 +98,36 @@ class MetricsResource(Resource):
                 logger.info("No current message count for actor {}".format(actor_id))
                 current_message_count = 0
 
-            change_rate = metrics_utils.calc_change_rate(
-                data,
-                last_metric,
-                actor_id
-            )
-            last_metric.update({actor_id: data})
-
             workers = Worker.get_workers(actor_id)
             actor = actors_store[actor_id]
             logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
 
             # If this actor has a custom max_workers, use that. Otherwise use default.
-            if actor['max_workers']:
-                max_workers = actor['max_workers']
-            else:
-                max_workers = Config.get('spawner', 'max_workers_per_actor')
+            max_workers = None
+            if actor.get('max_workers'):
+                try:
+                    max_workers = int(actor['max_workers'])
+                except Exception as e:
+                    logger.error("max_workers defined for actor_id {} but could not cast to int. "
+                                 "Exception: {}".format(actor_id, e))
+            if not max_workers:
+                try:
+                    conf = Config.get('spawner', 'max_workers_per_actor')
+                    max_workers = int(conf)
+                except Exception as e:
+                    logger.error("Unable to get/cast max_workers_per_actor config ({}) to int. "
+                                 "Exception: {}".format(conf, e))
+                    max_workers = 1
 
-
-            # Add a worker if actor has 0 workers & a message in the Q
-            # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
-            try:
-                if len(workers) == 0 and current_message_count >= 1:
-                    metrics_utils.scale_up(actor_id)
-                    logger.debug('METICS: ADDING WORKER SINCE THERE WERE NONE')
-                else:
-                    logger.debug('METRICS: worker creation criteria not met')
-            except Exception as e:
-                logger.debug("METRICS - Error scaling up: {} - {} - {}".format(type(e), e, e.args))
-
-            # Add a worker if message count reaches a given number
+            # Add an additional worker if message count reaches a given number
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
                 if metrics_utils.allow_autoscaling(max_workers, len(workers)):
                     if current_message_count >= 1:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                # changed - jfs: i think this block needs to run even if allow_autoscaling returns false
-                #           so that scale down can work once message count reaches zero in case where the
-                #           autoscaler previously scaled the worker pool to max_workers:
+                else:
+                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
                 if current_message_count == 0:
                     metrics_utils.scale_down(actor_id)
                     logger.debug("METRICS made it to scale down block")
@@ -1278,7 +1275,7 @@ class WorkersResource(Resource):
                 # send num_to_add messages to add 1 worker so that messages are spread across multiple
                 # spawners.
                 worker_id = Worker.request_worker(tenant=g.tenant,
-                                                        actor_id=dbid)
+                                                  actor_id=dbid)
                 logger.info("New worker id: {}".format(worker_id[0]))
                 ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,

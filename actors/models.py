@@ -10,7 +10,7 @@ from hashids import Hashids
 from agaveflask.utils import RequestParser
 
 from channels import CommandChannel
-from codes import REQUESTED, SUBMITTED, EXECUTE, PermissionLevel
+from codes import REQUESTED, READY, ERROR, SUBMITTED, EXECUTE, PermissionLevel, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from config import Config
 import errors
 
@@ -1090,7 +1090,7 @@ class Worker(AbacoDAO):
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("LOOK HERE top of update_worker_status().")
-        # TODO add check for valid state transition - set correct ERROR
+        # The valid state transitions are as follows - set correct ERROR:
         # REQUESTED -> SPAWNER_SETUP
         # SPAWNER_SETUP -> PULLING_IMAGE
         # PULLING_IMAGE -> CREATING_CONTAINER
@@ -1098,13 +1098,26 @@ class Worker(AbacoDAO):
         # UPDATING_STORE -> READY
         # READY -> BUSY -> READY ... etc
 
-
         prev_status = workers_store[actor_id][worker_id]['status']
 
-        
+        # workers can always transition to an ERROR status from any status and from an ERROR status to
+        # any status.
+        if status != ERROR and ERROR not in prev_status:
+            if prev_status == REQUESTED and status != SPAWNER_SETUP:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == SPAWNER_SETUP and status != PULLING_IMAGE:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == PULLING_IMAGE and status != CREATING_CONTAINER:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == CREATING_CONTAINER and status != UPDATING_STORE:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == UPDATING_STORE and status != READY:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
 
-        worker = workers_store[actor_id][worker_id]
-        logger.info(f"LOOK HERE Worker status will be changed from {worker['status']} to {status}")
+        if status == ERROR:
+            status = ERROR + f" PREVIOUS {prev_status}"
+
+        logger.info(f"worker status will be changed from {prev_status} to {status}")
 
         # get worker's current status and then do V this separately
         # this is not threadsafe
