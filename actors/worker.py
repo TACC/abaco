@@ -27,6 +27,9 @@ logger = get_logger(__name__)
 # required.
 keep_running = True
 
+# maximum number of consecutive errors a worker can encounter before giving up and moving itself into an ERROR state.
+MAX_WORKER_CONSECUTIVE_ERRORS = 5
+
 def shutdown_worker(worker_id, delete_actor_ch=True):
     """Gracefully shutdown a single worker."""
     logger.debug("top of shutdown_worker for worker_id: {}".format(worker_id))
@@ -200,24 +203,26 @@ def subscribe(tenant,
     # global tracks whether this worker should keep running.
     globals.keep_running = True
 
+    # consecutive_errors tracks the number of consecutive times a worker has gotten an error trying to process a
+    # message. Even though the message will be requeued, we do not want the worker to continue processing
+    # indefinitely when a compute node is unhealthy.
+    consecutive_errors = 0
+
     # main subscription loop -- processing messages from actor's mailbox
     while globals.keep_running:
-        logger.info("LOOK HERE - made it to keep_running")
+        logger.debug("top of keep_running")
         if update_worker_status:
             Worker.update_worker_status(actor_id, worker_id, READY)
-            logger.info("LOOK HERE - updated worker status to READY in SUBSCRIBE")
+            logger.debug("updated worker status to READY in SUBSCRIBE")
             update_worker_status = False
         try:
             msg, msg_obj = actor_ch.get_one()
-            logger.info("LOOK HERE - made it to 206")
         except channelpy.ChannelClosedException:
-            logger.info("LOOK HERE - EXITING ")
             logger.info("Channel closed, worker exiting...")
             globals.keep_running = False
             sys.exit()
         logger.info("worker {} processing new msg.".format(worker_id))
 
-        logger.info("LOOK HERE - made it to 212")
         try:
             Worker.update_worker_status(actor_id, worker_id, BUSY)
         except Exception as e:
@@ -362,12 +367,24 @@ def subscribe(tenant,
         except DockerStartContainerError as e:
             logger.error("Worker {} got DockerStartContainerError: {} trying to start actor for execution {}."
                          "Placing message back on queue.".format(worker_id, e, execution_id))
-            # if we failed to start the actor container, we leave the worker up and re-queue the original
-            # message; NOTE - we use the "low level" put() instead of put_message() because we have the
-            # exact message we want to place in the queue; put_message is used by the controller to
+            # if we failed to start the actor container, we leave the worker up and re-queue the original message
             msg_obj.nack(requeue=True)
             logger.debug('message requeued.')
-            continue
+            consecutive_errors += 1
+            if consecutive_errors > MAX_WORKER_CONSECUTIVE_ERRORS:
+                logger.error("Worker {} failed to successfully start actor for execution {} {} consecutive times; "
+                             "Exception: {}. Putting the actor in error status and shutting "
+                             "down workers.".format(worker_id, execution_id, MAX_WORKER_CONSECUTIVE_ERRORS, e))
+                Actor.set_status(actor_id, ERROR, "Error executing container: {}; w".format(e))
+                shutdown_workers(actor_id, delete_actor_ch=False)
+                # wait for worker to be shutdown..
+                time.sleep(600)
+                break
+            else:
+                # sleep five seconds before getting a message again to give time for the compute
+                # node and/or docker health to recover
+                time.sleep(5)
+                continue
         except DockerStopContainerError as e:
             logger.error("Worker {} was not able to stop actor for execution: {}; Exception: {}. "
                          "Putting the actor in error status and shutting down workers.".format(worker_id, execution_id, e))
@@ -394,15 +411,19 @@ def subscribe(tenant,
             break
         # ack the message
         msg_obj.ack()
-        logger.info("LOOK HERE - container finished successfully ")
+        logger.debug("container finished successfully ")
         # Add the completed stats to the execution
         logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
         Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)
         logger.info("Added execution: {}".format(execution_id))
 
         # Add the logs to the execution
-        Execution.set_logs(execution_id, logs)
-        logger.info("Added execution logs.")
+        try:
+            Execution.set_logs(execution_id, logs)
+            logger.debug("Successfully added execution logs.")
+        except Exception as e:
+            msg = "Got exception trying to set logs for exception {}; Exception: {}".format(execution_id, e)
+            logger.error(msg)
 
         # Update the worker's last updated and last execution fields:
         try:
@@ -415,6 +436,8 @@ def subscribe(tenant,
             if globals.keep_running:
                 logger.error("worker couldn't update's its execution time but keep_running is still true!")
 
+        # we completed an execution successfully; reset the consecutive_errors counter
+        consecutive_errors = 0
         logger.info("worker time stamps updated.")
 
 def get_container_user(actor):
