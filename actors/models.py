@@ -22,6 +22,9 @@ logger = get_logger(__name__)
 
 HASH_SALT = 'eJa5wZlEX4eWU'
 
+# default max length for an actor execution log - 1MB
+DEFAULT_MAX_LOG_LENGTH = 1000000
+
 def is_hashid(identifier):
     """ 
     Determine if `identifier` is an Abaco Hashid (e.g., actor id, worker id, nonce id, etc.
@@ -819,6 +822,13 @@ class Execution(AbacoDAO):
             log_ex = int(log_ex)
         except ValueError:
             log_ex = -1
+        try:
+            max_log_length = int(Config.get('web', 'max_log_length'))
+        except:
+            max_log_length = DEFAULT_MAX_LOG_LENGTH
+        if len(logs) > DEFAULT_MAX_LOG_LENGTH:
+            logger.info("truncating log for execution: {}".format(exc_id))
+            logs = logs[:max_log_length]
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
             logs_store.set_with_expiry(exc_id, logs)
