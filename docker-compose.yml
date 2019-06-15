@@ -191,8 +191,6 @@ services:
     prometheus:
         # build: ./prometheus
         image: abaco/prom$TAG
-#        environment:
-#            no_proxy: "reg"
         configs:
           - source: prometheus_config
             target: /etc/prometheus/prometheus.yml
@@ -203,16 +201,6 @@ services:
         #   - '-storage.local.path=/prometheus'
         ports:
             - 9090:9090
-        deploy:
-            placement:
-                constraints:
-                    - 'node.role == manager'
-                    - 'node.platform.os == linux'
-            resources:
-                limits:
-                    memory: 500M
-                reservations:
-                    memory: 200M
         networks:
             - abaco
         depends_on:
