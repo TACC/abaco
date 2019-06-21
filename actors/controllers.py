@@ -5,6 +5,7 @@ import os
 import requests
 import threading
 import time
+import timeit
 
 from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 from flask import g, request, render_template, make_response, Response
@@ -89,7 +90,7 @@ class MetricsResource(Resource):
 
     def check_metrics(self, actor_ids):
         for actor_id in actor_ids:
-            logger.debug("TOP OF CHECK METRICS")
+            logger.debug("TOP OF CHECK METRICS for actor_id {}".format(actor_id))
 
             data = metrics_utils.query_message_count_for_actor(actor_id)
             try:
@@ -1068,10 +1069,12 @@ class MessagesResource(Resource):
         return args
 
     def post(self, actor_id):
+        start_timer = timeit.default_timer()
+
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc),
                                'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
-                               'messages': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id)},}
+                               'messages': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id)}, }
 
         logger.debug("top of POST /actors/{}/messages.".format(actor_id))
         synchronous = False
@@ -1081,7 +1084,9 @@ class MessagesResource(Resource):
         except KeyError:
             logger.debug("did not find actor: {}.".format(actor_id))
             raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
+        got_actor_timer = timeit.default_timer()
         args = self.validate_post()
+        val_post_timer = timeit.default_timer()
         d = {}
         # build a dictionary of k:v pairs from the query parameters, and pass a single
         # additional object 'message' from within the post payload. Note that 'message'
@@ -1100,6 +1105,7 @@ class MessagesResource(Resource):
             if k == 'message':
                 continue
             d[k] = v
+        request_args_timer = timeit.default_timer()
         logger.debug("extra fields added to message from query parameters: {}.".format(d))
         if synchronous:
             # actor mailbox length must be 0 to perform a synchronous execution
@@ -1117,31 +1123,53 @@ class MessagesResource(Resource):
         if hasattr(g, 'jwt_header_name'):
             d['_abaco_jwt_header_name'] = g.jwt_header_name
             logger.debug("abaco_jwt_header_name: {} added to message.".format(g.jwt_header_name))
-
         # create an execution
+        before_exc_timer = timeit.default_timer()
         exc = Execution.add_execution(dbid, {'cpu': 0,
                                              'io': 0,
                                              'runtime': 0,
                                              'status': SUBMITTED,
                                              'executor': g.user})
+        after_exc_timer = timeit.default_timer()
         logger.info("Execution {} added for actor {}".format(exc, actor_id))
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         logger.debug("Final message dictionary: {}".format(d))
+        before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
+        after_ch_timer = timeit.default_timer()
         ch.put_msg(message=args['message'], d=d)
+        after_put_msg_timer = timeit.default_timer()
         ch.close()
+        after_ch_close_timer = timeit.default_timer()
         logger.debug("Message added to actor inbox. id: {}.".format(actor_id))
         # make sure at least one worker is available
         actor = Actor.from_db(actors_store[dbid])
+        after_get_actor_db_timer = timeit.default_timer()
         actor.ensure_one_worker()
+        after_ensure_one_worker_timer = timeit.default_timer()
         logger.debug("ensure_one_worker() called. id: {}.".format(actor_id))
         if args.get('_abaco_Content_Type') == 'application/octet-stream':
             result = {'execution_id': exc, 'msg': 'binary - omitted'}
         else:
-            result={'execution_id': exc, 'msg': args['message']}
+            result = {'execution_id': exc, 'msg': args['message']}
         result.update(get_hypermedia(actor, exc))
         case = Config.get('web', 'case')
+        end_timer = timeit.default_timer()
+        time_data = {'total': (end_timer - start_timer) * 1000,
+                     'get_actor': (got_actor_timer - start_timer) * 1000,
+                     'validate_post': (val_post_timer - got_actor_timer) * 1000,
+                     'parse_request_args': (request_args_timer - val_post_timer) * 1000,
+                     'create_msg_d': (before_exc_timer - request_args_timer) * 1000,
+                     'add_execution': (after_exc_timer - before_exc_timer) * 1000,
+                     'final_msg_d': (before_ch_timer - after_exc_timer) * 1000,
+                     'create_actor_ch': (after_ch_timer - before_ch_timer) * 1000,
+                     'put_msg_ch': (after_put_msg_timer - after_ch_timer) * 1000,
+                     'close_ch': (after_ch_close_timer - after_put_msg_timer) * 1000,
+                     'get_actor_2': (after_get_actor_db_timer - after_ch_close_timer) * 1000,
+                     'ensure_1_worker': (after_ensure_one_worker_timer - after_get_actor_db_timer) * 1000,
+                     }
+        logger.info("Times to process message: {}".format(time_data))
         if synchronous:
             return self.do_synch_message(exc)
         if not case == 'camel':
