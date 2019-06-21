@@ -131,8 +131,21 @@ class BinaryChannel(BasicChannel):
             return self._process(msg.body), msg
 
 
+from queues import BinaryTaskQueue
 
-class ActorMsgChannel(BinaryChannel):
+
+class ActorMsgChannel(BinaryTaskQueue):
+    def __init__(self, actor_id):
+        super().__init__(name='actor_msg_{}'.format(actor_id))
+
+    def put_msg(self, message, d={}, **kwargs):
+        d['message'] = message
+        for k, v in kwargs:
+            d[k] = v
+        self.put(d)
+
+
+class ActorMSSgChannel(BinaryChannel):
     """Work with messages sent to a specific actor.
     """
     def __init__(self, actor_id):
