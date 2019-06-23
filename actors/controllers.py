@@ -5,6 +5,7 @@ import os
 import requests
 import threading
 import time
+import timeit
 
 from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 from flask import g, request, render_template, make_response, Response
@@ -14,7 +15,7 @@ from agaveflask.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
+from codes import SUBMITTED, COMPLETE, PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
@@ -473,6 +474,81 @@ class AliasNonceResource(Resource):
         return ok(result=None, msg="Alias nonce deleted successfully.")
 
 
+def check_for_link_cycles(db_id, link_dbid):
+    """
+    Check if a link from db_id -> link_dbid would not create a cycle among linked actors.
+    :param dbid: actor linking to link_dbid 
+    :param link_dbid: id of actor being linked to.
+    :return: 
+    """
+    # create the links graph, resolving each link attribute to a db_id along the way:
+    links = {db_id: link_dbid}
+    for _, actor in actors_store.items():
+        if actor.link:
+            try:
+                link_id = Actor.get_actor_id(actor.tenant, actor.link)
+                link_dbid = Actor.get_dbid(g.tenant, link_id)
+            except Exception as e:
+                logger.error("corrupt link data; could not resolve link attribute in "
+                             "actor: {}; exception: {}".format(actor, e))
+                continue
+            links[actor.db_id] = link_dbid
+    if has_cycles(links):
+        raise DAOError("Error: the following update would result in a cycle of linked actors.")
+
+
+def has_cycles(links):
+    """
+    Checks whether the `links` dictionary contains a cycle.
+    :param links: dictionary of form d[k]=v where k->v is a link
+    :return: 
+    """
+    # consider each link entry as the starting node:
+    for k, v in links.items():
+        # list of visited nodes on this iteration; starts with the two links.
+        # if we visit a node twice, we have a cycle.
+        visited = [k, v]
+        # current node we are on
+        current = v
+        while current:
+            # look up current to see if it has a link:
+            current = links.get(current)
+            # if it had a link, check if it was alread in visited:
+            if current and current in visited:
+                return True
+            visited.append(current)
+    return False
+
+
+def validate_link(args):
+    # check permissions - creating a link to an actor requires EXECUTE permissions
+    # on the linked actor.
+    try:
+        link_id = Actor.get_actor_id(g.tenant, args['link'])
+        link_dbid = Actor.get_dbid(g.tenant, link_id)
+    except Exception as e:
+        msg = "Invalid link parameter; unable to retrieve linked actor data. The link " \
+              "must be a valid actor id or alias for which you have EXECUTE permission. "
+        logger.info("{}; exception: {}".format(msg, e))
+        raise DAOError(msg)
+    try:
+        check_permissions(g.user, link_dbid, EXECUTE)
+    except Exception as e:
+        logger.error("Got exception trying to check permissions for actor link. "
+                     "Exception: {}; link: {}".format(e, link_dbid
+                                                      ))
+        raise DAOError("Invalid link paramter. The link must be a valid "
+                       "actor id or alias for which you have EXECUTE permission. "
+                       "Additional info: {}".format(e))
+
+    # POSTs to create new actors do not have db_id's assigned and cannot result in
+    # cycles
+    if not g.db_id:
+        return
+    if link_dbid == g.db_id:
+        raise DAOError("Invalid link parameter. An actor cannot link to itself.")
+    check_for_link_cycles(g.db_id, link_dbid)
+
 class ActorsResource(Resource):
 
     def get(self):
@@ -496,6 +572,8 @@ class ActorsResource(Resource):
                 valid_queues = queues_list.split(',')
                 if args['queue'] not in valid_queues:
                     raise BadRequest('Invalid queue name.')
+            if args['link']:
+                validate_link(args)
 
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
@@ -613,6 +691,8 @@ class ActorResource(Resource):
             valid_queues = queues_list.split(',')
             if args['queue'] not in valid_queues:
                 raise BadRequest('Invalid queue name.')
+        if args['link']:
+            validate_link(args)
         # user can force an update by setting the force param:
         update_image = args.get('force')
         if not update_image and args['image'] == previous_image:
@@ -1068,6 +1148,7 @@ class MessagesResource(Resource):
         return args
 
     def post(self, actor_id):
+        start_timer = timeit.default_timer()
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc),
                                'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
@@ -1081,7 +1162,9 @@ class MessagesResource(Resource):
         except KeyError:
             logger.debug("did not find actor: {}.".format(actor_id))
             raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
+        got_actor_timer = timeit.default_timer()
         args = self.validate_post()
+        val_post_timer = timeit.default_timer()
         d = {}
         # build a dictionary of k:v pairs from the query parameters, and pass a single
         # additional object 'message' from within the post payload. Note that 'message'
@@ -1100,6 +1183,7 @@ class MessagesResource(Resource):
             if k == 'message':
                 continue
             d[k] = v
+        request_args_timer = timeit.default_timer()
         logger.debug("extra fields added to message from query parameters: {}.".format(d))
         if synchronous:
             # actor mailbox length must be 0 to perform a synchronous execution
@@ -1119,22 +1203,30 @@ class MessagesResource(Resource):
             logger.debug("abaco_jwt_header_name: {} added to message.".format(g.jwt_header_name))
 
         # create an execution
+        before_exc_timer = timeit.default_timer()
         exc = Execution.add_execution(dbid, {'cpu': 0,
                                              'io': 0,
                                              'runtime': 0,
                                              'status': SUBMITTED,
                                              'executor': g.user})
+        after_exc_timer = timeit.default_timer()
         logger.info("Execution {} added for actor {}".format(exc, actor_id))
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         logger.debug("Final message dictionary: {}".format(d))
+        before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
+        after_ch_timer = timeit.default_timer()
         ch.put_msg(message=args['message'], d=d)
+        after_put_msg_timer = timeit.default_timer()
         ch.close()
+        after_ch_close_timer = timeit.default_timer()
         logger.debug("Message added to actor inbox. id: {}.".format(actor_id))
         # make sure at least one worker is available
         actor = Actor.from_db(actors_store[dbid])
+        after_get_actor_db_timer = timeit.default_timer()
         actor.ensure_one_worker()
+        after_ensure_one_worker_timer = timeit.default_timer()
         logger.debug("ensure_one_worker() called. id: {}.".format(actor_id))
         if args.get('_abaco_Content_Type') == 'application/octet-stream':
             result = {'execution_id': exc, 'msg': 'binary - omitted'}
@@ -1142,6 +1234,21 @@ class MessagesResource(Resource):
             result={'execution_id': exc, 'msg': args['message']}
         result.update(get_hypermedia(actor, exc))
         case = Config.get('web', 'case')
+        end_timer = timeit.default_timer()
+        time_data = {'total':  (end_timer - start_timer)*1000,
+                     'get_actor': (got_actor_timer - start_timer)*1000,
+                     'validate_post': (val_post_timer - got_actor_timer)*1000,
+                     'parse_request_args': (request_args_timer - val_post_timer)*1000,
+                     'create_msg_d': (before_exc_timer - request_args_timer)*1000,
+                     'add_execution': (after_exc_timer - before_exc_timer)*1000,
+                     'final_msg_d': (before_ch_timer - after_exc_timer)*1000,
+                     'create_actor_ch': (after_ch_timer - before_ch_timer)*1000,
+                     'put_msg_ch': (after_put_msg_timer - after_ch_timer)*1000,
+                     'close_ch': (after_ch_close_timer - after_put_msg_timer)*1000,
+                     'get_actor_2': (after_get_actor_db_timer - after_ch_close_timer)*1000,
+                     'ensure_1_worker': (after_ensure_one_worker_timer - after_get_actor_db_timer)*1000,
+                     }
+        logger.error("Times to process message: {}".format(time_data))
         if synchronous:
             return self.do_synch_message(exc)
         if not case == 'camel':
