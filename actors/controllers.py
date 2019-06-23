@@ -90,7 +90,7 @@ class MetricsResource(Resource):
 
     def check_metrics(self, actor_ids):
         for actor_id in actor_ids:
-            logger.debug("TOP OF CHECK METRICS")
+            logger.debug("TOP OF CHECK METRICS for actor_id {}".format(actor_id))
 
             data = metrics_utils.query_message_count_for_actor(actor_id)
             try:
@@ -1149,10 +1149,11 @@ class MessagesResource(Resource):
 
     def post(self, actor_id):
         start_timer = timeit.default_timer()
+
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc),
                                'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
-                               'messages': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id)},}
+                               'messages': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id)}, }
 
         logger.debug("top of POST /actors/{}/messages.".format(actor_id))
         synchronous = False
@@ -1201,7 +1202,6 @@ class MessagesResource(Resource):
         if hasattr(g, 'jwt_header_name'):
             d['_abaco_jwt_header_name'] = g.jwt_header_name
             logger.debug("abaco_jwt_header_name: {} added to message.".format(g.jwt_header_name))
-
         # create an execution
         before_exc_timer = timeit.default_timer()
         exc = Execution.add_execution(dbid, {'cpu': 0,
@@ -1231,24 +1231,24 @@ class MessagesResource(Resource):
         if args.get('_abaco_Content_Type') == 'application/octet-stream':
             result = {'execution_id': exc, 'msg': 'binary - omitted'}
         else:
-            result={'execution_id': exc, 'msg': args['message']}
+            result = {'execution_id': exc, 'msg': args['message']}
         result.update(get_hypermedia(actor, exc))
         case = Config.get('web', 'case')
         end_timer = timeit.default_timer()
-        time_data = {'total':  (end_timer - start_timer)*1000,
-                     'get_actor': (got_actor_timer - start_timer)*1000,
-                     'validate_post': (val_post_timer - got_actor_timer)*1000,
-                     'parse_request_args': (request_args_timer - val_post_timer)*1000,
-                     'create_msg_d': (before_exc_timer - request_args_timer)*1000,
-                     'add_execution': (after_exc_timer - before_exc_timer)*1000,
-                     'final_msg_d': (before_ch_timer - after_exc_timer)*1000,
-                     'create_actor_ch': (after_ch_timer - before_ch_timer)*1000,
-                     'put_msg_ch': (after_put_msg_timer - after_ch_timer)*1000,
-                     'close_ch': (after_ch_close_timer - after_put_msg_timer)*1000,
-                     'get_actor_2': (after_get_actor_db_timer - after_ch_close_timer)*1000,
-                     'ensure_1_worker': (after_ensure_one_worker_timer - after_get_actor_db_timer)*1000,
+        time_data = {'total': (end_timer - start_timer) * 1000,
+                     'get_actor': (got_actor_timer - start_timer) * 1000,
+                     'validate_post': (val_post_timer - got_actor_timer) * 1000,
+                     'parse_request_args': (request_args_timer - val_post_timer) * 1000,
+                     'create_msg_d': (before_exc_timer - request_args_timer) * 1000,
+                     'add_execution': (after_exc_timer - before_exc_timer) * 1000,
+                     'final_msg_d': (before_ch_timer - after_exc_timer) * 1000,
+                     'create_actor_ch': (after_ch_timer - before_ch_timer) * 1000,
+                     'put_msg_ch': (after_put_msg_timer - after_ch_timer) * 1000,
+                     'close_ch': (after_ch_close_timer - after_put_msg_timer) * 1000,
+                     'get_actor_2': (after_get_actor_db_timer - after_ch_close_timer) * 1000,
+                     'ensure_1_worker': (after_ensure_one_worker_timer - after_get_actor_db_timer) * 1000,
                      }
-        logger.error("Times to process message: {}".format(time_data))
+        logger.info("Times to process message: {}".format(time_data))
         if synchronous:
             return self.do_synch_message(exc)
         if not case == 'camel':

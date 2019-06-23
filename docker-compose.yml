@@ -85,6 +85,7 @@ services:
         environment:
             server: gunicorn
             api: mes
+            threads: 12
             mongo_password:
             redis_password:
             TAS_ROLE_ACCT:
@@ -219,11 +220,9 @@ services:
     prometheus:
         # build: ./prometheus
         image: abaco/prom$TAG
-        configs:
-          - source: prometheus_config
-            target: /etc/prometheus/prometheus.yml
-          - source: prometheus_rules
-            target: /etc/prometheus/alert.rules.yml
+        volumes:
+            - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+            - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
         command:
           - '--config.file=/etc/prometheus/prometheus.yml'
         #   - '-storage.local.path=/prometheus'
