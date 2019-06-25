@@ -506,7 +506,8 @@ def execute_actor(actor_id,
     start_time = get_current_utc_time()
     # start the timer to track total execution time.
     start = timeit.default_timer()
-    logger.debug("right before cli.start: {}; (worker {};{})".format(start, worker_id, execution_id))
+    logger.debug("right before cli.start: {}; container id: {}; "
+                 "(worker {};{})".format(start, container.get('Id'), worker_id, execution_id))
     try:
         cli.start(container=container.get('Id'))
     except Exception as e:
