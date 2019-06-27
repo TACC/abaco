@@ -15,7 +15,7 @@ from agaveflask.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
+from codes import SUBMITTED, COMPLETE, PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
@@ -474,6 +474,81 @@ class AliasNonceResource(Resource):
         return ok(result=None, msg="Alias nonce deleted successfully.")
 
 
+def check_for_link_cycles(db_id, link_dbid):
+    """
+    Check if a link from db_id -> link_dbid would not create a cycle among linked actors.
+    :param dbid: actor linking to link_dbid 
+    :param link_dbid: id of actor being linked to.
+    :return: 
+    """
+    # create the links graph, resolving each link attribute to a db_id along the way:
+    links = {db_id: link_dbid}
+    for _, actor in actors_store.items():
+        if actor.link:
+            try:
+                link_id = Actor.get_actor_id(actor.tenant, actor.link)
+                link_dbid = Actor.get_dbid(g.tenant, link_id)
+            except Exception as e:
+                logger.error("corrupt link data; could not resolve link attribute in "
+                             "actor: {}; exception: {}".format(actor, e))
+                continue
+            links[actor.db_id] = link_dbid
+    if has_cycles(links):
+        raise DAOError("Error: the following update would result in a cycle of linked actors.")
+
+
+def has_cycles(links):
+    """
+    Checks whether the `links` dictionary contains a cycle.
+    :param links: dictionary of form d[k]=v where k->v is a link
+    :return: 
+    """
+    # consider each link entry as the starting node:
+    for k, v in links.items():
+        # list of visited nodes on this iteration; starts with the two links.
+        # if we visit a node twice, we have a cycle.
+        visited = [k, v]
+        # current node we are on
+        current = v
+        while current:
+            # look up current to see if it has a link:
+            current = links.get(current)
+            # if it had a link, check if it was alread in visited:
+            if current and current in visited:
+                return True
+            visited.append(current)
+    return False
+
+
+def validate_link(args):
+    # check permissions - creating a link to an actor requires EXECUTE permissions
+    # on the linked actor.
+    try:
+        link_id = Actor.get_actor_id(g.tenant, args['link'])
+        link_dbid = Actor.get_dbid(g.tenant, link_id)
+    except Exception as e:
+        msg = "Invalid link parameter; unable to retrieve linked actor data. The link " \
+              "must be a valid actor id or alias for which you have EXECUTE permission. "
+        logger.info("{}; exception: {}".format(msg, e))
+        raise DAOError(msg)
+    try:
+        check_permissions(g.user, link_dbid, EXECUTE)
+    except Exception as e:
+        logger.error("Got exception trying to check permissions for actor link. "
+                     "Exception: {}; link: {}".format(e, link_dbid
+                                                      ))
+        raise DAOError("Invalid link paramter. The link must be a valid "
+                       "actor id or alias for which you have EXECUTE permission. "
+                       "Additional info: {}".format(e))
+
+    # POSTs to create new actors do not have db_id's assigned and cannot result in
+    # cycles
+    if not g.db_id:
+        return
+    if link_dbid == g.db_id:
+        raise DAOError("Invalid link parameter. An actor cannot link to itself.")
+    check_for_link_cycles(g.db_id, link_dbid)
+
 class ActorsResource(Resource):
 
     def get(self):
@@ -497,6 +572,8 @@ class ActorsResource(Resource):
                 valid_queues = queues_list.split(',')
                 if args['queue'] not in valid_queues:
                     raise BadRequest('Invalid queue name.')
+            if args['link']:
+                validate_link(args)
 
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
@@ -614,6 +691,8 @@ class ActorResource(Resource):
             valid_queues = queues_list.split(',')
             if args['queue'] not in valid_queues:
                 raise BadRequest('Invalid queue name.')
+        if args['link']:
+            validate_link(args)
         # user can force an update by setting the force param:
         update_image = args.get('force')
         if not update_image and args['image'] == previous_image:

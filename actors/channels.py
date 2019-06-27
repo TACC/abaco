@@ -96,6 +96,26 @@ class CommandChannel(Channel):
         self.put(msg)
 
 
+class EventsChannel(Channel):
+    """Work with events on the events channel."""
+
+    event_queue_names = ('default',
+                         )
+
+    def __init__(self, name='default'):
+        self.uri = Config.get('rabbit', 'uri')
+        if name not in EventsChannel.event_queue_names:
+            raise Exception('Invalid Events Channel Queue name.')
+
+        super().__init__(name='events_channel_{}'.format(name),
+                         connection_type=RabbitConnection,
+                         uri=self.uri)
+
+    def put_event(self, json_data):
+        """Put a new event on the events channel."""
+        self.put(json_data)
+
+
 class BinaryChannel(BasicChannel):
     """Override BaseChannel methods to handle binary messages."""
 

@@ -206,12 +206,32 @@ def authorization():
     if '/actors/aliases' in request.url_rule.rule:
         alias_id = get_alias_id()
         noun = 'alias'
-        if request.method == 'GET':
-            # GET requests require READ access
-            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
-            # all other requests require UPDATE access
-        elif request.method in ['DELETE', 'POST', 'PUT']:
-            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
+        # we need to compute the db_id since it is not computed in the general case for
+        # alias endpoints
+        db_id, _ = get_db_id()
+        # reading/creating/updating nonces for an alias requires permissions for both the
+        # alias itself and the underlying actor
+        if 'nonce' in request.url_rule.rule:
+            noun = 'alias and actor'
+            # logger.debug("checking user {} has permissions for "
+            #              "alias: {} and actor: {}".format(g.user, alias_id, db_id))
+            if request.method == 'GET':
+                # GET requests require READ access
+
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.READ)
+            elif request.method in ['DELETE', 'POST', 'PUT']:
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
+                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
+
+        # otherwise, this is a request to manage the alias itself; only requires permissions on the alias
+        else:
+            if request.method == 'GET':
+                # GET requests require READ access
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+                # all other requests require UPDATE access
+            elif request.method in ['DELETE', 'POST', 'PUT']:
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
     else:
         # all other checks are based on actor-id:
         noun = 'actor'
@@ -318,14 +338,21 @@ def check_permissions(user, identifier, level):
 
 def get_db_id():
     """Get the db_id and actor_identifier from the request path."""
-    # logger.debug("top of get_db_id. request.path: {}".format(request.path))
+    # the location of the actor identifier is different for aliases vs actor_id's.
+    # for actors, it is in index 2:
+    #     /actors/<actor_id>
+    # for aliases, it is in index 3:
+    #     /actors/aliases/<alias_id>
+    idx = 2
+    if 'aliases' in request.path:
+        idx = 3
     path_split = request.path.split("/")
     if len(path_split) < 3:
         logger.error("Unrecognized request -- could not find the actor id. path_split: {}".format(path_split))
         raise PermissionsException("Not authorized.")
-    # logger.debug("path_split: {}".format(path_split))
-    actor_identifier = path_split[2]
-    # logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    logger.debug("path_split: {}".format(path_split))
+    actor_identifier = path_split[idx]
+    logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
     try:
         actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
     except KeyError:
