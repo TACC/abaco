@@ -1,6 +1,23 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.1.0 - 2019-06-18
+### Added
+- Added support for sending synchronous messages to an actor.
+- Added support for creating/managing nonces associated with aliases through a new API: `GET, POST /actors/aliases/{alias}/nonces`. 
+- Added support for halting a running execution through a new API endpoint: `DELETE /actors/{actor_id}/executions/{execution_id}`.
+- Added support for streaming logs back to the logs service during a running execution so that the user does not have to wait for an execution to complete before seeing logs.
+
+### Changed
+- The spawer management of workers has been greatly simplified with a significant reduction in messages between the two agents at start up. Worker status was updated to add additional worker states during start up. Worker state transitions are now validated at the model level.   
+- The `abacosamples/wc` word count image has been updated to now send a bytes result on the results channel.
+- Improved worker and client cleanup code when actor goes into an ERROR state. 
+- Updates to health agent to add additional checks/clean up of clients store.
+- Consolidated to a single docker-compose.yml file for local development and upgraded it to v3 docker-compose format.
+
+### Removed
+- No change.
+
 
 ## 1.0.0 - 2019-03-18
 ### Added
