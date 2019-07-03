@@ -13,12 +13,15 @@ import os
 import shutil
 import time
 
+from agaveflask.auth import get_api_server
 import channelpy
 
+from aga import Agave
+from auth import get_tenants, get_tenant_verify
 import codes
 from config import Config
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
-from models import Actor, Worker
+from models import Actor, Worker, is_hashid
 from channels import ClientsChannel, CommandChannel, WorkerChannel
 from stores import actors_store, clients_store, executions_store, workers_store
 from worker import shutdown_worker
@@ -84,6 +87,72 @@ def clean_up_ipc_dirs():
     """Remove all directories created for worker sockets and fifos"""
     clean_up_socket_dirs()
     clean_up_fifo_dirs()
+
+def delete_client(ag, client_name):
+    """Remove a client from the APIM."""
+    try:
+        ag.clients.delete(clientName=client_name)
+    except Exception as e:
+        m = 'Not able to delete client from APIM. Got an exception: {}'.format(e)
+        logger.error(m)
+    return None
+
+def clean_up_apim_clients(tenant):
+    """Check the list of clients registered in APIM and remove any that are associated with retired workers."""
+    username = os.environ.get('_abaco_{}_username'.format(tenant), '')
+    password = os.environ.get('_abaco_{}_password'.format(tenant), '')
+    if not username:
+        msg = "Health process did not get a username for tenant {}; " \
+              "returning from clean_up_apim_clients".format(tenant)
+        if tenant in ['SD2E', 'TACC-PROD']:
+            logger.error(msg)
+        else:
+            logger.info(msg)
+        return None
+    if not password:
+        msg = "Health process did not get a password for tenant {}; " \
+              "returning from clean_up_apim_clients".format(tenant)
+        if tenant in ['SD2E', 'TACC-PROD']:
+            logger.error(msg)
+        else:
+            logger.info(msg)
+        return None
+    api_server = get_api_server(tenant)
+    verify = get_tenant_verify(tenant)
+    ag = Agave(api_server=api_server,
+               username=username,
+               password=password,
+               verify=verify)
+    logger.debug("health process created an ag for tenant: {}".format(tenant))
+    try:
+        cs = ag.clients.list()
+        clients = cs.json()['result']
+    except Exception as e:
+        msg = "Health process got an exception trying to retrieve clients; exception: {}".format(e)
+        logger.error(msg)
+        return None
+    for client in clients:
+        # check if the name of the client is an abaco hash (i.e., a worker id). if not, we ignore it from the beginning
+        name = client.get('name')
+        if not is_hashid(name):
+            logger.debug("client {} is not an abaco hash id; skipping.".format(name))
+            continue
+        # we know this client came from a worker, so we need to check to see if the worker is still active;
+        # first check if the worker even exists; if it does, the id will be the client name:
+        worker = get_worker(name)
+        if not worker:
+            logger.info("no worker associated with id: {}; deleting client.".format(name))
+            delete_client(ag, name)
+            logger.info("client {} deleted by health process.".format(name))
+            continue
+        # if the worker exists, we should check the status:
+        status = worker.get('status')
+        if status == codes.ERROR:
+            logger.info("worker {} was in ERROR status so deleting client; worker: {}.".format(name, worker))
+            delete_client(ag, name)
+            logger.info("client {} deleted by health process.".format(name))
+        else:
+            logger.debug("worker {} still active; not deleting client.".format(worker))
 
 def clean_up_clients_store():
     logger.debug("top of clean_up_clients_store")
@@ -246,28 +315,28 @@ def check_workers(actor_id, ttl):
             logger.info("Worker ok.")
 
         # now check if the worker has been idle beyond the ttl:
-        # if ttl < 0:
-        #     # ttl < 0 means infinite life
-        #     logger.info("Infinite ttl configured; leaving worker")
-        #     return
-        # # we don't shut down workers that are currently running:
-        # if not worker['status'] == codes.BUSY:
-        #     last_execution = int(float(worker.get('last_execution_time', 0)))
-        #     # if worker has made zero executions, use the create_time
-        #     if last_execution == 0:
-        #         last_execution = worker.get('create_time', 0)
-        #     logger.debug("using last_execution: {}".format(last_execution))
-        #     try:
-        #         last_execution = int(float(last_execution))
-        #     except:
-        #         logger.error("Could not case last_execution {} to int(float()".format(last_execution))
-        #         last_execution = 0
-        #     if last_execution + ttl < time.time():
-        #         # shutdown worker
-        #         logger.info("Shutting down worker beyond ttl.")
-        #         shutdown_worker(worker['id'])
-        #     else:
-        #         logger.info("Still time left for this worker.")
+        if ttl < 0:
+            # ttl < 0 means infinite life
+            logger.info("Infinite ttl configured; leaving worker")
+            return
+        # we don't shut down workers that are currently running:
+        if not worker['status'] == codes.BUSY:
+            last_execution = int(float(worker.get('last_execution_time', 0)))
+            # if worker has made zero executions, use the create_time
+            if last_execution == 0:
+                last_execution = worker.get('create_time', 0)
+            logger.debug("using last_execution: {}".format(last_execution))
+            try:
+                last_execution = int(float(last_execution))
+            except:
+                logger.error("Could not case last_execution {} to int(float()".format(last_execution))
+                last_execution = 0
+            if last_execution + ttl < time.time():
+                # shutdown worker
+                logger.info("Shutting down worker beyond ttl.")
+                shutdown_worker(worker['id'])
+            else:
+                logger.info("Still time left for this worker.")
 
         if worker['status'] == codes.ERROR:
             # shutdown worker
@@ -298,17 +367,27 @@ def start_spawner(queue, idx='0'):
     """
     command = 'python3 -u /actors/spawner.py'
     name = 'healthg_{}_spawner_{}'.format(queue, idx)
-    environment = {'AE_IMAGE': AE_IMAGE.split(':')[0],
-                   'queue': queue
-                   }
+
+    try:
+        environment = dict(os.environ)
+    except Exception as e:
+        environment = {}
+        logger.error("Unable to convert environment to dict; exception: {}".format(e))
+
+    environment.update({'AE_IMAGE': AE_IMAGE.split(':')[0],
+                        'queue': queue,
+    })
     # check logging strategy to determine log file name:
+    log_file = 'abaco.log'
+    if get_log_file_strategy() == 'split':
+        log_file = 'spawner.log'
     try:
         run_container_with_docker(AE_IMAGE,
                                   command,
                                   name=name,
                                   environment=environment,
                                   mounts=[],
-                                  log_file=None)
+                                  log_file=log_file)
     except Exception as e:
         logger.critical("Could not restart spawner for queue {}. Exception: {}".format(queue, e))
 
@@ -340,6 +419,7 @@ def check_spawners():
     for queue in host_queues:
         check_spawner(queue)
 
+
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
     logger.info("Entering manage_workers for {}".format(actor_id))
@@ -349,6 +429,11 @@ def manage_workers(actor_id):
         logger.info("Did not find actor; returning.")
         return
     workers = Worker.get_workers(actor_id)
+    for key in workers:
+        worker = get_worker(key)
+        time_difference = time.time() - worker['create_time']
+        if worker['status'] == 'PROCESSING' and time_difference > 1:
+            logger.info("LOOK HERE - worker creation time {}".format(worker['create_time']))
     #TODO - implement policy
 
 def shutdown_all_workers():
@@ -380,8 +465,13 @@ def main():
     ids = get_actor_ids()
     logger.info("Found {} actor(s). Now checking status.".format(len(ids)))
     for id in ids:
-        check_workers(id, ttl)
         # manage_workers(id)
+        check_workers(id, ttl)
+    tenants = get_tenants()
+    for t in tenants:
+        logger.debug("health process cleaning up apim_clients for tenant: {}".format(t))
+        clean_up_apim_clients(t)
+
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
     # check_workers_store(ttl)
 

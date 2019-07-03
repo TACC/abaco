@@ -41,7 +41,7 @@ class Token(object):
         logger.debug("top of _token")
         auth = requests.auth.HTTPBasicAuth(self.api_key, self.api_secret)
         logger.debug("about to make POST request for token; URL: {}; "
-                     "data: {}; auth: {}".format(self.token_url, data, auth))
+                     "data: {}; auth: {}:{}".format(self.token_url, data, self.api_key, self.api_secret))
         resp = requests.post(self.token_url, data=data, auth=auth,
                              verify=self.verify)
         logger.debug("made request for token; rsp: {}".format(resp))
@@ -178,3 +178,13 @@ class AgaveClientsService(object):
             return {}
         except Exception as e:
             raise AgaveError('Error creating client: {}'.format(e))
+
+    def list(self):
+        """List all Agave OAuth2 clients."""
+        auth = requests.auth.HTTPBasicAuth(self.parent.username, self.parent.password)
+        try:
+            rsp = requests.get(url='{}/clients/v2'.format(self.parent.api_server), auth=auth)
+            rsp.raise_for_status()
+            return rsp
+        except Exception as e:
+            raise AgaveError('Error listing clients: {}'.format(e))
