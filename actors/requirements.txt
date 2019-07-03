@@ -14,7 +14,7 @@ pika==0.9.13
 docker==2.7.0
 pycrypto==2.6.1
 PyJWT==0.2.3
-gunicorn==19.3.0
+gunicorn==19.9.0
 rabbitpy==1.0.0
 pyzmq==14.3.0
 pymongo==3.3.0

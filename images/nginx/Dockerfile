@@ -1,5 +1,5 @@
 # Image: abaco/nginx
-FROM alpine:3.1
+FROM alpine:3.8
 
 ENV NGINX_VERSION nginx-1.7.11
 

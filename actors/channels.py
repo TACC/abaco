@@ -73,9 +73,15 @@ class ClientsChannel(Channel):
 class CommandChannel(Channel):
     """Work with commands on the command channel."""
 
-    def __init__(self):
+    def __init__(self, name='default'):
         self.uri = Config.get('rabbit', 'uri')
-        super().__init__(name='command',
+        queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+        valid_queues = queues_list.split(',')
+        if name not in valid_queues:
+            raise Exception('Invalid Queue name.')
+
+
+        super().__init__(name='command_channel_{}'.format(name),
                          connection_type=RabbitConnection,
                          uri=self.uri)
 
