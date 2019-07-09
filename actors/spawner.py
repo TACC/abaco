@@ -317,6 +317,14 @@ class Spawner(object):
             break
         logger.info('LOOK HERE - finished loop')
         worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)
+        # set actor status to READY before worker status has been set to READY
+        try:
+            Actor.set_status(actor_id, READY, status_message=" ")
+        except KeyError:
+            # it is possible the actor was already deleted during worker start up; if
+            # so, the worker should have a stop message waiting for it. starting subscribe
+            # as usual should allow this process to work as expected.
+            pass
         # finalize worker with READY status
         worker = Worker(tenant=tenant, **worker_dict)
         logger.info("calling add_worker for worker: {}.".format(worker))

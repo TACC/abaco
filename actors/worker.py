@@ -507,13 +507,6 @@ def main():
         logger.info("Got a client.")
         # TODO - list all client vars
 
-    try:
-        Actor.set_status(actor_id, READY, status_message=" ")
-    except KeyError:
-        # it is possible the actor was already deleted during worker start up; if
-        # so, the worker should have a stop message waiting for it. starting subscribe
-        # as usual should allow this process to work as expected.
-        pass
     logger.info('LOOK HERE - updated actor status')
 
     logger.info("Actor status set to READY. subscribing to inbox.")
