@@ -43,7 +43,7 @@ import requests
 import json
 import pytest
 
-from actors import health, models, codes, stores, spawner
+from actors import controllers, health, models, codes, stores, spawner
 from channels import ActorMsgChannel, CommandChannel
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
@@ -622,14 +622,32 @@ def test_execute_and_delete_sleep_loop_actor(headers):
     else:
         assert result.get('executionId')
         exc_id = result.get('executionId')
+    # wait for a worker to take the execution -
+    url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exc_id)
+    worker_id = None
+    idx = 0
+    while not worker_id:
+        rsp = requests.get(url, headers=headers).json().get('result')
+        if case == 'snake':
+            worker_id = rsp.get('worker_id')
+        else:
+            worker_id = rsp.get('workerId')
+        idx += 1
+        time.sleep(1)
+        if idx > 10:
+            print("worker never got sleep_loop execution. "
+                  "actor: {}; execution: {}; idx:{}".format(actor_id, exc_id, idx))
+            assert False
     # now let's kill the execution -
     time.sleep(1)
     url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exc_id)
     rsp = requests.delete(url, headers=headers)
     assert rsp.status_code in [200, 201, 202, 203, 204]
+    assert 'Issued force quit command for execution' in rsp.json().get('message')
     # make sure execution is stopped in a timely manner
     i = 0
     stopped = False
+    status = None
     while i < 20:
         rsp = requests.get(url, headers=headers)
         rsp_data = json.loads(rsp.content.decode('utf-8'))
@@ -639,6 +657,8 @@ def test_execute_and_delete_sleep_loop_actor(headers):
             break
         time.sleep(1)
         i += 1
+    print("Execution never stopped. Last status of execution: {}; "
+          "actor_id: {}; execution_id: {}".format(status, actor_id, exc_id))
     assert stopped
 
 def test_list_execution_details(headers):
@@ -786,7 +806,7 @@ def test_create_actor_with_custom_queue_name(headers):
 @pytest.mark.queuetest
 def test_actor_uses_custom_queue(headers):
     url = '{}/actors'.format(base_url)
-    # get the actor id of an actor registered on the defaul queue:
+    # get the actor id of an actor registered on the default queue:
     default_queue_actor_id = get_actor_id(headers, name='abaco_test_suite_statelesss')
     # and the actor id for the actor on the special queue:
     special_queue_actor_id = get_actor_id(headers, name='abaco_test_suite_queue1_actor1')
@@ -1019,6 +1039,16 @@ def test_other_user_still_cant_list_actor(headers):
     assert rsp.status_code == 400
     data = response_format(rsp)
     assert 'you do not have access to this actor' in data['message']
+
+@pytest.mark.aliastest
+def test_other_user_still_cant_create_alias_nonce(headers):
+    # alias permissions do not confer access to the actor itself, and alias nonces require BOTH
+    # permissions on the alias AND on the actor
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=priv_headers())
+    assert rsp.status_code == 400
+    data = response_format(rsp)
+    assert 'you do not have access to this alias and actor' in data['message']
 
 
 @pytest.mark.aliastest
@@ -1618,6 +1648,188 @@ def test_tenant_list_workers(headers):
     # get the first worker
     worker = result[0]
     check_worker_fields(worker)
+
+
+##############
+# events tests
+##############
+
+REQUEST_BIN_URL = 'https://enqjwyug892gl.x.pipedream.net'
+
+
+def check_event_logs(logs):
+    assert 'event_time_utc' in logs
+    assert 'event_time_display' in logs
+    assert 'actor_id' in logs
+
+def test_has_cycles_1():
+    links = {'A': 'B',
+             'B': 'C',
+             'C': 'D'}
+    assert not controllers.has_cycles(links)
+
+def test_has_cycles_2():
+    links = {'A': 'B',
+             'B': 'A',
+             'C': 'D'}
+    assert controllers.has_cycles(links)
+
+def test_has_cycles_3():
+    links = {'A': 'B',
+             'B': 'C',
+             'C': 'D',
+             'D': 'E',
+             'E': 'H',
+             'H': 'B'}
+    assert controllers.has_cycles(links)
+
+def test_has_cycles_4():
+    links = {'A': 'B',
+             'B': 'C',
+             'D': 'E',
+             'E': 'H',
+             'H': 'J',
+             'I': 'J',
+             'K': 'J',
+             'L': 'M',
+             'M': 'J'}
+    assert not controllers.has_cycles(links)
+
+def test_has_cycles_5():
+    links = {'A': 'B',
+             'B': 'C',
+             'C': 'C'}
+    assert controllers.has_cycles(links)
+
+def test_create_event_link_actor(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_event-link', 'stateless': False}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+
+def test_create_actor_with_link(headers):
+    # first, get the actor id of the event_link actor:
+    link_actor_id = get_actor_id(headers, name='abaco_test_suite_event-link')
+    # register a new actor with link to event_link actor
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_event',
+            'link': link_actor_id}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+
+def test_execute_event_actor(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_event')
+    data = {'message': 'testing events execution'}
+    result = execute_actor(headers, actor_id, data=data)
+    exec_id = result['id']
+    # now that this execution has completed, check that the linked actor also executed:
+    idx = 0
+    link_execution_ex_id = None
+    link_actor_id = get_actor_id(headers, name='abaco_test_suite_event-link')
+    url = '{}/actors/{}/executions'.format(base_url, link_actor_id)
+    # the linked actor should get 2 messages - one for the original actor initially being set to READY
+    # and a second when the execution sent above completes.
+    while not link_execution_ex_id and idx < 15:
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data and len(ex_data) > 1:
+            link_ready_ex_id = ex_data[0]['id']
+            link_execution_ex_id = ex_data[1]['id']
+            break
+        else:
+            idx = idx + 1
+            time.sleep(1)
+    if not link_execution_ex_id:
+        print("linked actor never executed. actor_id: {}; link_actor_id: {}".format(actor_id, link_actor_id))
+        assert False
+    # wait for linked execution to complete and get logs
+    idx = 0
+    done = False
+    while not done and idx < 20:
+        # get executions for linked actor and check status of each
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data[0].get('status') == 'COMPLETE' and ex_data[1].get('status') == 'COMPLETE':
+            done = True
+            break
+        else:
+            time.sleep(1)
+            idx = idx + 1
+    if not done:
+        print("linked actor executions never completed. actor: {}; "
+              "linked_actor: {}; Final execution data: {}".format(actor_id, link_actor_id, ex_data))
+        assert False
+    # now check the logs from the two executions --
+    # first one should be the actor READY message:
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, link_actor_id, link_ready_ex_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    logs = result.get('logs')
+    assert "'event_type': 'ACTOR_READY'" in logs
+    check_event_logs(logs)
+
+    # second one should be the actor execution COMPLETE message:
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, link_actor_id, link_execution_ex_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    logs = result.get('logs')
+    assert "'event_type': 'EXECUTION_COMPLETE'" in logs
+    assert 'execution_id' in logs
+    check_event_logs(logs)
+
+def test_cant_create_link_with_cycle(headers):
+    # this test checks that adding a link to an actor that did not have one that creates a cycle
+    # is not allowed.
+    # register a new actor with no link
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_create_link',}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    new_actor_id = result['id']
+    # create 5 new actors, each with a link to the one created previously:
+    new_actor_ids = []
+    for i in range(5):
+        data['link'] = new_actor_id
+        rsp = requests.post(url, data=data, headers=headers)
+        result = basic_response_checks(rsp)
+        new_actor_id = result['id']
+        new_actor_ids.append(new_actor_id)
+    # now, update the first created actor with a link that would create a cycle
+    first_aid = new_actor_ids[0]
+    data['link'] = new_actor_ids[4]
+    url = '{}/actors/{}'.format(base_url, first_aid)
+    print("url: {}; data: {}".format(url, data))
+    rsp = requests.put(url, data=data, headers=headers)
+    assert rsp.status_code == 400
+    assert 'this update would result in a cycle of linked actors' in rsp.json().get('message')
+
+def test_cant_update_link_with_cycle(headers):
+    # this test checks that an update to a link that would create a cycle is not allowed
+    link_actor_id = get_actor_id(headers, name='abaco_test_suite_event-link')
+    # register a new actor with link to event_link actor
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_event',
+            'link': link_actor_id}
+    # create 5 new actors, each with a link to the one created previously:
+    new_actor_ids = []
+    for i in range(5):
+        rsp = requests.post(url, data=data, headers=headers)
+        result = basic_response_checks(rsp)
+        new_actor_id = result['id']
+        data['link'] = new_actor_id
+        new_actor_ids.append(new_actor_id)
+    # now, update the first created actor with a link that would great a cycle
+    first_aid = new_actor_ids[0]
+    data['link'] = new_actor_ids[4]
+    url = '{}/actors/{}'.format(base_url, first_aid)
+    print("url: {}; data: {}".format(url, data))
+
+    rsp = requests.put(url, data=data, headers=headers)
+    assert rsp.status_code == 400
+    assert 'this update would result in a cycle of linked actors' in rsp.json().get('message')
 
 
 ##############
