@@ -892,6 +892,25 @@ class Execution(AbacoDAO):
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
 
     @classmethod
+    def update_status(cls, actor_id, execution_id, status):
+        """
+        :param actor_id: the id of the actor
+        :param execution_id: the id of the execution
+        :param status: the new status of the execution.
+        :return:
+        """
+        logger.debug("top of update_status() for actor: {} execution: {} status: {}".format(
+            actor_id, execution_id, status))
+        try:
+            executions_store.update_subfield(actor_id, execution_id, 'status', status)
+            logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
+            execution_id, actor_id, status))
+        except KeyError as e:
+            logger.error("Could not update status. KeyError: {}. actor: {}. ex: {}. status: {}".format(
+                e, actor_id, execution_id, status))
+            raise errors.ExecutionException("Execution {} not found.".format(execution_id))
+
+    @classmethod
     def finalize_execution(cls, actor_id, execution_id, status, stats, final_state, exit_code, start_time):
         """
         Update an execution status and stats after the execution is complete or killed.
