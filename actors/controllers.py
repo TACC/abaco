@@ -481,20 +481,26 @@ def check_for_link_cycles(db_id, link_dbid):
     :param link_dbid: id of actor being linked to.
     :return: 
     """
+    logger.debug("top of check_for_link_cycles; db_id: {}; link_dbid: {}".format(db_id, link_dbid))
     # create the links graph, resolving each link attribute to a db_id along the way:
+    # start with the passed in link, this is the "proposed" link -
     links = {db_id: link_dbid}
     for _, actor in actors_store.items():
-        if actor.link:
+        if actor.get('link'):
             try:
-                link_id = Actor.get_actor_id(actor.tenant, actor.link)
+                link_id = Actor.get_actor_id(actor.get('tenant'), actor.get('link'))
                 link_dbid = Actor.get_dbid(g.tenant, link_id)
             except Exception as e:
                 logger.error("corrupt link data; could not resolve link attribute in "
                              "actor: {}; exception: {}".format(actor, e))
                 continue
-            links[actor.db_id] = link_dbid
+            # we do not want to override the proposed link passed in, as this actor could already have
+            # a link (that was valid) and we need to check that the proposed link still works
+            if not actor.get('db_id') == db_id:
+                links[actor.get('db_id')] = link_dbid
+    logger.debug("actor links dictionary built. links: {}".format(links))
     if has_cycles(links):
-        raise DAOError("Error: the following update would result in a cycle of linked actors.")
+        raise DAOError("Error: this update would result in a cycle of linked actors.")
 
 
 def has_cycles(links):
@@ -503,6 +509,7 @@ def has_cycles(links):
     :param links: dictionary of form d[k]=v where k->v is a link
     :return: 
     """
+    logger.debug("top of has_cycles. links: {}".format(links))
     # consider each link entry as the starting node:
     for k, v in links.items():
         # list of visited nodes on this iteration; starts with the two links.
@@ -521,6 +528,13 @@ def has_cycles(links):
 
 
 def validate_link(args):
+    """
+    Method to validate a request trying to set a link on an actor. Called for both POSTs (new actors)
+    and PUTs (updates to existing actors).
+    :param args:
+    :return:
+    """
+    logger.debug("top of validate_link. args: {}".format(args))
     # check permissions - creating a link to an actor requires EXECUTE permissions
     # on the linked actor.
     try:
@@ -534,16 +548,16 @@ def validate_link(args):
     try:
         check_permissions(g.user, link_dbid, EXECUTE)
     except Exception as e:
-        logger.error("Got exception trying to check permissions for actor link. "
-                     "Exception: {}; link: {}".format(e, link_dbid
-                                                      ))
-        raise DAOError("Invalid link paramter. The link must be a valid "
+        logger.info("Got exception trying to check permissions for actor link. "
+                    "Exception: {}; link: {}".format(e, link_dbid))
+        raise DAOError("Invalid link parameter. The link must be a valid "
                        "actor id or alias for which you have EXECUTE permission. "
                        "Additional info: {}".format(e))
-
+    logger.debug("check_permissions passed.")
     # POSTs to create new actors do not have db_id's assigned and cannot result in
     # cycles
     if not g.db_id:
+        logger.debug("returning from validate_link - no db_id")
         return
     if link_dbid == g.db_id:
         raise DAOError("Invalid link parameter. An actor cannot link to itself.")
@@ -982,12 +996,14 @@ class ActorExecutionResource(Resource):
                                                                          actor_id))
             raise ResourceError("Execution not found {}.".format(execution_id))
         # check status of execution:
-        if not exc.status == codes.SUBMITTED:
-            logger.debug("execution not in {} status: {}".format(codes.SUBMITTED, exc.status))
+        if not exc.status == codes.RUNNING:
+            logger.debug("execution not in {} status: {}".format(codes.RUNNING, exc.status))
             raise ResourceError("Cannot force quit an execution not in {} status. "
-                                "Execution was found in status: {}".format(codes.SUBMITTED, exc.status))
+                                "Execution was found in status: {}".format(codes.RUNNING, exc.status))
         # send force_quit message to worker:
         # TODO - should we set the execution status to FORCE_QUIT_REQUESTED?
+        logger.debug("issuing force quit to worker: {} "
+                     "for actor_id: {} execution_id: {}".format(exc.worker_id, actor_id, execution_id))
         ch = WorkerChannel(worker_id=exc.worker_id)
         ch.put('force_quit')
         msg = 'Issued force quit command for execution {}.'.format(execution_id)
