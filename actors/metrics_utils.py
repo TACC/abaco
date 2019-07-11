@@ -25,24 +25,35 @@ command_gauge = Gauge(
     ['name'])
 
 def create_gauges(actor_ids):
-    logger.debug("METRICS: Made it to create_gauges")
+    logger.debug("METRICS: Made it to create_gauges; actor_ids: {}".format(actor_ids))
     for actor_id in actor_ids:
+        logger.debug("top of for loop for actor_id: {}".format(actor_id))
 
         try:
             actor = actors_store[actor_id]
+        except KeyError:
+            logger.error("actor {} does not exist.".format(actor_id))
+            continue
 
             # If the actor doesn't have a gauge, add one
-            if actor_id not in message_gauges.keys():
-
-                    g = Gauge(
-                        'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                        'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
-                    )
-                    message_gauges.update({actor_id: g})
-                    logger.debug('Created gauge {}'.format(g))
-            else:
-                # Otherwise, get this actor's existing gauge
+        if actor_id not in message_gauges.keys():
+            try:
+                g = Gauge(
+                    'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+                    'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                )
+                message_gauges.update({actor_id: g})
+                logger.debug('Created gauge {}'.format(g))
+            except Exception as e:
+                logger.error("got exception trying to create/instantiate the gauge; "
+                             "actor {}; exception: {}".format(actor_id, e))
+        else:
+            # Otherwise, get this actor's existing gauge
+            try:
                 g = message_gauges[actor_id]
+            except Exception as e:
+                logger.info("got exception trying to instantiate an existing gauge; "
+                            "actor: {}: exception:{}".format(actor_id, e))
 
             # Update this actor's command channel metric
             channel_name = actor.get("queue")
@@ -55,10 +66,8 @@ def create_gauges(actor_ids):
 
             ch = CommandChannel(name=channel_name)
             command_gauge.labels(channel_name).set(len(ch._queue._queue))
-            logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge._value._value))
+            logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge))
             ch.close()
-        except Exception as e:
-            logger.info("got exception trying to instantiate the Gauge: {}".format(e))
 
         # Update this actor's gauge to its current # of messages
         try:
