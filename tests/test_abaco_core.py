@@ -1,6 +1,6 @@
 # Functional test suite for abaco.
 # This test suite now runs in its own docker container. To build the image, run
-#     docker build -f Dockerfile-test -t jstubbs/abaco_testsuite .
+#     docker build -f Dockerfile-test -t abaco/testsuite .
 # from within the tests directory.
 #
 # To run the tests execute, first start the development stack using:
@@ -1717,6 +1717,72 @@ def test_create_actor_with_link(headers):
             'link': link_actor_id}
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
+
+def test_create_actor_with_webhook(headers):
+    # register an actor to serve as the webhook target
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_event-webhook', 'stateless': False}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    aid = get_actor_id(headers, name='abaco_test_suite_event-webhook')
+    # create a nonce for this actor
+    url = '{}/actors/{}/nonces'.format(base_url, aid)
+    rsp = requests.post(url, headers=headers)
+    result = basic_response_checks(rsp)
+    nonce = result['id']
+    # in practice, no one should ever do this - the built in link property should be used instead;
+    # but this illustrates the use of the webhook feature without relying on external APIs.
+    webhook = '{}/actors/{}/messages?x-nonce={}'.format(base_url, aid, nonce)
+    # make a new actor with a webhook property that points to the above messages endpoint -
+    url = '{}/actors'.format(base_url)
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_event-2',
+            'webhook': webhook}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    event_aid = result['id']
+    # once the new actor is READY, the webhook actor should have gotten a message to
+    url = '{}/actors/{}/executions'.format(base_url, aid)
+    webhook_ready_ex_id = None
+    idx = 0
+    while not webhook_ready_ex_id and idx < 25:
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data and len(ex_data) > 0:
+            webhook_ready_ex_id = ex_data[0]['id']
+            break
+        else:
+            idx = idx + 1
+            time.sleep(1)
+    if not webhook_ready_ex_id:
+        print("webhook actor never executed. actor_id: {}; webhook_actor_id: {}".format(event_aid, aid))
+        assert False
+        # wait for linked execution to complete and get logs
+    idx = 0
+    done = False
+    while not done and idx < 20:
+        # get executions for linked actor and check status of each
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data[0].get('status') == 'COMPLETE':
+            done = True
+            break
+        else:
+            time.sleep(1)
+            idx = idx + 1
+    if not done:
+        print("webhook actor executions never completed. actor: {}; "
+              "actor: {}; Final execution data: {}".format(event_aid, aid, ex_data))
+        assert False
+    # now check the logs from the two executions --
+    # first one should be the actor READY message:
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, aid, webhook_ready_ex_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    logs = result.get('logs')
+    assert "'event_type': 'ACTOR_READY'" in logs
+    check_event_logs(logs)
+
 
 def test_execute_event_actor(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_event')
