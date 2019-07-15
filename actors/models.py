@@ -116,11 +116,13 @@ class Event(object):
         except KeyError:
             logger.debug("did not find actor with id: {}".format(self.actor_id))
             raise errors.ResourceError("No actor found with identifier: {}.".format(self.actor_id), 404)
+        # the link and webhook attributes were added in 1.2.0; actors registered before 1.2.0 will not have
+        # have these attributed defined so we use the .get() method below --
         # if the webhook exists, we always try it.
-        self.webhook = actor.webhook or ''
+        self.webhook = actor.get('webhook') or ''
 
         # the actor link might not exist
-        link = actor.link or ''
+        link = actor.get('link') or ''
         # if the actor link exists, it could be an actor id (not a dbid) or an alias.
         # the following code resolves the link data to an actor dbid
         if link:
