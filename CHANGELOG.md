@@ -1,7 +1,19 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.2.0 - 2019-07-15 (target)
+## 1.2.1 - 2019-07-17 (target)
+### Added
+- No change
+
+### Changed
+- Fixed an issue where in a certain edge case, workers were getting shut down by the autoscaler before executions were getting processed.  
+- The abaco.conf now expects a `max_cmd_length` config within the `spawner` stanza which should be an integer and controls how many messages the autoscaler will send to the default command channel at a time.   
+
+### Removed
+- No change.
+
+
+## 1.2.0 - 2019-07-15
 ### Added
 - Added actor events subsystem with events agent that reads from the events queue.
 - Added support for actor links to send an actor's events to another actor.
