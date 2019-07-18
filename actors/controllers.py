@@ -63,8 +63,8 @@ class MetricsResource(Resource):
                 return
         else:
             return
-        actor_ids = self.get_metrics()
-        self.check_metrics(actor_ids)
+        actor_ids, inbox_lengths, cmd_length = self.get_metrics()
+        self.check_metrics(actor_ids, inbox_lengths, cmd_length)
         # self.add_workers(actor_ids)
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
@@ -80,25 +80,29 @@ class MetricsResource(Resource):
         try:
             if actor_ids:
                 # Create a gauge for each actor id
-                actor_ids = metrics_utils.create_gauges(actor_ids)
+                actor_ids, inbox_lengths, cmd_length = metrics_utils.create_gauges(actor_ids)
 
                 # return the actor_ids so we can use them again for check_metrics
-                return actor_ids
+                return actor_ids, inbox_lengths, cmd_length
         except Exception as e:
             logger.info("Got exception in get_metrics: {}".format(e))
             return []
 
-    def check_metrics(self, actor_ids):
+    def check_metrics(self, actor_ids, inbox_lengths, cmd_length):
         for actor_id in actor_ids:
             logger.debug("TOP OF CHECK METRICS for actor_id {}".format(actor_id))
 
-            data = metrics_utils.query_message_count_for_actor(actor_id)
+            # data = metrics_utils.query_message_count_for_actor(actor_id)
+            # try:
+            #     current_message_count = int(data[0]['value'][1])
+            # except:
+            #     logger.info("No current message count for actor {}".format(actor_id))
+            #     current_message_count = 0
             try:
-                current_message_count = int(data[0]['value'][1])
-            except:
-                logger.info("No current message count for actor {}".format(actor_id))
+                current_message_count = inbox_lengths[actor_id.decode("utf-8")]
+            except KeyError as e:
+                logger.error("Got KeyError trying to get current_message_count. Exception: {}".format(e))
                 current_message_count = 0
-
             workers = Worker.get_workers(actor_id)
             actor = actors_store[actor_id]
             logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
@@ -123,10 +127,12 @@ class MetricsResource(Resource):
             # Add an additional worker if message count reaches a given number
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
-                if metrics_utils.allow_autoscaling(max_workers, len(workers)):
+                if metrics_utils.allow_autoscaling(max_workers, len(workers), cmd_length):
                     if current_message_count >= 1:
-                        metrics_utils.scale_up(actor_id)
-                        logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
+                        channel = metrics_utils.scale_up(actor_id)
+                        if channel == 'default':
+                            cmd_length = cmd_length + 1
+                        logger.debug("METRICS current message count: {}".format(current_message_count))
                 else:
                     logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
                 if current_message_count == 0:

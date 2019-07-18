@@ -26,6 +26,7 @@ command_gauge = Gauge(
 
 def create_gauges(actor_ids):
     logger.debug("METRICS: Made it to create_gauges; actor_ids: {}".format(actor_ids))
+    inbox_lengths = {}
     for actor_id in actor_ids:
         logger.debug("top of for loop for actor_id: {}".format(actor_id))
 
@@ -64,11 +65,6 @@ def create_gauges(actor_ids):
             if not channel_name or channel_name not in valid_queues:
                 channel_name = 'default'
 
-            ch = CommandChannel(name=channel_name)
-            command_gauge.labels(channel_name).set(len(ch._queue._queue))
-            logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge))
-            ch.close()
-
         # Update this actor's gauge to its current # of messages
         try:
             ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
@@ -76,6 +72,7 @@ def create_gauges(actor_ids):
             logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
             raise e
         result = {'messages': len(ch._queue._queue)}
+        inbox_lengths[actor_id.decode("utf-8")] = len(ch._queue._queue)
         ch.close()
         g.set(result['messages'])
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
@@ -100,19 +97,14 @@ def create_gauges(actor_ids):
         result = {'workers': len(workers)}
         g.set(result['workers'])
 
+    ch = CommandChannel(name=channel_name)
+    cmd_length = len(ch._queue._queue)
+    command_gauge.labels(channel_name).set(cmd_length)
+    logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge))
+    ch.close()
+
     # Return actor_ids so we don't have to query for them again later
-    return actor_ids
-
-
-def query_message_count_for_actor(actor_id):
-    query = {
-        'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-        'time': datetime.datetime.utcnow().isoformat() + "Z"
-    }
-    r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
-    data = json.loads(r.text)['data']['result']
-    logger.debug('DATA: {}'.format(data))
-    return data
+    return actor_ids, inbox_lengths, cmd_length
 
 
 def calc_change_rate(data, last_metric, actor_id):
@@ -131,8 +123,15 @@ def calc_change_rate(data, last_metric, actor_id):
     return change_rate
 
 
-def allow_autoscaling(max_workers, num_workers):
+def allow_autoscaling(max_workers, num_workers, cmd_length):
+    # first check if the number of messages on the command channel exceeds the limit:
+    try:
+        max_cmd_length = int(Config.get('spawner', 'max_cmd_length'))
+    except:
+        max_cmd_length = 10
 
+    if cmd_length > max_cmd_length:
+        return False
     if int(num_workers) >= int(max_workers):
         logger.debug('METRICS NO AUTOSCALE - criteria not met. {} '.format(num_workers))
         return False
@@ -160,8 +159,10 @@ def scale_up(actor_id):
                    stop_existing=False)
         ch.close()
         logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
+        return channel_name
     except Exception as e:
         logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
+        return None
 
 
 def scale_down(actor_id):
