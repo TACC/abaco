@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.2.0 - 2019-07-15 (target)
+## 1.2.0 - 2019-07-15
 ### Added
 - Added actor events subsystem with events agent that reads from the events queue.
 - Added support for actor links to send an actor's events to another actor.
