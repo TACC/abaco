@@ -1,6 +1,24 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.2.0 - 2019-07-15
+### Added
+- Added actor events subsystem with events agent that reads from the events queue.
+- Added support for actor links to send an actor's events to another actor.
+- Added support for an actor webhook property for sending an actor's events as an HTTP POST to an endpoint.
+- Added timing data to messages POST processing.
+
+### Changed
+- Executions now change to status "RUNNING" as soon as a worker starts the corresponing actor container.
+- Force halting an execution fails if the status is not RUNNING.
+- Reading and managing nonces associated with aliases requires permissions on both the alias and the actor.
+- Spawner now sets actor to READY state before setting worker to READY state to prevent autoscaler from stopping worker before actor is update to READY. 
+- Updated ActorMsgQueue to use a new, simpler class, TaskQueue, removing dependency on channelpy.
+
+### Removed
+- No change.
+
+
 ## 1.1.0 - 2019-06-18
 ### Added
 - Added support for sending synchronous messages to an actor.

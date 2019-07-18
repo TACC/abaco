@@ -11,7 +11,7 @@ from config import Config
 from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
 from models import Actor, Worker
-from stores import workers_store
+from stores import actors_store, workers_store
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from health import get_worker
 
@@ -118,23 +118,21 @@ class Spawner(object):
             logger.info("No workers to stop.")
 
     def process(self, cmd):
-        logger.info("LOOK HERE - starting spawner process")
         """Main spawner method for processing a command from the CommandChannel."""
-        logger.info("LOOK HERE - Spawner processing new command:{}".format(cmd))
+        logger.info("top of process; cmd: {}".format(cmd))
         actor_id = cmd['actor_id']
         worker_id = cmd['worker_id']
         image = cmd['image']
         tenant = cmd['tenant']
         stop_existing = cmd.get('stop_existing', True)
         num_workers = 1
-        logger.info("LOOK HERE command params: actor_id: {} worker_id: {} image: {} tenant: {}"
-                    "stop_existing: {} num_workers: {}".format(actor_id, worker_id, image, tenant, stop_existing, num_workers))
-
-        logger.info("LOOK HERE - getting worker")
+        logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {}"
+                    "stop_existing: {} num_workers: {}".format(actor_id, worker_id,
+                                                               image, tenant, stop_existing, num_workers))
 
         # Status: REQUESTED -> SPAWNER_SETUP
         Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
-        logger.info("LOOK HERE - worker status updated to SPAWNER_SETUP")
+        logger.debug("spawner has updated worker status to SPAWNER_SETUP; worker_id: {}".format(worker_id))
         client_id = None
         client_secret = None
         client_access_token = None
@@ -145,7 +143,7 @@ class Spawner(object):
         # First, get oauth clients for the worker
         generate_clients = Config.get('workers', 'generate_clients').lower()
         if generate_clients == "true":
-            logger.info("LOOK HERE - starting client generation")
+            logger.debug("spawner starting client generation")
 
             client_id, \
             client_access_token, \
@@ -155,7 +153,7 @@ class Spawner(object):
 
         ch = SpawnerWorkerChannel(worker_id=worker_id)
 
-        logger.info("LOOK HERE - attempting to start worker")
+        logger.debug("spawner attempting to start worker; worker_id: {}".format(worker_id))
         try:
             worker = self.start_worker(
                 image,
@@ -317,6 +315,19 @@ class Spawner(object):
             break
         logger.info('LOOK HERE - finished loop')
         worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)
+        # if the actor is not already in READY status, set actor status to READY before worker status has been
+        # set to READY.
+        # it is possible the actor status is already READY because this request is the autoscaler starting a new worker
+        # for an existing actor.
+        actor = Actor.from_db(actors_store[actor_id])
+        if not actor.status == READY:
+            try:
+                Actor.set_status(actor_id, READY, status_message=" ")
+            except KeyError:
+                # it is possible the actor was already deleted during worker start up; if
+                # so, the worker should have a stop message waiting for it. starting subscribe
+                # as usual should allow this process to work as expected.
+                pass
         # finalize worker with READY status
         worker = Worker(tenant=tenant, **worker_dict)
         logger.info("calling add_worker for worker: {}.".format(worker))

@@ -1,96 +1,298 @@
----
-
-version: "2"
+version: "3.3"
 
 networks:
     abaco:
         driver: bridge
 
 services:
-    mongo:
-        extends:
-            file: docker-compose-local-db.yml
-            service: mongo
-        networks:
-            - abaco
 
-    redis:
-        extends:
-            file: docker-compose-local-db.yml
-            service: redis
+    mongo:
+        image: mongo
+        ports:
+            - "27017:27017"
+        #    uncomment to add auth
+        #    command: --auth
         networks:
             - abaco
+        ulimits:
+          nproc: 65535
+          nofile:
+            soft: 65535
+            hard: 65535
 
     rabbit:
-        extends:
-            file: docker-compose-local-db.yml
-            service: rabbit
+        image: rabbitmq:3.5.3-management
+        ports:
+            - "5672:5672"
+            - "15672:15672"
+        environment:
+            RABBITMQ_NODENAME: abaco-rabbit
+            RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+A 128"
+        ulimits:
+          nproc: 65535
+          nofile:
+            soft: 65535
+            hard: 65535
         networks:
             - abaco
+        depends_on:
+            - mongo
+            - redis
+
+    redis:
+        image: redis
+        ports:
+            - "6379:6379"
+        networks:
+            - abaco
+    # -- uncomment to add auth
+    #    volumes:
+    #        - ./redis.conf:/etc/redis.conf
+    #    command: redis-server /etc/redis.conf --appendonly yes
+    # --
+        sysctls:
+          net.core.somaxconn: '511'
+        ulimits:
+          nproc: 65535
+          nofile:
+            soft: 65535
+            hard: 65535
 
     nginx:
-        extends:
-            file: docker-compose-local.yml
-            service: nginx
+        image: abaco/nginx$TAG
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+#            - ./images/nginx/nginx.conf:/etc/nginx/nginx.conf
+#            - ./images/nginx/sites-enabled:/etc/nginx/sites-enabled
+        ports:
+            - "8000:80"
+        restart: always
+        depends_on:
+            - mongo
+            - redis
         networks:
             - abaco
 
     reg:
-        extends:
-            file: docker-compose-local.yml
-            service: reg
+        image: abaco/core$TAG
+        ports:
+            - "5000:5000"
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        environment:
+            api: reg
+            server: gunicorn
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+        depends_on:
+            - mongo
+            - redis
         networks:
             - abaco
 
     mes:
-        extends:
-            file: docker-compose-local.yml
-            service: mes
-        networks:
-            - abaco
-
-    metrics:
-        extends:
-            file: docker-compose-local.yml
-            service: metrics
+        image: abaco/core$TAG
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        ports:
+            - "5001:5000"
+        environment:
+            server: gunicorn
+            api: mes
+            threads: 12
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+        depends_on:
+            - mongo
+            - redis
         networks:
             - abaco
 
     admin:
-        extends:
-            file: docker-compose-local.yml
-            service: admin
+        image: abaco/core$TAG
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        ports:
+            - "5003:5000"
+        environment:
+            server: gunicorn
+            api: admin
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+        depends_on:
+            - mongo
+            - redis
+        networks:
+            - abaco
+
+    spawner:
+        image: abaco/core$TAG
+        command: "python3 -u /actors/spawner.py"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        environment:
+            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            _abaco_secret: 123
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+            queue: default
+        depends_on:
+            - mongo
+            - redis
         networks:
             - abaco
 
     clientg:
-        extends:
-            file: docker-compose-local.yml
-            service: clientg
+        image: abaco/core$TAG
+        command: "python3 -u /actors/clients.py"
         volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
-        networks:
-            - abaco
+            - ./abaco.log:/var/log/service.log
 
-    default_spawner:
-        extends:
-            file: docker-compose-local.yml
-            service: spawner
-        networks:
-            - abaco
-
-    special_spawner:
-        extends:
-            file: docker-compose-local.yml
-            service: spawner
         environment:
-            queue: special
+            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            _abaco_secret: 123
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+
+            # add the following pair of credentials for each tenant wanting client generation
+            _abaco_DEV-DEVELOP_username: testotheruser
+            _abaco_DEV-DEVELOP_password: testotheruser
+            _abaco_DEV-STAGING_username: testotheruser
+            _abaco_DEV-STAGING_password: testotheruser
+        depends_on:
+            - mongo
+            - redis
         networks:
             - abaco
 
     health:
-        extends:
-            file: docker-compose-local.yml
-            service: health
+        image: abaco/core$TAG
+        command: /actors/health_check.sh
+        volumes:
+            - /:/host
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        environment:
+            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+            # add the following pair of credentials for each tenant wanting client generation
+            _abaco_DEV-DEVELOP_username: testotheruser
+            _abaco_DEV-DEVELOP_password: testotheruser
+            _abaco_DEV-STAGING_username: testotheruser
+            _abaco_DEV-STAGING_password: testotheruser
+        depends_on:
+            - mongo
+            - redis
         networks:
             - abaco
+
+    events:
+        image: abaco/core$TAG
+        command: "python3 -u /actors/events.py"
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+
+        environment:
+            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            _abaco_secret: 123
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+
+            # add the following pair of credentials for each tenant wanting client generation
+            _abaco_DEV-DEVELOP_username: testotheruser
+            _abaco_DEV-DEVELOP_password: testotheruser
+            _abaco_DEV-STAGING_username: testotheruser
+            _abaco_DEV-STAGING_password: testotheruser
+        depends_on:
+            - mongo
+            - redis
+        networks:
+            - abaco
+
+
+    prometheus:
+        # build: ./prometheus
+        image: abaco/prom$TAG
+        volumes:
+            - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+            - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
+        command:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+        #   - '-storage.local.path=/prometheus'
+        ports:
+            - 9090:9090
+        networks:
+            - abaco
+        depends_on:
+            - mongo
+            - redis
+
+    grafana:
+        image: grafana/grafana
+        user: "104"
+        depends_on:
+            - prometheus
+            - mongo
+            - redis
+        ports:
+            - 3000:3000
+        volumes:
+            - grafana_data:/var/lib/grafana
+            - ./prometheus/grafana/provisioning/:/etc/grafana/provisioning/
+        env_file:
+            - ./prometheus/grafana/config.monitoring
+        networks:
+#            - back-tier
+#            - front-tier
+            - abaco
+        restart: always
+
+
+    metrics:
+        image: abaco/core$TAG
+        networks:
+            - abaco
+        volumes:
+            - ./local-dev.conf:/etc/service.conf
+            - ./abaco.log:/var/log/service.log
+        ports:
+            - "5004:5000"
+        environment:
+            server: dev
+            api: metrics
+            mongo_password:
+            redis_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+        depends_on:
+            - mongo
+            - redis
+            - prometheus
+
+volumes:
+    grafana_data: {}

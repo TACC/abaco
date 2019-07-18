@@ -9,8 +9,8 @@ from hashids import Hashids
 
 from agaveflask.utils import RequestParser
 
-from channels import CommandChannel
-from codes import REQUESTED, SUBMITTED, EXECUTE, PermissionLevel
+from channels import CommandChannel, EventsChannel
+from codes import REQUESTED, READY, ERROR, SUBMITTED, EXECUTE, PermissionLevel, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from config import Config
 import errors
 
@@ -21,6 +21,9 @@ logger = get_logger(__name__)
 
 
 HASH_SALT = 'eJa5wZlEX4eWU'
+
+# default max length for an actor execution log - 1MB
+DEFAULT_MAX_LOG_LENGTH = 1000000
 
 def is_hashid(identifier):
     """ 
@@ -75,6 +78,117 @@ def display_time(t):
         logger.error("Invalid time data. Could not convert float to datetime. t: {}. Exception: {}".format(t, e))
         raise errors.DAOError("Error retrieving time data.")
     return str(dt)
+
+
+class Event(object):
+    """
+    Base event class for all Abaco events.
+    """
+
+    def __init__(self, dbid: str, event_type: str, data: dict):
+        """
+        Create a new even object
+        """
+        self.db_id = dbid
+        self.tenant_id = dbid.split('_')[0]
+        self.actor_id = Actor.get_display_id(self.tenant_id, dbid)
+        self.event_type = event_type
+        data['tenant_id'] = self.tenant_id
+        data['event_type'] = event_type
+        data['event_time_utc'] = get_current_utc_time()
+        data['event_time_display'] = display_time(data['event_time_utc'])
+        data['actor_id'] = self.actor_id
+        data['actor_dbid'] = dbid
+        self._get_events_attrs()
+        data['_abaco_link'] = self.link
+        data['_abaco_webhook'] = self.webhook
+        data['event_type'] = event_type
+        self.data = data
+
+    def _get_events_attrs(self) -> str:
+        """
+        Check if the event is for an actor that has an event property defined (like, webhook, socket), 
+        and return the actor db_id if so. Otherwise, returns an empty string.
+        :return: the db_id associated with the link, if it exists, or '' otherwise.
+        """
+        try:
+            actor = Actor.from_db(actors_store[self.db_id])
+        except KeyError:
+            logger.debug("did not find actor with id: {}".format(self.actor_id))
+            raise errors.ResourceError("No actor found with identifier: {}.".format(self.actor_id), 404)
+        # the link and webhook attributes were added in 1.2.0; actors registered before 1.2.0 will not have
+        # have these attributed defined so we use the .get() method below --
+        # if the webhook exists, we always try it.
+        self.webhook = actor.get('webhook') or ''
+
+        # the actor link might not exist
+        link = actor.get('link') or ''
+        # if the actor link exists, it could be an actor id (not a dbid) or an alias.
+        # the following code resolves the link data to an actor dbid
+        if link:
+            try:
+                link_id = Actor.get_actor_id(self.tenant_id, link)
+                self.link = Actor.get_dbid(self.tenant_id, link_id)
+            except Exception as e:
+                self.link = ''
+                logger.error("Got exception: {} calling get_actor_id to set the event link.".format(e))
+        else:
+            self.link = ''
+
+    def publish(self):
+        """
+        External API for publishing events; handles all logic associated with event publishing including
+        checking for actor links and pushing messages to the EventsExchange.
+        :return: None 
+        """
+        logger.debug("top of publish for event: {}".format(self.data))
+        logger.info(self.data)
+        if not self.link and not self.webhook:
+            logger.debug("No link or webhook supplied for this event. Not publishing to the EventsChannel.")
+            return None
+        ch = EventsChannel()
+        ch.put_event(self.data)
+
+
+class ActorEvent(Event):
+    """
+    Data access object class for creating and working with actor event objects.
+    """
+    event_types = ('ACTOR_READY',
+                  'ACTOR_ERROR',
+                  )
+
+    def __init__(self, dbid: str, event_type: str, data: dict):
+        """
+        Create a new even object
+        """
+        super().__init__(dbid, event_type, data)
+        if not event_type.upper() in ActorEvent.event_types:
+            logger.error("Invalid actor event type passed to the ActorEvent constructor. "
+                         "event type: {}".format(event_type))
+            raise errors.DAOError("Invalid actor event type {}.".format(event_type))
+
+
+class ActorExecutionEvent(Event):
+    """
+    Data access object class for creating and working with actor execution event objects.
+    """
+    event_types = ('EXECUTION_STARTED',
+                  'EXECUTION_COMPLETE',
+                  )
+
+    def __init__(self, dbid: str, execution_id: str, event_type: str, data: dict):
+        """
+        Create a new even object
+        """
+        super().__init__(dbid, event_type, data)
+        if not event_type.upper() in ActorExecutionEvent.event_types:
+            logger.error("Invalid actor event type passed to the ActorExecutionEvent constructor. "
+                         "event type: {}".format(event_type))
+            raise errors.DAOError("Invalid actor execution event type {}.".format(event_type))
+
+        self.execution_id = execution_id
+        self.data['execution_id'] = execution_id
 
 
 class DbDict(dict):
@@ -206,6 +320,8 @@ class Actor(AbacoDAO):
 
         ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', True),
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
+        ('link', 'optional', 'link', str, "Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.", ''),
+        ('webhook', 'optional', 'webhook', str, "URL to publish this actor's events to.", ''),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
         ('max_workers', 'optional', 'max_workers', int, 'How many workers this actor is allowed at the same time.', None),
@@ -267,9 +383,9 @@ class Actor(AbacoDAO):
     @classmethod
     def get_actor_id(cls, tenant, identifier):
         """
-        Return the db_id associated with the identifier 
+        Return the human readable actor_id associated with the identifier 
         :param identifier (str): either an actor_id or an alias. 
-        :return: The actor_id; rasies a KeyError if no actor suc exists. 
+        :return: The actor_id; raises a KeyError if no actor exists. 
         """
         if is_hashid(identifier):
             return identifier
@@ -365,6 +481,13 @@ class Actor(AbacoDAO):
         """Update the status of an actor"""
         logger.debug("top of set_status for status: {}".format(status))
         actors_store.update(actor_id, 'status', status)
+        try:
+            event_type = 'ACTOR_{}'.format(status).upper()
+            event = ActorEvent(actor_id, event_type, {'status_message': status_message})
+            event.publish()
+        except Exception as e:
+            logger.error("Got exception trying to publish an actor status event. "
+                         "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
         if status_message:
             actors_store.update(actor_id, 'status_message', status_message)
 
@@ -771,6 +894,25 @@ class Execution(AbacoDAO):
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
 
     @classmethod
+    def update_status(cls, actor_id, execution_id, status):
+        """
+        :param actor_id: the id of the actor
+        :param execution_id: the id of the execution
+        :param status: the new status of the execution.
+        :return:
+        """
+        logger.debug("top of update_status() for actor: {} execution: {} status: {}".format(
+            actor_id, execution_id, status))
+        try:
+            executions_store.update_subfield(actor_id, execution_id, 'status', status)
+            logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
+            execution_id, actor_id, status))
+        except KeyError as e:
+            logger.error("Could not update status. KeyError: {}. actor: {}. ex: {}. status: {}".format(
+                e, actor_id, execution_id, status))
+            raise errors.ExecutionException("Execution {} not found.".format(execution_id))
+
+    @classmethod
     def finalize_execution(cls, actor_id, execution_id, status, stats, final_state, exit_code, start_time):
         """
         Update an execution status and stats after the execution is complete or killed.
@@ -806,6 +948,21 @@ class Execution(AbacoDAO):
             logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
 
+        try:
+            event_type = 'EXECUTION_COMPLETE'
+            data = {'actor_id': actor_id,
+                    'execution_id': execution_id,
+                    'status': status,
+                    'exit_code': exit_code
+                    }
+            event = ActorExecutionEvent(actor_id, execution_id, event_type, data)
+            event.publish()
+        except Exception as e:
+            logger.error("Got exception trying to publish an actor execution event. "
+                         "actor_id: {}; execution_id: {}; status: {}; "
+                         "exception: {}".format(actor_id, execution_id, status, e))
+
+
     @classmethod
     def set_logs(cls, exc_id, logs):
         """
@@ -819,6 +976,13 @@ class Execution(AbacoDAO):
             log_ex = int(log_ex)
         except ValueError:
             log_ex = -1
+        try:
+            max_log_length = int(Config.get('web', 'max_log_length'))
+        except:
+            max_log_length = DEFAULT_MAX_LOG_LENGTH
+        if len(logs) > DEFAULT_MAX_LOG_LENGTH:
+            logger.info("truncating log for execution: {}".format(exc_id))
+            logs = logs[:max_log_length]
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
             logs_store.set_with_expiry(exc_id, logs)
@@ -1090,7 +1254,7 @@ class Worker(AbacoDAO):
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("LOOK HERE top of update_worker_status().")
-        # TODO add check for valid state transition - set correct ERROR
+        # The valid state transitions are as follows - set correct ERROR:
         # REQUESTED -> SPAWNER_SETUP
         # SPAWNER_SETUP -> PULLING_IMAGE
         # PULLING_IMAGE -> CREATING_CONTAINER
@@ -1098,13 +1262,26 @@ class Worker(AbacoDAO):
         # UPDATING_STORE -> READY
         # READY -> BUSY -> READY ... etc
 
-
         prev_status = workers_store[actor_id][worker_id]['status']
 
-        
+        # workers can always transition to an ERROR status from any status and from an ERROR status to
+        # any status.
+        if status != ERROR and ERROR not in prev_status:
+            if prev_status == REQUESTED and status != SPAWNER_SETUP:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == SPAWNER_SETUP and status != PULLING_IMAGE:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == PULLING_IMAGE and status != CREATING_CONTAINER:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == CREATING_CONTAINER and status != UPDATING_STORE:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
+            elif prev_status == UPDATING_STORE and status != READY:
+                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
 
-        worker = workers_store[actor_id][worker_id]
-        logger.info(f"LOOK HERE Worker status will be changed from {worker['status']} to {status}")
+        if status == ERROR:
+            status = ERROR + f" PREVIOUS {prev_status}"
+
+        logger.info(f"worker status will be changed from {prev_status} to {status}")
 
         # get worker's current status and then do V this separately
         # this is not threadsafe

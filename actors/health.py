@@ -377,6 +377,11 @@ def start_spawner(queue, idx='0'):
     environment.update({'AE_IMAGE': AE_IMAGE.split(':')[0],
                         'queue': queue,
     })
+    if not '_abaco_secret' in environment:
+        msg = 'Error in health process trying to start spawner. Did not find an _abaco_secret. Aborting'
+        logger.critical(msg)
+        raise
+
     # check logging strategy to determine log file name:
     log_file = 'abaco.log'
     if get_log_file_strategy() == 'split':

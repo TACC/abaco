@@ -5,6 +5,7 @@ import os
 import requests
 import threading
 import time
+import timeit
 
 from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 from flask import g, request, render_template, make_response, Response
@@ -14,7 +15,7 @@ from agaveflask.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, PERMISSION_LEVELS, READ, UPDATE, PERMISSION_LEVELS, PermissionLevel
+from codes import SUBMITTED, COMPLETE, PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
@@ -56,6 +57,12 @@ except:
 
 class MetricsResource(Resource):
     def get(self):
+        enable_autoscaling = Config.get('workers', 'autoscaling')
+        if hasattr(enable_autoscaling, 'lower'):
+            if not enable_autoscaling.lower() == 'true':
+                return
+        else:
+            return
         actor_ids = self.get_metrics()
         self.check_metrics(actor_ids)
         # self.add_workers(actor_ids)
@@ -83,7 +90,7 @@ class MetricsResource(Resource):
 
     def check_metrics(self, actor_ids):
         for actor_id in actor_ids:
-            logger.debug("TOP OF CHECK METRICS")
+            logger.debug("TOP OF CHECK METRICS for actor_id {}".format(actor_id))
 
             data = metrics_utils.query_message_count_for_actor(actor_id)
             try:
@@ -92,45 +99,36 @@ class MetricsResource(Resource):
                 logger.info("No current message count for actor {}".format(actor_id))
                 current_message_count = 0
 
-            change_rate = metrics_utils.calc_change_rate(
-                data,
-                last_metric,
-                actor_id
-            )
-            last_metric.update({actor_id: data})
-
             workers = Worker.get_workers(actor_id)
             actor = actors_store[actor_id]
             logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
 
             # If this actor has a custom max_workers, use that. Otherwise use default.
-            if actor['max_workers']:
-                max_workers = actor['max_workers']
-            else:
-                max_workers = Config.get('spawner', 'max_workers_per_actor')
+            max_workers = None
+            if actor.get('max_workers'):
+                try:
+                    max_workers = int(actor['max_workers'])
+                except Exception as e:
+                    logger.error("max_workers defined for actor_id {} but could not cast to int. "
+                                 "Exception: {}".format(actor_id, e))
+            if not max_workers:
+                try:
+                    conf = Config.get('spawner', 'max_workers_per_actor')
+                    max_workers = int(conf)
+                except Exception as e:
+                    logger.error("Unable to get/cast max_workers_per_actor config ({}) to int. "
+                                 "Exception: {}".format(conf, e))
+                    max_workers = 1
 
-
-            # Add a worker if actor has 0 workers & a message in the Q
-            # spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
-            try:
-                if len(workers) == 0 and current_message_count >= 1:
-                    metrics_utils.scale_up(actor_id)
-                    logger.debug('METICS: ADDING WORKER SINCE THERE WERE NONE')
-                else:
-                    logger.debug('METRICS: worker creation criteria not met')
-            except Exception as e:
-                logger.debug("METRICS - Error scaling up: {} - {} - {}".format(type(e), e, e.args))
-
-            # Add a worker if message count reaches a given number
+            # Add an additional worker if message count reaches a given number
             try:
                 logger.debug("METRICS current message count: {}".format(current_message_count))
                 if metrics_utils.allow_autoscaling(max_workers, len(workers)):
                     if current_message_count >= 1:
                         metrics_utils.scale_up(actor_id)
                         logger.debug("METRICS current message count: {}".format(data[0]['value'][1]))
-                # changed - jfs: i think this block needs to run even if allow_autoscaling returns false
-                #           so that scale down can work once message count reaches zero in case where the
-                #           autoscaler previously scaled the worker pool to max_workers:
+                else:
+                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
                 if current_message_count == 0:
                     metrics_utils.scale_down(actor_id)
                     logger.debug("METRICS made it to scale down block")
@@ -476,6 +474,95 @@ class AliasNonceResource(Resource):
         return ok(result=None, msg="Alias nonce deleted successfully.")
 
 
+def check_for_link_cycles(db_id, link_dbid):
+    """
+    Check if a link from db_id -> link_dbid would not create a cycle among linked actors.
+    :param dbid: actor linking to link_dbid 
+    :param link_dbid: id of actor being linked to.
+    :return: 
+    """
+    logger.debug("top of check_for_link_cycles; db_id: {}; link_dbid: {}".format(db_id, link_dbid))
+    # create the links graph, resolving each link attribute to a db_id along the way:
+    # start with the passed in link, this is the "proposed" link -
+    links = {db_id: link_dbid}
+    for _, actor in actors_store.items():
+        if actor.get('link'):
+            try:
+                link_id = Actor.get_actor_id(actor.get('tenant'), actor.get('link'))
+                link_dbid = Actor.get_dbid(g.tenant, link_id)
+            except Exception as e:
+                logger.error("corrupt link data; could not resolve link attribute in "
+                             "actor: {}; exception: {}".format(actor, e))
+                continue
+            # we do not want to override the proposed link passed in, as this actor could already have
+            # a link (that was valid) and we need to check that the proposed link still works
+            if not actor.get('db_id') == db_id:
+                links[actor.get('db_id')] = link_dbid
+    logger.debug("actor links dictionary built. links: {}".format(links))
+    if has_cycles(links):
+        raise DAOError("Error: this update would result in a cycle of linked actors.")
+
+
+def has_cycles(links):
+    """
+    Checks whether the `links` dictionary contains a cycle.
+    :param links: dictionary of form d[k]=v where k->v is a link
+    :return: 
+    """
+    logger.debug("top of has_cycles. links: {}".format(links))
+    # consider each link entry as the starting node:
+    for k, v in links.items():
+        # list of visited nodes on this iteration; starts with the two links.
+        # if we visit a node twice, we have a cycle.
+        visited = [k, v]
+        # current node we are on
+        current = v
+        while current:
+            # look up current to see if it has a link:
+            current = links.get(current)
+            # if it had a link, check if it was alread in visited:
+            if current and current in visited:
+                return True
+            visited.append(current)
+    return False
+
+
+def validate_link(args):
+    """
+    Method to validate a request trying to set a link on an actor. Called for both POSTs (new actors)
+    and PUTs (updates to existing actors).
+    :param args:
+    :return:
+    """
+    logger.debug("top of validate_link. args: {}".format(args))
+    # check permissions - creating a link to an actor requires EXECUTE permissions
+    # on the linked actor.
+    try:
+        link_id = Actor.get_actor_id(g.tenant, args['link'])
+        link_dbid = Actor.get_dbid(g.tenant, link_id)
+    except Exception as e:
+        msg = "Invalid link parameter; unable to retrieve linked actor data. The link " \
+              "must be a valid actor id or alias for which you have EXECUTE permission. "
+        logger.info("{}; exception: {}".format(msg, e))
+        raise DAOError(msg)
+    try:
+        check_permissions(g.user, link_dbid, EXECUTE)
+    except Exception as e:
+        logger.info("Got exception trying to check permissions for actor link. "
+                    "Exception: {}; link: {}".format(e, link_dbid))
+        raise DAOError("Invalid link parameter. The link must be a valid "
+                       "actor id or alias for which you have EXECUTE permission. "
+                       "Additional info: {}".format(e))
+    logger.debug("check_permissions passed.")
+    # POSTs to create new actors do not have db_id's assigned and cannot result in
+    # cycles
+    if not g.db_id:
+        logger.debug("returning from validate_link - no db_id")
+        return
+    if link_dbid == g.db_id:
+        raise DAOError("Invalid link parameter. An actor cannot link to itself.")
+    check_for_link_cycles(g.db_id, link_dbid)
+
 class ActorsResource(Resource):
 
     def get(self):
@@ -499,6 +586,8 @@ class ActorsResource(Resource):
                 valid_queues = queues_list.split(',')
                 if args['queue'] not in valid_queues:
                     raise BadRequest('Invalid queue name.')
+            if args['link']:
+                validate_link(args)
 
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
@@ -616,6 +705,8 @@ class ActorResource(Resource):
             valid_queues = queues_list.split(',')
             if args['queue'] not in valid_queues:
                 raise BadRequest('Invalid queue name.')
+        if args['link']:
+            validate_link(args)
         # user can force an update by setting the force param:
         update_image = args.get('force')
         if not update_image and args['image'] == previous_image:
@@ -905,12 +996,14 @@ class ActorExecutionResource(Resource):
                                                                          actor_id))
             raise ResourceError("Execution not found {}.".format(execution_id))
         # check status of execution:
-        if not exc.status == codes.SUBMITTED:
-            logger.debug("execution not in {} status: {}".format(codes.SUBMITTED, exc.status))
+        if not exc.status == codes.RUNNING:
+            logger.debug("execution not in {} status: {}".format(codes.RUNNING, exc.status))
             raise ResourceError("Cannot force quit an execution not in {} status. "
-                                "Execution was found in status: {}".format(codes.SUBMITTED, exc.status))
+                                "Execution was found in status: {}".format(codes.RUNNING, exc.status))
         # send force_quit message to worker:
         # TODO - should we set the execution status to FORCE_QUIT_REQUESTED?
+        logger.debug("issuing force quit to worker: {} "
+                     "for actor_id: {} execution_id: {}".format(exc.worker_id, actor_id, execution_id))
         ch = WorkerChannel(worker_id=exc.worker_id)
         ch.put('force_quit')
         msg = 'Issued force quit command for execution {}.'.format(execution_id)
@@ -1071,10 +1164,12 @@ class MessagesResource(Resource):
         return args
 
     def post(self, actor_id):
+        start_timer = timeit.default_timer()
+
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc),
                                'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
-                               'messages': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id)},}
+                               'messages': '{}/actors/v2/{}/messages'.format(actor.api_server, actor.id)}, }
 
         logger.debug("top of POST /actors/{}/messages.".format(actor_id))
         synchronous = False
@@ -1084,7 +1179,9 @@ class MessagesResource(Resource):
         except KeyError:
             logger.debug("did not find actor: {}.".format(actor_id))
             raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
+        got_actor_timer = timeit.default_timer()
         args = self.validate_post()
+        val_post_timer = timeit.default_timer()
         d = {}
         # build a dictionary of k:v pairs from the query parameters, and pass a single
         # additional object 'message' from within the post payload. Note that 'message'
@@ -1103,6 +1200,7 @@ class MessagesResource(Resource):
             if k == 'message':
                 continue
             d[k] = v
+        request_args_timer = timeit.default_timer()
         logger.debug("extra fields added to message from query parameters: {}.".format(d))
         if synchronous:
             # actor mailbox length must be 0 to perform a synchronous execution
@@ -1120,31 +1218,53 @@ class MessagesResource(Resource):
         if hasattr(g, 'jwt_header_name'):
             d['_abaco_jwt_header_name'] = g.jwt_header_name
             logger.debug("abaco_jwt_header_name: {} added to message.".format(g.jwt_header_name))
-
         # create an execution
+        before_exc_timer = timeit.default_timer()
         exc = Execution.add_execution(dbid, {'cpu': 0,
                                              'io': 0,
                                              'runtime': 0,
                                              'status': SUBMITTED,
                                              'executor': g.user})
+        after_exc_timer = timeit.default_timer()
         logger.info("Execution {} added for actor {}".format(exc, actor_id))
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         logger.debug("Final message dictionary: {}".format(d))
+        before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
+        after_ch_timer = timeit.default_timer()
         ch.put_msg(message=args['message'], d=d)
+        after_put_msg_timer = timeit.default_timer()
         ch.close()
+        after_ch_close_timer = timeit.default_timer()
         logger.debug("Message added to actor inbox. id: {}.".format(actor_id))
         # make sure at least one worker is available
         actor = Actor.from_db(actors_store[dbid])
+        after_get_actor_db_timer = timeit.default_timer()
         actor.ensure_one_worker()
+        after_ensure_one_worker_timer = timeit.default_timer()
         logger.debug("ensure_one_worker() called. id: {}.".format(actor_id))
         if args.get('_abaco_Content_Type') == 'application/octet-stream':
             result = {'execution_id': exc, 'msg': 'binary - omitted'}
         else:
-            result={'execution_id': exc, 'msg': args['message']}
+            result = {'execution_id': exc, 'msg': args['message']}
         result.update(get_hypermedia(actor, exc))
         case = Config.get('web', 'case')
+        end_timer = timeit.default_timer()
+        time_data = {'total': (end_timer - start_timer) * 1000,
+                     'get_actor': (got_actor_timer - start_timer) * 1000,
+                     'validate_post': (val_post_timer - got_actor_timer) * 1000,
+                     'parse_request_args': (request_args_timer - val_post_timer) * 1000,
+                     'create_msg_d': (before_exc_timer - request_args_timer) * 1000,
+                     'add_execution': (after_exc_timer - before_exc_timer) * 1000,
+                     'final_msg_d': (before_ch_timer - after_exc_timer) * 1000,
+                     'create_actor_ch': (after_ch_timer - before_ch_timer) * 1000,
+                     'put_msg_ch': (after_put_msg_timer - after_ch_timer) * 1000,
+                     'close_ch': (after_ch_close_timer - after_put_msg_timer) * 1000,
+                     'get_actor_2': (after_get_actor_db_timer - after_ch_close_timer) * 1000,
+                     'ensure_1_worker': (after_ensure_one_worker_timer - after_get_actor_db_timer) * 1000,
+                     }
+        logger.info("Times to process message: {}".format(time_data))
         if synchronous:
             return self.do_synch_message(exc)
         if not case == 'camel':
@@ -1278,7 +1398,7 @@ class WorkersResource(Resource):
                 # send num_to_add messages to add 1 worker so that messages are spread across multiple
                 # spawners.
                 worker_id = Worker.request_worker(tenant=g.tenant,
-                                                        actor_id=dbid)
+                                                  actor_id=dbid)
                 logger.info("New worker id: {}".format(worker_id[0]))
                 ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,

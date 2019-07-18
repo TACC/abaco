@@ -59,10 +59,9 @@ def minimal_test():
 
     # send spawner a message to start a worker for a new actor
     worker_id = models.Worker.ensure_one_worker(aid, actor.tenant)
-    worker_ids = [worker_id]
     ch = channels.CommandChannel()
     ch.put_cmd(actor_id=aid,
-               worker_ids=worker_ids,
+               worker_id=worker_id,
                image=actor.image,
                tenant=actor.tenant,
                stop_existing=False)

@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 from channels import ExecutionResultsChannel
 from config import Config
-from codes import BUSY, READY
+from codes import BUSY, READY, RUNNING
 import globals
 from models import Execution, get_current_utc_time
 
@@ -506,7 +506,8 @@ def execute_actor(actor_id,
     start_time = get_current_utc_time()
     # start the timer to track total execution time.
     start = timeit.default_timer()
-    logger.debug("right before cli.start: {}; (worker {};{})".format(start, worker_id, execution_id))
+    logger.debug("right before cli.start: {}; container id: {}; "
+                 "(worker {};{})".format(start, container.get('Id'), worker_id, execution_id))
     try:
         cli.start(container=container.get('Id'))
     except Exception as e:
@@ -516,6 +517,7 @@ def execute_actor(actor_id,
 
     # local bool tracking whether the actor container is still running
     running = True
+    Execution.update_status(actor_id, execution_id, RUNNING)
 
     logger.debug("right before creating stats_cli: {}; (worker {};{})".format(timeit.default_timer(),
                                                                               worker_id, execution_id))

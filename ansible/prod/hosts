@@ -1,18 +1,18 @@
 
 [db]
-# ab-core-prod-vmware ansible_ssh_host=129.114.60.250 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+# ab-core-prod-vmware ansible_ssh_host=129.114.103.16 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 ab-compute1-tacc-prod-js ansible_ssh_host=129.114.104.9 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 ab-compute1-tacc-prod-rodeo ansible_ssh_host=129.114.7.16 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
-
+ab-compute1-vmware ansible_ssh_host=
 
 [compute]
-# ab-core-prod-vmware ansible_ssh_host=129.114.60.250 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=0
+# ab-core-prod-vmware ansible_ssh_host=129.114.103.16 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=0 # abaco02.tacc.utexas.edu
 ab-compute1-tacc-prod-js ansible_ssh_host=129.114.17.5 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=2
 ab-compute3-tacc-prod-js ansible_ssh_host=129.114.104.9 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root spawner_host_ip=172.17.0.1 spawner_host_id=0
 
 
 [web]
-# ab-web-prod-vmware ansible_ssh_host=129.114.60.211 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
+# ab-web-prod-vmware ansible_ssh_host=129.114.103.15 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root # abaco01.tacc.utexas.edu
 ab-web-tacc-prod-js ansible_ssh_host=129.114.18.5 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 ab-web-tacc-prod-rodeo ansible_ssh_host=129.114.7.16 ansible_ssh_private_key_file=~/.ssh/id_rsa ansible_ssh_user=root
 

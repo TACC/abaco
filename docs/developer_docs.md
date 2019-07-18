@@ -137,6 +137,14 @@ To run the functional tests, execute the following:
 $ docker run --network=abaco_abaco -e base_url=http://nginx -e case=camel -v /:/host -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG
 ```
 
+You can pass arguments to the testsuite container just like you would to py.test. For example, you can run
+just one test (in this case, the `test_create_actor_with_webhook` test) from within the `test_abaco_core.py` 
+file with:
+
+```shell
+$ docker run --network=abaco_copy_abaco -e base_url=http://nginx -e case=camel -v /:/host -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG /tests/test_abaco_core.py::test_create_actor_with_webhook
+``` 
+
 Run the unit tests with a command similar to the following, changing the test module as the end as necessary:
 
 ```shell
