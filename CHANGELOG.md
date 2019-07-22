@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.2.1 - 2019-07-17 (target)
+## 1.2.1 - 2019-07-22
 ### Added
 - No change
 
