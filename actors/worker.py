@@ -128,10 +128,21 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                             "worker_id: {}"
                             "Exception: {}".format(worker_id, e))
             # delete associated channels:
+            # it is possible the actor channel was already deleted, in which case we just keep processing
             if delete_actor_ch:
-                actor_ch.delete()
-            worker_ch.delete()
-            logger.info("WorkerChannel deleted and ActorMsgChannel closed for actor: {} worker_id: {}".format(actor_id, worker_id))
+                try:
+                    actor_ch.delete()
+                    logger.info("ActorChannel deleted for actor: {} worker_id: {}".format(actor_id, worker_id))
+                except Exception as e:
+                    logger.info("Got exception deleting ActorChannel for actor: {} "
+                                "worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+            try:
+                worker_ch.delete()
+                logger.info("WorkerChannel deleted for actor: {} worker_id: {}".format(actor_id, worker_id))
+            except Exception as e:
+                logger.info("Got exception deleting WorkerChannel for actor: {} "
+                            "worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+
             logger.info("Worker with worker_id: {} is now exiting.".format(worker_id))
             _thread.interrupt_main()
             logger.info("main thread interrupted.")
