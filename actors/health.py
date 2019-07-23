@@ -252,6 +252,16 @@ def check_worker_health(actor_id, worker):
             pass
         return None
 
+def zero_out_workers_db():
+    """
+    Set all workers collections in the db to empty. Run this as part of a maintenance; steps:
+      1) remove all docker containers
+      2) run this function
+      3) run clean_up_clients_store().
+    :return:
+    """
+    for k, _ in workers_store.items():
+        workers_store[k] = {}
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
