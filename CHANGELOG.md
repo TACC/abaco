@@ -1,6 +1,34 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.3.0 - 2019-08-6 (target)
+### Added
+- Added a `token` Boolean attribute to the actor data model, indicating whether a token will be generated for an actor.
+When this attribute is False, Abaco will not generate an access token for the actor.
+
+### Changed
+- Fixed an issue where the results socket was not writeable by non-root accounts.
+- The abaco.conf file now accepts configurations of the form `{tenant}_default_token` and `default_token` within the `[web]` stanza to provide a
+default value for the actor token attribute for tenants, respectively, the global Abaco instance. When a tenant and global0
+configuration is set, actors in a given tenant will get the tenant's configuration.
+- The abaco.conf file now accepts a `{tenant}_generate_clients` configuration within the `[workers]` stanza that dictates
+whether client generation is available for a specific tenant.
+
+### Removed
+- No change.
+
+
+## 1.2.2 - 2019-07-28
+### Added
+- No change
+
+### Changed
+- Fixed an issue where in a certain edge case, workers were not exiting properly due to a bug trying to clean up a connection to RabbitMQ.
+
+### Removed
+- No change.
+
+
 ## 1.2.1 - 2019-07-22
 ### Added
 - No change
