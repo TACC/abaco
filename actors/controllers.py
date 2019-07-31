@@ -615,8 +615,11 @@ class ActorsResource(Resource):
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
+        logger.debug("request set use_container_uid: {}; type: {}".format(use_container_uid, type(use_container_uid)))
         if not use_container_uid:
+            logger.debug("use_container_uid was false. looking up uid and gid...")
             uid, gid, home_dir = get_uid_gid_homedir(args, g.user, g.tenant)
+            logger.debug(f"got uid: {uid}, gid: {gid}, home_dir: {home_dir} from get_().")
             if uid:
                 args['uid'] = uid
             if gid:
