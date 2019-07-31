@@ -121,6 +121,12 @@ class Spawner(object):
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info("top of process; cmd: {}".format(cmd))
         actor_id = cmd['actor_id']
+        try:
+            actor = Actor.from_db(actors_store[actor_id])
+        except Exception as e:
+            msg = f"Exception in spawner trying to retrieve actor object from store. Aborting. Exception: {e}"
+            logger.error(msg)
+            return
         worker_id = cmd['worker_id']
         image = cmd['image']
         tenant = cmd['tenant']
@@ -140,17 +146,26 @@ class Spawner(object):
         api_server = None
         client_secret = None
 
-        # First, get oauth clients for the worker
-        generate_clients = Config.get('workers', 'generate_clients').lower()
+        # ---- Oauth client generation for the worker -------
+        # check if tenant and instance configured for client generation -
+        try:
+            generate_clients =  Config.get('workers', f'{tenant}_generate_clients').lower()
+        except:
+            logger.debug(f"Did not find a {tenant}_generate_clients config. Looking for a global config.")
+            generate_clients = Config.get('workers', 'generate_clients').lower()
+        logger.debug(f"final generate_clients: {generate_clients}")
         if generate_clients == "true":
-            logger.debug("spawner starting client generation")
-
-            client_id, \
-            client_access_token, \
-            client_refresh_token, \
-            api_server, \
-            client_secret = self.client_generation(actor_id, worker_id, tenant)
-
+            logger.debug("client generation was configured to be available; now checking the actor's token attr.")
+            # updated 1.3.0-- check whether the actor requires a token:
+            if actor.token:
+                logger.debug("spawner starting client generation")
+                client_id, \
+                client_access_token, \
+                client_refresh_token, \
+                api_server, \
+                client_secret = self.client_generation(actor_id, worker_id, tenant)
+            else:
+                logger.debug("actor's token attribute was False. Not generating client.")
         ch = SpawnerWorkerChannel(worker_id=worker_id)
 
         logger.debug("spawner attempting to start worker; worker_id: {}".format(worker_id))

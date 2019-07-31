@@ -612,6 +612,11 @@ class ActorsResource(Resource):
         args['tenant'] = g.tenant
         args['api_server'] = g.api_server
         args['owner'] = g.user
+
+        # There are two options for the uid and gid to run in within the container. 1) the UID and GID to use
+        # are computed by Abaco based on various configuration for the Abaco instance and tenant (such as
+        # whether to use TAS, use a fixed UID, etc.) and 2) use the uid and gid created in the container.
+        # Case 2) allows containers to be run as root and requires admin role in Abaco.
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
@@ -626,7 +631,26 @@ class ActorsResource(Resource):
                 args['gid'] = gid
             if home_dir:
                 args['tasdir'] = home_dir
-
+        # token attribute - if the user specifies whether the actor requires a token, we always use that.
+        # otherwise, we determine the default setting based on configs.
+        if 'token' in args and args.get('token') is not None:
+            token = args.get('token')
+            logger.debug(f"user specified token: {token}")
+        else:
+            # first look up a default for the tenant
+            try:
+                token_default = Config.get('web', f'{g.tenant}_default_token')
+                logger.debug(f"got tenant token_default: {token_default} for {g.tenant}")
+            except:
+                # if there isn't a tenant config, check for a global config:
+                try:
+                    token_default = Config.get('web', 'default_token')
+                    logger.debug(f"got global token default: {token_default}")
+                except:
+                    logger.debug("did not find any token default config. Using False")
+                    token_default = False
+            token = token_default
+        args['token'] = token
         if Config.get('web', 'case') == 'camel':
             max_workers = args.get('maxWorkers')
             args['max_workers'] = max_workers

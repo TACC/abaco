@@ -321,6 +321,7 @@ class Actor(AbacoDAO):
         ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', True),
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
         ('link', 'optional', 'link', str, "Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.", ''),
+        ('token', 'optional', 'token', inputs.boolean, 'Whether this actor requires an OAuth access token.', None),
         ('webhook', 'optional', 'webhook', str, "URL to publish this actor's events to.", ''),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),

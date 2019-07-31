@@ -463,7 +463,10 @@ def shutdown_all_workers():
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
-    check_spawners()
+    # TODO - turning off the check_spawners call in the health process for now as there seem to be some issues.
+    # the way the check works currently is to look for a spawner with a specific name. However, that check does not
+    # appear to be working currently.
+    # check_spawners()
     try:
         clean_up_ipc_dirs()
     except Exception as e:

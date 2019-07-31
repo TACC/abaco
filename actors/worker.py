@@ -165,7 +165,6 @@ def subscribe(tenant,
     """
     logger.debug("Top of subscribe(). worker_id: {}".format(worker_id))
     actor_ch = ActorMsgChannel(actor_id)
-    logger.info(f"LOOK HERE - made it to subscribe - actor ID: {actor_id}")
     try:
         leave_containers = Config.get('workers', 'leave_containers')
     except configparser.NoOptionError:
