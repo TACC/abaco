@@ -1,0 +1,6 @@
+{
+    "status": "error",
+    "message": "Invalid request: The Abaco service does not know how to fulfill the request.",
+    "version": "unknown",
+    "result": None
+}
