@@ -223,7 +223,7 @@ def run_container_with_docker(image,
                                          name=name,
                                          networking_config=netconf)
         cli.start(container=container.get('Id'))
-        logger.info('LOOK HERE - container successfully created! ')
+        logger.debug('container successfully started')
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
         logger.info(msg)
