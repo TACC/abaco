@@ -10,11 +10,13 @@ from hashids import Hashids
 from agaveflask.utils import RequestParser
 
 from channels import CommandChannel, EventsChannel
-from codes import REQUESTED, READY, ERROR, SUBMITTED, EXECUTE, PermissionLevel, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
+from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
+    SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from config import Config
 import errors
 
-from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, permissions_store, workers_store
+from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
+    permissions_store, workers_store
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
@@ -321,6 +323,7 @@ class Actor(AbacoDAO):
         ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', True),
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
         ('link', 'optional', 'link', str, "Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.", ''),
+        ('token', 'optional', 'token', inputs.boolean, 'Whether this actor requires an OAuth access token.', None),
         ('webhook', 'optional', 'webhook', str, "URL to publish this actor's events to.", ''),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
@@ -478,16 +481,20 @@ class Actor(AbacoDAO):
 
     @classmethod
     def set_status(cls, actor_id, status, status_message=None):
-        """Update the status of an actor"""
+        """Update the status of an actor.
+        actor_id (str) should be the actor db_id.
+        """
         logger.debug("top of set_status for status: {}".format(status))
         actors_store.update(actor_id, 'status', status)
-        try:
-            event_type = 'ACTOR_{}'.format(status).upper()
-            event = ActorEvent(actor_id, event_type, {'status_message': status_message})
-            event.publish()
-        except Exception as e:
-            logger.error("Got exception trying to publish an actor status event. "
-                         "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
+        # we currently publish status change events for actors when the status is changing to ERROR or READY:
+        if status == ERROR or status == READY:
+            try:
+                event_type = 'ACTOR_{}'.format(status).upper()
+                event = ActorEvent(actor_id, event_type, {'status_message': status_message})
+                event.publish()
+            except Exception as e:
+                logger.error("Got exception trying to publish an actor status event. "
+                             "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
         if status_message:
             actors_store.update(actor_id, 'status_message', status_message)
 
@@ -1253,7 +1260,7 @@ class Worker(AbacoDAO):
     @classmethod
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
-        logger.debug("LOOK HERE top of update_worker_status().")
+        logger.debug("top of update_worker_status().")
         # The valid state transitions are as follows - set correct ERROR:
         # REQUESTED -> SPAWNER_SETUP
         # SPAWNER_SETUP -> PULLING_IMAGE
@@ -1264,9 +1271,12 @@ class Worker(AbacoDAO):
 
         prev_status = workers_store[actor_id][worker_id]['status']
 
+        # workers can transition to SHUTTING_DOWN from any status
+        if status == SHUTTING_DOWN or status == SHUTDOWN_REQUESTED:
+            pass
         # workers can always transition to an ERROR status from any status and from an ERROR status to
         # any status.
-        if status != ERROR and ERROR not in prev_status:
+        elif status != ERROR and ERROR not in prev_status:
             if prev_status == REQUESTED and status != SPAWNER_SETUP:
                 raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
             elif prev_status == SPAWNER_SETUP and status != PULLING_IMAGE:
@@ -1279,7 +1289,7 @@ class Worker(AbacoDAO):
                 raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
 
         if status == ERROR:
-            status = ERROR + f" PREVIOUS {prev_status}"
+            status = ERROR + f" (PREVIOUS {prev_status})"
 
         logger.info(f"worker status will be changed from {prev_status} to {status}")
 

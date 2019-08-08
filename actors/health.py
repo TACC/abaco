@@ -252,6 +252,16 @@ def check_worker_health(actor_id, worker):
             pass
         return None
 
+def zero_out_workers_db():
+    """
+    Set all workers collections in the db to empty. Run this as part of a maintenance; steps:
+      1) remove all docker containers
+      2) run this function
+      3) run clean_up_clients_store().
+    :return:
+    """
+    for k, _ in workers_store.items():
+        workers_store[k] = {}
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
@@ -334,14 +344,14 @@ def check_workers(actor_id, ttl):
             if last_execution + ttl < time.time():
                 # shutdown worker
                 logger.info("Shutting down worker beyond ttl.")
-                shutdown_worker(worker['id'])
+                shutdown_worker(actor_id, worker['id'])
             else:
                 logger.info("Still time left for this worker.")
 
         if worker['status'] == codes.ERROR:
             # shutdown worker
             logger.info("Shutting down worker in error status.")
-            shutdown_worker(worker['id'])
+            shutdown_worker(actor_id, worker['id'])
         # else:
         #     logger.debug("Worker not in READY status, will postpone.")
 
@@ -453,7 +463,10 @@ def shutdown_all_workers():
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
-    check_spawners()
+    # TODO - turning off the check_spawners call in the health process for now as there seem to be some issues.
+    # the way the check works currently is to look for a spawner with a specific name. However, that check does not
+    # appear to be working currently.
+    # check_spawners()
     try:
         clean_up_ipc_dirs()
     except Exception as e:

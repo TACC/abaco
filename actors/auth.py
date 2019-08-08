@@ -157,7 +157,7 @@ def authorization():
         logger.info("Allowing request because of OPTIONS method.")
         return True
 
-    # the 'ALL' role is a role set by agaveflask in case the access_control_type is none
+    # the 'ALL' role is a role set by agaveflask in case the access_control_type is None
     if codes.ALL_ROLE in g.roles:
         g.admin = True
         logger.info("Allowing request because of ALL role.")
@@ -289,8 +289,6 @@ def check_privileged():
         if data.get('queue'):
             logger.debug("User is trying to set queue")
             raise PermissionsException("Not authorized -- only admins and privileged users can set queue.")
-
-
     else:
         logger.debug("user allowed to set privileged.")
 

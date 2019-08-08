@@ -6,7 +6,8 @@ import rabbitpy
 
 from channelpy.exceptions import ChannelTimeoutException
 
-from codes import ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY
+from codes import ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
+    REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
 from config import Config
 from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
@@ -121,6 +122,12 @@ class Spawner(object):
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info("top of process; cmd: {}".format(cmd))
         actor_id = cmd['actor_id']
+        try:
+            actor = Actor.from_db(actors_store[actor_id])
+        except Exception as e:
+            msg = f"Exception in spawner trying to retrieve actor object from store. Aborting. Exception: {e}"
+            logger.error(msg)
+            return
         worker_id = cmd['worker_id']
         image = cmd['image']
         tenant = cmd['tenant']
@@ -129,8 +136,36 @@ class Spawner(object):
         logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {}"
                     "stop_existing: {} num_workers: {}".format(actor_id, worker_id,
                                                                image, tenant, stop_existing, num_workers))
+        # if the worker was sent a delete request before spawner received this message to create the worker,
+        # the status will be SHUTDOWN_REQUESTED, not REQUESTED. in that case, we simply abort and remove the
+        # worker from the collection.
+        try:
+            logger.debug("spawner checking worker's status for SHUTDOWN_REQUESTED")
+            worker = Worker.get_worker(actor_id, worker_id)
+            logger.debug(f"spawner got worker; worker: {worker}")
+        except Exception as e:
+            logger.error(f"spawner got exception trying to retrieve worker. "
+                         f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
+            return
 
-        # Status: REQUESTED -> SPAWNER_SETUP
+        status = worker.get('status')
+        if not status == REQUESTED:
+            logger.debug(f"worker was NOT in REQUESTED status. status: {status}")
+            if status == SHUTDOWN_REQUESTED or status == SHUTTING_DOWN or status == ERROR:
+                logger.debug(f"worker status was {status}; spawner deleting worker and returning..")
+                try:
+                    Worker.delete_worker(actor_id, worker_id)
+                    logger.debug("spawner deleted worker because it was SHUTDOWN_REQUESTED.")
+                    return
+                except Exception as e:
+                    logger.error(f"spawner got exception trying to delete a worker in SHUTDOWN_REQUESTED status."
+                                 f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
+                    return
+            else:
+                logger.error(f"spawner found worker in unexpected status: {status}. Not processing command and returning.")
+                return
+
+        # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
         Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
         logger.debug("spawner has updated worker status to SPAWNER_SETUP; worker_id: {}".format(worker_id))
         client_id = None
@@ -140,17 +175,26 @@ class Spawner(object):
         api_server = None
         client_secret = None
 
-        # First, get oauth clients for the worker
-        generate_clients = Config.get('workers', 'generate_clients').lower()
+        # ---- Oauth client generation for the worker -------
+        # check if tenant and instance configured for client generation -
+        try:
+            generate_clients =  Config.get('workers', f'{tenant}_generate_clients').lower()
+        except:
+            logger.debug(f"Did not find a {tenant}_generate_clients config. Looking for a global config.")
+            generate_clients = Config.get('workers', 'generate_clients').lower()
+        logger.debug(f"final generate_clients: {generate_clients}")
         if generate_clients == "true":
-            logger.debug("spawner starting client generation")
-
-            client_id, \
-            client_access_token, \
-            client_refresh_token, \
-            api_server, \
-            client_secret = self.client_generation(actor_id, worker_id, tenant)
-
+            logger.debug("client generation was configured to be available; now checking the actor's token attr.")
+            # updated 1.3.0-- check whether the actor requires a token:
+            if actor.token:
+                logger.debug("spawner starting client generation")
+                client_id, \
+                client_access_token, \
+                client_refresh_token, \
+                api_server, \
+                client_secret = self.client_generation(actor_id, worker_id, tenant)
+            else:
+                logger.debug("actor's token attribute was False. Not generating client.")
         ch = SpawnerWorkerChannel(worker_id=worker_id)
 
         logger.debug("spawner attempting to start worker; worker_id: {}".format(worker_id))
@@ -258,8 +302,7 @@ class Spawner(object):
         # worker['status'] = PULLING_IMAGE
         Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE)
         try:
-            logger.info("LOOK HERE - PULLING IMAGE")
-            logger.info("Worker pulling image {}...".format(image))
+            logger.debug("Worker pulling image {}...".format(image))
             pull_image(image)
         except DockerError as e:
             # return a message to the spawner that there was an error pulling image and abort
@@ -274,7 +317,7 @@ class Spawner(object):
         while True:
             try:
                 Worker.update_worker_status(actor_id, worker_id, CREATING_CONTAINER)
-                logger.info('LOOK HERE - creating worker container')
+                logger.debug('spawner creating worker container')
                 worker_dict = run_worker(
                     image,
                     actor_id,
@@ -287,8 +330,7 @@ class Spawner(object):
                     client_secret
 
                 )
-                logger.info('LOOK HERE - finished run worker')
-                logger.info(f'LOOK HERE - worker dict: {worker_dict}')
+                logger.debug(f'finished run worker; worker dict: {worker_dict}')
             except DockerError as e:
                 logger.error("Spawner got a docker exception from run_worker; Exception: {}".format(e))
                 if 'read timeout' in e.message:
@@ -313,7 +355,7 @@ class Spawner(object):
 
                     raise SpawnerException(message="Unable to start worker; error: {}".format(e))
             break
-        logger.info('LOOK HERE - finished loop')
+        logger.debug('finished loop')
         worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)
         # if the actor is not already in READY status, set actor status to READY before worker status has been
         # set to READY.
@@ -334,7 +376,7 @@ class Spawner(object):
         Worker.add_worker(actor_id, worker)
 
         ch.put('READY')  # step 4
-        logger.info('LOOK HERE - sent message through channel')
+        logger.info('sent message through channel')
 
     def error_out_actor(self, actor_id, worker_id, message):
         """In case of an error, put the actor in error state and kill all workers"""

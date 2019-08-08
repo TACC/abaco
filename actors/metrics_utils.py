@@ -166,6 +166,7 @@ def scale_up(actor_id):
 
 
 def scale_down(actor_id):
+    logger.debug(f"top of scale_down for actor_id: {actor_id}")
     workers = Worker.get_workers(actor_id)
     logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
     try:
@@ -180,7 +181,7 @@ def scale_down(actor_id):
                 if worker['status'] == 'READY':
                     # scale down
                     try:
-                        shutdown_worker(worker['id'], delete_actor_ch=False)
+                        shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
                         continue
                     except Exception as e:
                         logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))

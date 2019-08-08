@@ -28,6 +28,12 @@ RUN apk add --update bash && rm -f /var/cache/apk/*
 # RUN ln -sf /dev/stdout /var/log/nginx/access.log
 # RUN ln -sf /dev/stderr /var/log/nginx/error.log
 
+ADD static/40x.json /etc/nginx/json/40x.json
+ADD static/404.json /etc/nginx/json/404.json
+
+ADD static/50x.json /etc/nginx/json/50x.json
+ADD static/502.json /etc/nginx/json/502.json
+
 ADD nginx.conf /etc/nginx/conf/nginx.conf
 ADD sites-enabled/ /etc/nginx/sites-enabled
 

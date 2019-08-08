@@ -12,7 +12,7 @@ from aga import Agave
 
 from auth import get_tenant_verify
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
-from codes import ERROR, READY, BUSY, COMPLETE
+from codes import SHUTDOWN_REQUESTED, SHUTTING_DOWN, ERROR, READY, BUSY, COMPLETE
 from config import Config
 from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
@@ -30,9 +30,17 @@ keep_running = True
 # maximum number of consecutive errors a worker can encounter before giving up and moving itself into an ERROR state.
 MAX_WORKER_CONSECUTIVE_ERRORS = 5
 
-def shutdown_worker(worker_id, delete_actor_ch=True):
-    """Gracefully shutdown a single worker."""
+def shutdown_worker(actor_id, worker_id, delete_actor_ch=True):
+    """Gracefully shutdown a single worker."
+    actor_id (str) - the dbid of the associated actor.
+    """
     logger.debug("top of shutdown_worker for worker_id: {}".format(worker_id))
+    # set the worker status to SHUTDOWN_REQUESTED:
+    try:
+        Worker.update_worker_status(actor_id, worker_id, SHUTDOWN_REQUESTED)
+    except Exception as e:
+        logger.error(f"worker got exception trying to update status to SHUTODWN_REQUESTED. actor_id: {actor_id};"
+                     f"worker_id: {worker_id}; exception: {e}")
     ch = WorkerChannel(worker_id=worker_id)
     if not delete_actor_ch:
         ch.put("stop-no-delete")
@@ -42,7 +50,12 @@ def shutdown_worker(worker_id, delete_actor_ch=True):
     ch.close()
 
 def shutdown_workers(actor_id, delete_actor_ch=True):
-    """Graceful shutdown of all workers for an actor. Pass db_id as the `actor_id` argument."""
+    """
+    Graceful shutdown of all workers for an actor. Arguments:
+    * actor_id (str) - the db_id of the actor
+    * delete_actor_ch (bool) - whether the worker shutdown process should also delete the actor_ch. This should be true
+      whenever the actor is being removed. This will also force quit any currently running executions.
+    """
     logger.debug("shutdown_workers() called for actor: {}".format(actor_id))
     try:
         workers = Worker.get_workers(actor_id)
@@ -52,7 +65,7 @@ def shutdown_workers(actor_id, delete_actor_ch=True):
         logger.info("shutdown_workers did not receive any workers from Worker.get_worker for actor: {}".format(actor_id))
     # @TODO - this code is not thread safe. we need to update the workers state in a transaction:
     for _, worker in workers.items():
-        shutdown_worker(worker['id'], delete_actor_ch)
+        shutdown_worker(actor_id, worker['id'], delete_actor_ch)
 
 
 def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_client):
@@ -62,7 +75,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
     """
     global keep_running
     logger.info("Worker subscribing to worker channel...")
-    while True:
+    while keep_running:
         msg, msg_obj = worker_ch.get_one()
         # receiving the message is enough to ack it - resiliency is currently handled in the calling code.
         msg_obj.ack()
@@ -90,6 +103,14 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
         elif msg == 'stop' or msg == 'stop-no-delete':
             logger.info("Worker with worker_id: {} (actor_id: {}) received stop message, "
                         "stopping worker...".format(worker_id, actor_id))
+            # set the worker status to SHUTTING_DOWN:
+            try:
+                Worker.update_worker_status(actor_id, worker_id, SHUTTING_DOWN)
+            except Exception as e:
+                logger.error(
+                    f"worker got exception trying to update status to SHUTTING_DOWN. actor_id: {actor_id};"
+                    f"worker_id: {worker_id}; exception: {e}")
+
             globals.keep_running = False
 
             # when an actor's image is updated, old workers are deleted while new workers are
@@ -98,6 +119,9 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
             if msg == 'stop-no-delete':
                 logger.info("Got stop-no-delete; will not delete actor_ch.")
                 delete_actor_ch = False
+            # if a `stop` was sent, the actor is being deleted, and so we want to immediately shutdown processing.
+            else:
+                globals.force_quit = True
             # first, delete an associated client
             # its possible this worker was not passed a client,
             # but if so, we need to delete it before shutting down.
@@ -128,13 +152,24 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
                             "worker_id: {}"
                             "Exception: {}".format(worker_id, e))
             # delete associated channels:
+            # it is possible the actor channel was already deleted, in which case we just keep processing
             if delete_actor_ch:
-                actor_ch.delete()
-            worker_ch.delete()
-            logger.info("WorkerChannel deleted and ActorMsgChannel closed for actor: {} worker_id: {}".format(actor_id, worker_id))
+                try:
+                    actor_ch.delete()
+                    logger.info("ActorChannel deleted for actor: {} worker_id: {}".format(actor_id, worker_id))
+                except Exception as e:
+                    logger.info("Got exception deleting ActorChannel for actor: {} "
+                                "worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+            try:
+                worker_ch.delete()
+                logger.info("WorkerChannel deleted for actor: {} worker_id: {}".format(actor_id, worker_id))
+            except Exception as e:
+                logger.info("Got exception deleting WorkerChannel for actor: {} "
+                            "worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+
             logger.info("Worker with worker_id: {} is now exiting.".format(worker_id))
             _thread.interrupt_main()
-            logger.info("main thread interrupted.")
+            logger.info("main thread interrupted, issuing os._exit()...")
             os._exit(0)
 
 def subscribe(tenant,
@@ -149,36 +184,38 @@ def subscribe(tenant,
               worker_ch):
     """
     Main loop for the Actor executor worker. Subscribes to the actor's inbox and executes actor
-    containers when message arrive. Also subscribes to the worker channel for future communications.
+    containers when message arrive. Also launches a separate thread which ultimately subscribes to the worker channel
+    for future communications.
     :return:
     """
     logger.debug("Top of subscribe(). worker_id: {}".format(worker_id))
     actor_ch = ActorMsgChannel(actor_id)
-    logger.info(f"LOOK HERE - made it to subscribe - actor ID: {actor_id}")
+    # establish configs for this worker -------
     try:
         leave_containers = Config.get('workers', 'leave_containers')
     except configparser.NoOptionError:
-        logger.info("No leave_containers value configured.")
+        logger.debug("No leave_containers value configured.")
         leave_containers = False
     if hasattr(leave_containers, 'lower'):
         leave_containers = leave_containers.lower() == "true"
-    logger.info("leave_containers: {}".format(leave_containers))
+    logger.debug("leave_containers: {}".format(leave_containers))
 
     try:
         mem_limit = Config.get('workers', 'mem_limit')
     except configparser.NoOptionError:
-        logger.info("No mem_limit value configured.")
+        logger.debug("No mem_limit value configured.")
         mem_limit = "-1"
     mem_limit = str(mem_limit)
 
     try:
         max_cpus = Config.get('workers', 'max_cpus')
     except configparser.NoOptionError:
-        logger.info("No max_cpus value configured.")
+        logger.debug("No max_cpus value configured.")
         max_cpus = "-1"
 
-    logger.info("max_cpus: {}".format(max_cpus))
+    logger.debug("max_cpus: {}".format(max_cpus))
 
+    # instantiate an OAuth client python object if credentials were passed -----
     ag = None
     if api_server and client_id and client_secret and access_token and refresh_token:
         logger.info("Creating agave client.")
@@ -191,11 +228,14 @@ def subscribe(tenant,
                    verify=verify)
     else:
         logger.info("Not creating agave client.")
+
+    # start a separate thread for handling messages sent to the worker channel ----
     logger.info("Starting the process worker channel thread.")
     t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag))
     t.start()
+
+    # subscribe to the actor message queue -----
     logger.info("Worker subscribing to actor channel. worker_id: {}".format(worker_id))
-    logger.info("LOOK HERE - starting subscribe process")
     # keep track of whether we need to update the worker's status back to READY; otherwise, we
     # will hit redis with an UPDATE every time the subscription loop times out (i.e., every 2s)
     update_worker_status = True
@@ -484,32 +524,24 @@ def main():
     api_server = os.environ.get('api_server', None)
     client_secret = os.environ.get('client_secret', None)
 
-    # TODO - add all vars in this log statement
-    logger.info("Top of main() for worker: {}, image: {}".format(
-        worker_id, image))
+    logger.info(f"Top of main() for worker: {worker_id}, image: {image}; "
+                f"actor_id: {actor_id}; client_id:{client_id}; tenant: {tenant}; api_server: {api_server}")
     spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
 
     logger.debug("Worker waiting on message from spawner...")
     result = spawner_worker_ch.get()
-    logger.info(f"LOOK HERE - got result {result}")
-    logger.info("Worker received reply from spawner. result: {}.".format(result))
+    logger.debug("Worker received reply from spawner. result: {}.".format(result))
 
     # should be OK to close the spawner_worker_ch on the worker side since spawner was first client
     # to open it.
     spawner_worker_ch.close()
-    logger.info('LOOK HERE - closed channel')
-
-    logger.info('LOOK HERE - about to update status')
-
+    logger.debug('spawner_worker_ch closed.')
     if not client_id:
         logger.info("Did not get client id.")
     else:
-        logger.info("Got a client.")
-        # TODO - list all client vars
+        logger.info(f"Got a client; client_id: {client_id}")
 
-    logger.info('LOOK HERE - updated actor status')
-
-    logger.info("Actor status set to READY. subscribing to inbox.")
+    logger.info(f"Actor {actor_id} status set to READY. subscribing to inbox.")
     worker_ch = WorkerChannel(worker_id=worker_id)
     subscribe(tenant,
               actor_id,

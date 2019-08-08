@@ -32,4 +32,27 @@ server {
     location ~/actors(.*) {
         proxy_pass http://reg:5000/actors$1$is_args$args;
     }
+
+    # custom 400 errors:
+    error_page 404  /404.json;
+    location /404.json{
+        root json;
+    }
+
+    error_page 400 401 402 403 405  /40x.json;
+    location /40x.json{
+        root json;
+    }
+
+    # custom 500 errors:
+    error_page 502  /502.json;
+    location /502.json{
+        root json;
+    }
+
+    error_page 500 501 503 504 /50x.json;
+    location /50x.json{
+        root json;
+    }
+
 }
