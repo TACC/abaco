@@ -344,14 +344,14 @@ def check_workers(actor_id, ttl):
             if last_execution + ttl < time.time():
                 # shutdown worker
                 logger.info("Shutting down worker beyond ttl.")
-                shutdown_worker(worker['id'])
+                shutdown_worker(actor_id, worker['id'])
             else:
                 logger.info("Still time left for this worker.")
 
         if worker['status'] == codes.ERROR:
             # shutdown worker
             logger.info("Shutting down worker in error status.")
-            shutdown_worker(worker['id'])
+            shutdown_worker(actor_id, worker['id'])
         # else:
         #     logger.debug("Worker not in READY status, will postpone.")
 
