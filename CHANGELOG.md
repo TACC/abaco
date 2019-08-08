@@ -1,18 +1,32 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.3.0 - 2019-08-6 (target)
+## 1.3.0 - 2019-08-6
 ### Added
 - Added a `token` Boolean attribute to the actor data model, indicating whether a token will be generated for an actor.
 When this attribute is False, Abaco will not generate an access token for the actor.
 
 ### Changed
 - Fixed an issue where the results socket was not writeable by non-root accounts.
+- The Abaco API proxy (nginx) now returns properly formatted JSON messages for unhandled 400 and 500 level errors
+including bad gateway and timeout errors.
+- Fixed various issues associated with Abaco resources not being shut down correctly on actor delete. First, actors now
+enter a `SHUTTING_DOWN` status immediately upon receiving a delete request, and this status is recognized by the autoscaler
+to prevent workers from being started. Second, workers now enter first `SHUTDOWN_REQUESTED` followed by `SHUTTING_DOWN`
+when they have been requested (respectively, received the stop request) to shut down. Spawners now check if a worker is
+in `REQUESTED` or `SHUTDOWN_REQUESTED` status before proceeding with starting the worker. Finally, the actor DELETE
+API now waits up to 20 seconds for all workers to be shut down and if they have not yet, the delete still returns a 200
+but the response message indicates that not all resources were shut down.
+- Workers now force halt a running execution when an actor has been deleted; this allows resources to be cleaned up more
+efficiently.
+- Fixed a rare edge case issue where a worker container would not exit cleanly due to the the second worker_ch thread not checking
+the global keep_running boolean properly.
 - The abaco.conf file now accepts configurations of the form `{tenant}_default_token` and `default_token` within the `[web]` stanza to provide a
 default value for the actor token attribute for tenants, respectively, the global Abaco instance. When a tenant and global0
 configuration is set, actors in a given tenant will get the tenant's configuration.
 - The abaco.conf file now accepts a `{tenant}_generate_clients` configuration within the `[workers]` stanza that dictates
 whether client generation is available for a specific tenant.
+- Severl log messages were cleaned up and improved.
 
 ### Removed
 - No change.
