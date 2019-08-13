@@ -13,7 +13,7 @@ from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
-from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
+from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
@@ -638,19 +638,7 @@ class ActorsResource(Resource):
             token = args.get('token')
             logger.debug(f"user specified token: {token}")
         else:
-            # first look up a default for the tenant
-            try:
-                token_default = Config.get('web', f'{g.tenant}_default_token')
-                logger.debug(f"got tenant token_default: {token_default} for {g.tenant}")
-            except:
-                # if there isn't a tenant config, check for a global config:
-                try:
-                    token_default = Config.get('web', 'default_token')
-                    logger.debug(f"got global token default: {token_default}")
-                except:
-                    logger.debug("did not find any token default config. Using False")
-                    token_default = False
-            token = token_default
+            token = get_token_default()
         args['token'] = token
         if Config.get('web', 'case') == 'camel':
             max_workers = args.get('maxWorkers')
@@ -789,6 +777,15 @@ class ActorResource(Resource):
         # we do not allow a PUT to override the owner in case the PUT is issued by another user
         args['owner'] = previous_owner
 
+        # token is an attribute that gets defaulted at the Abaco instance or tenant level. as such, we want
+        # to use the default unless the user specified a value explicitly.
+        if 'token' in args and args.get('token') is not None:
+            token = args.get('token')
+            logger.debug("token in args; using: {token}")
+        else:
+            token = get_token_default()
+            logger.debug("token not in args; using default: {token}")
+        args['token'] = token
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
