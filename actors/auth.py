@@ -509,6 +509,24 @@ def get_tas_data(username, tenant):
                                                                                   tas_homedir))
     return tas_uid, tas_gid, tas_homedir
 
+def get_token_default():
+    """
+    Returns the default token attribute based on the tenant and instance configs.
+    """
+    token_default = False
+    try:
+        token_default = Config.get('web', f'{g.tenant}_default_token')
+        logger.debug(f"got tenant token_default: {token_default} for {g.tenant}")
+    except:
+        # if there isn't a tenant config, check for a global config:
+        try:
+            token_default = Config.get('web', 'default_token')
+            logger.debug(f"got global token default: {token_default}")
+        except:
+            logger.debug("did not find any token default config. Using False")
+            token_default = False
+    return token_default
+
 def get_uid_gid_homedir(actor, user, tenant):
     """
     Determines the uid and gid that should be used to run an actor's container. This function does
