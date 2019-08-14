@@ -87,7 +87,7 @@ class Event(object):
 
     def __init__(self, dbid: str, event_type: str, data: dict):
         """
-        Create a new even object
+        Create a new event object
         """
         self.db_id = dbid
         self.tenant_id = dbid.split('_')[0]
@@ -322,6 +322,7 @@ class Actor(AbacoDAO):
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
         ('link', 'optional', 'link', str, "Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.", ''),
         ('webhook', 'optional', 'webhook', str, "URL to publish this actor's events to.", ''),
+        ('hints', 'optional', 'hints', str, 'Hints for personal tagging or Abaco special hints', ''),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
         ('max_workers', 'optional', 'max_workers', int, 'How many workers this actor is allowed at the same time.', None),
