@@ -383,6 +383,33 @@ def get_tenant_verify(tenant):
         return False
     return True
 
+def get_tenant_userstore_prefix(tenant):
+    """
+    Returnst he WSO2 userstore prefix associated with a tenant; this prefix is needed to generating tokens using
+    the impersonation grant
+    :param tenant:
+    :return:
+    """
+    if tenant == 'SD2E':
+        return 'SD2E'
+    if tenant == 'TACC':
+        return 'TACC'
+    if tenant == 'DESIGNSAFE':
+        return 'TACC'
+    if tenant == 'IPLANTC-ORG':
+        return 'IPLANTC'
+    if tenant == 'VDJ':
+        return 'VDJ'
+    if tenant == '3DEM':
+        return '3DEM'
+    if tenant == 'IREC':
+        return 'IREC'
+    if tenant == 'SGCI':
+        return 'SGCI-PROD'
+    if tenant == 'DEV' or tenant == 'DEV-DEVELOP' or tenant == 'DEV-STAGING':
+        return 'agavedev'
+    return 'TACC'
+
 def get_tenants():
     """Return a list of tenants"""
     return ['3DEM',
