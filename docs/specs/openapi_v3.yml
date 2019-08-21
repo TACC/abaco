@@ -274,6 +274,197 @@ paths:
                   result:
                     $ref: '#/components/schemas/ActorExecutionSummaries'
 
+
+  /actors/{actor_id}/nonces:
+    get:
+      tags:
+      - Actors
+      - Nonces
+      summary: List nonces for an actor.
+      description: List nonces for an actor.
+      operationId: listNonces
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonces'
+
+    post:
+      tags:
+      - Actors
+      - Nonces
+      summary: Create a nonce for an actor.
+      description: Create a nonce for an actor.
+      operationId: createNonce
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewActorNonce'
+
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonces'
+
+
+  /actors/{actor_id}/nonces/{nonce_id}:
+    get:
+      tags:
+      - Actors
+      - Nonces
+      summary: Get details about a nonce for an actor.
+      description: Get details about a nonce for an actor.
+      operationId: getNonce
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: nonce_id
+        in: path
+        description: Unique ID of the nonce
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonce'
+    delete:
+      tags:
+      - Actors
+      - Nonces
+      summary: Delete a nonce.
+      description: Delete a nonce.
+      operationId: deleteNonce
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: nonce_id
+        in: path
+        description: Unique ID of the nonce
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+  /actors/{actor_id}/state:
+    get:
+      tags:
+      - Actors
+      - State
+      summary: Retrieve the state for an actor.
+      description: List nonces for an actor.
+      operationId: getState
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: object
+                    description: An arbitrary JSON-serializable object.
+
+    post:
+      tags:
+      - Actors
+      - State
+      summary: Update state for an actor.
+      description: Update state for an actor.
+      operationId: updateState
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: An arbitrary JSON-serializable object.
+
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonces'
+
   /actors/{actor_id}/executions/{execution_id}:
     get:
       tags:
@@ -341,6 +532,66 @@ paths:
                     $ref: '#/components/schemas/ActorExecutionLogs'
 
 
+  /actors/{actor_id}/permissions:
+    get:
+      tags:
+      - Actors
+      - Permissions
+      summary: List permissions for an actor.
+      description: List permissions for an actor.
+      operationId: listPermissions
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorPermissions'
+    post:
+      tags:
+      - Actors
+      - Permissions
+      summary: Add or update permissions for an actor.
+      description: Add or update permissions for an actor.
+      operationId: updatePermissions
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActorPermission'
+
+      responses:
+        200:
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorPermissions'
+
+
   /actors/{actor_id}/workers:
     get:
       tags:
@@ -396,7 +647,7 @@ paths:
 
       responses:
         200:
-          description: Message receieved
+          description: Request successful
           content:
             application/json:
               schema:
@@ -862,3 +1113,78 @@ components:
         logs:
           type: string
           description: The (Docker) logs, typically standard out, associated with the execution.
+
+    ActorPermissions:
+      # type: array
+      # items:
+      #   $ref: '#/components/schemas/ActorPermission'
+      type: object
+      description: Key-value pairs where the key is the username and the value is the permission level.
+
+    ActorPermission:
+      type: object
+      properties:
+        user:
+          type: string
+          description: The username associated with the permission.
+        level:
+          type: string
+          enum: [READ, EXECUTE, WRITE]
+          description: The level associated with the permission.
+
+
+    ActorNonces:
+      type: array
+      items:
+        $ref: '#/components/schemas/ActorNonce'
+
+    NewActorNonce:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [READ, WRITE, EXECUTE]
+          description: The permission level associated with the nonce.
+        maxUses:
+          type: integer
+          description: Max uses for the nonce; set to -1 for unlimited uses.
+
+    ActorNonce:
+      type: object
+      properties:
+        id:
+          type: string
+          description: the id of the nonce
+        level:
+          type: string
+          enum: [READ, WRITE, EXECUTE]
+          description: The permission level associated with the nonce.
+        maxUses:
+          type: integer
+          description: Max uses for the nonce; set to -1 for unlimited uses.
+        actorId:
+          type: string
+          description: the id of the actor
+        apiServer:
+          type: string
+          description: the base URL for this Abaco instance.
+        owner:
+          type: string
+          description: The user who owns the associated actor.
+        createTime:
+          type: string
+          description: Time (in UTC) the nonce was created.
+        remainingUses:
+          type: integer
+          description: Number of uses remaining for the nonce; set to -1 for unlimited uses.
+        roles:
+          type: array
+          items:
+            type: string
+          description: The roles associated with the nonce.
+
+
+
+
+
+      
