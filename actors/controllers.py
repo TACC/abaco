@@ -594,6 +594,11 @@ class ActorsResource(Resource):
                     raise BadRequest('Invalid queue name.')
             if args['link']:
                 validate_link(args)
+            if args['hints']:
+                for hint in args['hints']:
+                    for bad_char in ['"', "'", '{', '}', '[', ']']:
+                        if bad_char in hint:
+                            raise BadRequest(f"Hints must be simple stings or numbers, no lists or dicts. Error character: {bad_char}")   
 
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
@@ -789,6 +794,11 @@ class ActorResource(Resource):
             raise DAOError("Invalid actor description: an actor that was not stateless cannot be updated to be stateless.")
         if not actor.stateless and (new_fields.get('max_workers') or new_fields.get('maxWorkers')):
             raise DAOError("Invalid actor description: stateful actors can only have 1 worker.")
+        if new_fields['hints']:
+            for hint in new_fields['hints']:
+                for bad_char in ['"', "'", '{', '}', '[', ']']:
+                    if bad_char in hint:
+                        raise BadRequest(f"Hints must be simple stings or numbers, no lists or dicts. Error character: {bad_char}")    
         actor.update(new_fields)
         return actor
 
