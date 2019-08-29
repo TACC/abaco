@@ -157,7 +157,7 @@ def authorization():
         logger.info("Allowing request because of OPTIONS method.")
         return True
 
-    # the 'ALL' role is a role set by agaveflask in case the access_control_type is none
+    # the 'ALL' role is a role set by agaveflask in case the access_control_type is None
     if codes.ALL_ROLE in g.roles:
         g.admin = True
         logger.info("Allowing request because of ALL role.")
@@ -289,8 +289,6 @@ def check_privileged():
         if data.get('queue'):
             logger.debug("User is trying to set queue")
             raise PermissionsException("Not authorized -- only admins and privileged users can set queue.")
-
-
     else:
         logger.debug("user allowed to set privileged.")
 
@@ -384,6 +382,33 @@ def get_tenant_verify(tenant):
     if tenant.upper() == 'DEV-DEVELOP':
         return False
     return True
+
+def get_tenant_userstore_prefix(tenant):
+    """
+    Returnst he WSO2 userstore prefix associated with a tenant; this prefix is needed to generating tokens using
+    the impersonation grant
+    :param tenant:
+    :return:
+    """
+    if tenant == 'SD2E':
+        return 'SD2E'
+    if tenant == 'TACC':
+        return 'TACC'
+    if tenant == 'DESIGNSAFE':
+        return 'TACC'
+    if tenant == 'IPLANTC-ORG':
+        return 'IPLANTC'
+    if tenant == 'VDJ':
+        return 'VDJ'
+    if tenant == '3DEM':
+        return '3DEM'
+    if tenant == 'IREC':
+        return 'IREC'
+    if tenant == 'SGCI':
+        return 'SGCI-PROD'
+    if tenant == 'DEV' or tenant == 'DEV-DEVELOP' or tenant == 'DEV-STAGING':
+        return 'agavedev'
+    return 'TACC'
 
 def get_tenants():
     """Return a list of tenants"""
@@ -510,6 +535,24 @@ def get_tas_data(username, tenant):
                                                                                   tas_gid,
                                                                                   tas_homedir))
     return tas_uid, tas_gid, tas_homedir
+
+def get_token_default():
+    """
+    Returns the default token attribute based on the tenant and instance configs.
+    """
+    token_default = False
+    try:
+        token_default = Config.get('web', f'{g.tenant}_default_token')
+        logger.debug(f"got tenant token_default: {token_default} for {g.tenant}")
+    except:
+        # if there isn't a tenant config, check for a global config:
+        try:
+            token_default = Config.get('web', 'default_token')
+            logger.debug(f"got global token default: {token_default}")
+        except:
+            logger.debug("did not find any token default config. Using False")
+            token_default = False
+    return token_default
 
 def get_uid_gid_homedir(actor, user, tenant):
     """

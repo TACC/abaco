@@ -1,0 +1,6 @@
+{
+    "status": "error",
+    "message": "Timeout error waiting on Abaco service response. The server may be busy or overloaded.",
+    "version": "unknown",
+    "result": None
+}

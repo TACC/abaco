@@ -1,0 +1,6 @@
+{
+    "status": "error",
+    "message": "Invalid request: the requested URL is not an Abaco endpoint.",
+    "version": "unknown",
+    "result": None
+}

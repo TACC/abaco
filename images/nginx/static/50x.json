@@ -1,0 +1,6 @@
+{
+    "status": "error",
+    "message": "Unable to parse Abaco service response. The server may be misconfigured or overloaded.",
+    "version": "unknown",
+    "result": None
+}

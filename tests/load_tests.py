@@ -2,9 +2,11 @@
 # docker run -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/local-dev.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
 
 import json
+import multiprocessing
 import os
 import requests
 import time
+import timeit
 from util import base_url, basic_response_checks
 
 
@@ -13,13 +15,19 @@ with open('jwt-abaco_admin', 'r') as f:
 
 headers = {'X-Jwt-Assertion-DEV': jwt_default}
 
+base = os.environ.get('BASE', base_url)
 
 def register_actor(idx):
     IMAGE = os.environ.get('IMAGE', 'abacosamples/test')
     data = {'image': IMAGE, 'name': 'abaco_load_test_{}'.format(idx)}
-    rsp = requests.post('{}/actors'.format(base_url), data=data, headers=headers)
+    rsp = requests.post('{}/actors'.format(base), data=data, headers=headers)
     result = basic_response_checks(rsp)
     return result['id']
+
+def start_workers(aid, num_workers):
+    data = {'num': num_workers}
+    rsp = requests.post(f'{base}/actors/{aid}/workers', data=data, headers=headers)
+    result = basic_response_checks(rsp)
 
 def check_for_ready(actor_ids):
     """
@@ -28,10 +36,27 @@ def check_for_ready(actor_ids):
     :return:
     """
     for aid in actor_ids:
+        # check for workers to be ready
+        idx = 0
+        ready = False
+        while not ready and idx < 60:
+            url = '{}/actors/{}/workers'.format(base, aid)
+            rsp = requests.get(url, headers=headers)
+            result = basic_response_checks(rsp)
+            for worker in result:
+                if not worker['status'] == 'READY':
+                    idx = idx + 1
+                    time.sleep(2)
+                    continue
+                ready = True
+        if not ready:
+            print("ERROR - workers for actor {} never entered READY status.")
+            raise Exception()
+        # now check that the actor itself is ready -
         ready = False
         idx = 0
         while not ready and idx < 10:
-            url = '{}/actors/{}'.format(base_url, aid)
+            url = '{}/actors/{}'.format(base, aid)
             rsp = requests.get(url, headers=headers)
             result = basic_response_checks(rsp)
             if result['status'] == 'READY':
@@ -42,6 +67,7 @@ def check_for_ready(actor_ids):
         if not ready:
             print("ERROR - actor {} never entered READY status.")
             raise Exception()
+        print(f"workers and actor ready for actor {aid}")
 
 def get_actors():
     """
@@ -49,7 +75,7 @@ def get_actors():
     :return:
     """
     aids = []
-    url = '{}/actors'.format(base_url)
+    url = '{}/actors'.format(base)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     for actor in result:
@@ -61,7 +87,7 @@ def get_executions(actor_ids):
     ex_ids = {}
     for a in actor_ids:
         ex_ids[a] = []
-        url = '{}/actors/{}/executions'.format(base_url, a)
+        url = '{}/actors/{}/executions'.format(base, a)
         rsp = requests.get(url, headers=headers)
         result = basic_response_checks(rsp)
         for ex in result['executions']:
@@ -73,7 +99,7 @@ def send_messages(actor_ids, num_messages_per_actor):
     execution_ids = {}
     for idx, aid in enumerate(actor_ids):
         execution_ids[aid] = []
-        url = '{}/actors/{}/messages'.format(base_url, aid)
+        url = '{}/actors/{}/messages'.format(base, aid)
         for j in range(num_messages_per_actor):
             rsp = requests.post(url, data={'message': 'test_{}_{}'.format(idx, j)}, headers=headers)
             result = basic_response_checks(rsp)
@@ -82,46 +108,115 @@ def send_messages(actor_ids, num_messages_per_actor):
             execution_ids[aid].append(ex_id)
     return execution_ids
 
-def check_for_complete(actor_ids, execution_ids):
-    for idx, aid in enumerate(actor_ids):
-        print('checking executions for actor id {}, {} out of {} total actors.'.format(aid, idx+1, len(actor_ids)))
-        for i, ex_id in enumerate(execution_ids[aid]):
-            print("checking execution {} (number {} of {} for actor {})".format(ex_id, i+1, len(execution_ids[aid]), aid))
-            done = False
-            count = 0
-            while not done and count < 25:
-                url = '{}/actors/{}/executions/{}'.format(base_url, aid, ex_id)
+def _thread_send_actor_message(url):
+    result = []
+    data = {'message': 'test'}
+    try:
+        rsp = requests.post(url, headers=headers, data=data)
+    except Exception as e:
+        print(f"got exception trying to send message {i}; exception: {e}")
+    try:
+        result.append(rsp.json()['result']['executionId'])
+    except Exception as e:
+        print(f"got exception trying to append result of message; rsp: {rsp}; exception: {e}")
+    return result
+
+def send_messages_threaded(actor_ids, num_messages_per_actor):
+    execution_ids = []
+    try:
+        POOL_SIZE = int(os.environ['POOL_SIZE'])
+    except:
+        POOL_SIZE = 16
+    print(f"using pool of size: {POOL_SIZE}")
+    pool = multiprocessing.Pool(processes=POOL_SIZE)
+    total_messages = len(actor_ids) * num_messages_per_actor
+    messages_per_process = int(total_messages / POOL_SIZE)
+    # this is a list with a URL for every message we want to send
+    urls = [f'{base}/actors/{aid}/messages' for aid in actor_ids] * num_messages_per_actor
+    results = pool.map(_thread_send_actor_message, urls)
+    execution_ids = results
+    # for r in results:
+        # each result is a list of execution id's, so we extend by the result, r
+        # execution_ids[aid].extend(r)
+    return execution_ids
+
+def check_for_complete(actor_ids):
+    done_actors = []
+    count = 0
+    while not len(done_actors) == len(actor_ids):
+        count = count + 1
+        messages = []
+        for idx, aid in enumerate(actor_ids):
+            if aid in done_actors:
+                continue
+            url = f'{base}/actors/{aid}/executions'
+            try:
                 rsp = requests.get(url, headers=headers)
                 result = basic_response_checks(rsp)
-                if result['status'] == 'COMPLETE':
-                    print("execution (ex_id {}) COMPLETE".format(ex_id))
-                    done = True
-                    continue
-                else:
-                    print("status was: {}. sleeping {}/20...".format(result['status'], count))
-                    count = count + 1
-                    time.sleep(1)
-                if count > 20:
-                    print("ERROR - execution never completed; actor_id: {}; "
-                          "execution id: {}; count: {}".format(aid, ex_id, count))
+            except Exception as e:
+                print(f"got exception trying to check executions for actor {aid}, exception: {e}")
+                continue
+            tot_done = 0
+            tot = 0
+            for e in result['executions']:
+                tot = tot + 1
+                if e['status'] == 'COMPLETE':
+                    tot_done = tot_done + 1
+            if tot == tot_done:
+                done_actors.append(aid)
+            else:
+                messages.append(f"{tot_done}/{tot} for actor {aid}.")
+        if count % 100 == 0:
+            print(f"{len(done_actors)}/{len(actor_ids)} actors completed executions.")
+            for m in messages:
+                print(m)
+            # sleep more at the beginning -
+            if len(done_actors)/len(actor_ids) < 0.5:
+                time.sleep(4)
+            elif len(done_actors)/len(actor_ids) < 0.75:
+                time.sleep(3)
+            elif len(done_actors)/len(actor_ids) < 0.9:
+                time.sleep(2)
+            else:
+                time.sleep(1)
+    print("All executions compelte.")
+
 
 def main():
-    NUM_ACTORS = int(os.environ.get('NUM_ACTORS', 60))
+    NUM_ACTORS = int(os.environ.get('NUM_ACTORS', 1))
     actor_ids = []
+    start_t = timeit.default_timer()
     for i in range(NUM_ACTORS):
         aid = register_actor(i)
         actor_ids.append(aid)
         print("registered actor # {}; id: {}".format(i, aid))
-
-    # wait for actors to reach READY status
+    reg_t = timeit.default_timer()
+    # start up workers
+    NUM_WORKERS = int(os.environ.get('NUM_WORKERS', 3))
+    for aid in actor_ids:
+        start_workers(aid, NUM_WORKERS)
+    work_t = timeit.default_timer()
+    # wait for actors and workers to reach READY status
     check_for_ready(actor_ids)
-
+    ready_t = timeit.default_timer()
     # send actors messages -
-    NUM_MESSAGES_PER_ACTOR = int(os.environ.get('NUM_MESSAGES_PER_ACTOR', 1))
-    execution_ids = send_messages(actor_ids, NUM_MESSAGES_PER_ACTOR)
-
-    # check for executions to complete
-    check_for_complete(actor_ids, execution_ids)
+    NUM_MESSAGES_PER_ACTOR = int(os.environ.get('NUM_MESSAGES_PER_ACTOR', 1500))
+    THREADED = os.environ.get('THREADED_MESSAGES', 'TRUE')
+    if THREADED == 'TRUE':
+        execution_ids = send_messages_threaded(actor_ids, NUM_MESSAGES_PER_ACTOR)
+    else:
+        execution_ids = send_messages(actor_ids, NUM_MESSAGES_PER_ACTOR)
+    send_t = timeit.default_timer()
+    # check for executions to complete -- TODO
+    check_for_complete(actor_ids)
+    end_t = timeit.default_timer()
+    print(f"Final times -- ")
+    print(f"complete run: {end_t - start_t}")
+    print(f"Register: {reg_t - start_t}")
+    print(f"Start up workers: {work_t - reg_t}")
+    print(f"Workers ready: {ready_t - reg_t}")
+    print(f"Send messages: {send_t - ready_t}")
+    print(f"Complete executions: {end_t - send_t}")
 
 
 

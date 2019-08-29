@@ -223,7 +223,7 @@ def run_container_with_docker(image,
                                          name=name,
                                          networking_config=netconf)
         cli.start(container=container.get('Id'))
-        logger.info('LOOK HERE - container successfully created! ')
+        logger.debug('container successfully started')
     except Exception as e:
         msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
         logger.info(msg)
@@ -475,6 +475,14 @@ def execute_actor(actor_id,
                          "Exception: {}; type: {}; (worker {};{})".format(socket_host_path, count, e, type(e),
                                                                           worker_id, execution_id))
         try:
+            os.chmod(socket_host_path, 0o777)
+            logger.debug("results socket permissions set to 777. socket_host_path: {}".format(socket_host_path))
+        except Exception as e:
+            msg = f"Got exception trying to set permissions on the results socket. Not sure what to do. e: {e}"
+            logger.error(msg)
+            # for now, we'll just swallow it but this is really a TODO.
+
+        try:
             server.settimeout(RESULTS_SOCKET_TIMEOUT)
         except Exception as e:
             keep_trying = True
@@ -488,7 +496,8 @@ def execute_actor(actor_id,
         logger.error(msg)
         raise DockerStartContainerError(msg)
 
-    logger.debug("results socket server instantiated. (worker {};{})".format(worker_id, execution_id))
+    logger.debug("results socket server instantiated. path: {} (worker {};{})".format(socket_host_path,
+                                                                                      worker_id, execution_id))
 
     # instantiate the results channel:
     results_ch = ExecutionResultsChannel(actor_id, execution_id)

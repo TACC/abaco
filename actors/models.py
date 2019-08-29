@@ -1,7 +1,7 @@
 from copy import deepcopy
 import datetime
 import json
-import time
+import timeit
 import uuid
 
 from flask_restful import inputs
@@ -10,11 +10,13 @@ from hashids import Hashids
 from agaveflask.utils import RequestParser
 
 from channels import CommandChannel, EventsChannel
-from codes import REQUESTED, READY, ERROR, SUBMITTED, EXECUTE, PermissionLevel, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
+from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
+    SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from config import Config
 import errors
 
-from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, permissions_store, workers_store
+from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
+    permissions_store, workers_store
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
@@ -325,6 +327,7 @@ class Actor(AbacoDAO):
         ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', True),
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
         ('link', 'optional', 'link', str, "Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.", ''),
+        ('token', 'optional', 'token', inputs.boolean, 'Whether this actor requires an OAuth access token.', None),
         ('webhook', 'optional', 'webhook', str, "URL to publish this actor's events to.", ''),
         ('hints', 'optional', 'hints', str, 'Hints for personal tagging or Abaco special hints', []),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
@@ -483,16 +486,20 @@ class Actor(AbacoDAO):
 
     @classmethod
     def set_status(cls, actor_id, status, status_message=None):
-        """Update the status of an actor"""
+        """Update the status of an actor.
+        actor_id (str) should be the actor db_id.
+        """
         logger.debug("top of set_status for status: {}".format(status))
         actors_store.update(actor_id, 'status', status)
-        try:
-            event_type = 'ACTOR_{}'.format(status).upper()
-            event = ActorEvent(actor_id, event_type, {'status_message': status_message})
-            event.publish()
-        except Exception as e:
-            logger.error("Got exception trying to publish an actor status event. "
-                         "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
+        # we currently publish status change events for actors when the status is changing to ERROR or READY:
+        if status == ERROR or status == READY:
+            try:
+                event_type = 'ACTOR_{}'.format(status).upper()
+                event = ActorEvent(actor_id, event_type, {'status_message': status_message})
+                event.publish()
+            except Exception as e:
+                logger.error("Got exception trying to publish an actor status event. "
+                             "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
         if status_message:
             actors_store.update(actor_id, 'status_message', status_message)
 
@@ -870,12 +877,16 @@ class Execution(AbacoDAO):
                    'api_server': actor['api_server']
                    })
         execution = Execution(**ex)
-
+        start_timer = timeit.default_timer()
         try:
             executions_store.update(actor_id, execution.id, execution)
         except KeyError:
             # if actor has no executions, a KeyError will be thrown
             executions_store[actor_id] = {execution.id: execution}
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.add_execution took {ms} to run for actor {actor_id}, execution: {execution}")
         logger.info("Execution: {} saved for actor: {}.".format(ex, actor_id))
         return execution.id
 
@@ -889,6 +900,7 @@ class Execution(AbacoDAO):
         """
         logger.debug("top of add_worker_id() for actor: {} execution: {} worker: {}".format(
             actor_id, execution_id, worker_id))
+        start_timer = timeit.default_timer()
         try:
             executions_store.update_subfield(actor_id, execution_id, 'worker_id', worker_id)
             logger.debug("worker added to execution: {} actor: {} worker: {}".format(
@@ -897,6 +909,11 @@ class Execution(AbacoDAO):
             logger.error("Could not add an execution. KeyError: {}. actor: {}. ex: {}. worker: {}".format(
                 e, actor_id, execution_id, worker_id))
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.add_worker_id took {ms} to run for actor {actor_id}, execution: {execution_id}, worker: {worker_id}")
+
 
     @classmethod
     def update_status(cls, actor_id, execution_id, status):
@@ -908,6 +925,7 @@ class Execution(AbacoDAO):
         """
         logger.debug("top of update_status() for actor: {} execution: {} status: {}".format(
             actor_id, execution_id, status))
+        start_timer = timeit.default_timer()
         try:
             executions_store.update_subfield(actor_id, execution_id, 'status', status)
             logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
@@ -916,6 +934,11 @@ class Execution(AbacoDAO):
             logger.error("Could not update status. KeyError: {}. actor: {}. ex: {}. status: {}".format(
                 e, actor_id, execution_id, status))
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Exection.update_status took {ms} to run for actor {actor_id}, "
+                            f"execution: {execution_id}. worker: {worker_id}")
 
     @classmethod
     def finalize_execution(cls, actor_id, execution_id, status, stats, final_state, exit_code, start_time):
@@ -941,6 +964,7 @@ class Execution(AbacoDAO):
         if not 'runtime' in stats:
             logger.error("Could not finalize execution. runtime missing. Params: {}".format(params_str))
             raise errors.ExecutionException("'runtime' parameter required to finalize execution.")
+        start_timer = timeit.default_timer()
         try:
             executions_store.update_subfield(actor_id, execution_id, 'status', status)
             executions_store.update_subfield(actor_id, execution_id, 'io', stats['io'])
@@ -952,6 +976,11 @@ class Execution(AbacoDAO):
         except KeyError:
             logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.finalize_execution took {ms} to run for actor {actor_id}, "
+                            f"execution_id: {execution_id}, worker: {worker_id}")
 
         try:
             event_type = 'EXECUTION_COMPLETE'
@@ -988,12 +1017,19 @@ class Execution(AbacoDAO):
         if len(logs) > DEFAULT_MAX_LOG_LENGTH:
             logger.info("truncating log for execution: {}".format(exc_id))
             logs = logs[:max_log_length]
+        start_timer = timeit.default_timer()
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
             logs_store.set_with_expiry(exc_id, logs)
         else:
             logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
             logs_store[exc_id] = logs
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.set_logs took {ms} to run for actor {actor_id}, "
+                            f"execution: {exc_id}, worker: {worker_id}")
+
 
     def get_uuid_code(self):
         """ Return the Agave code for this object.
@@ -1157,18 +1193,30 @@ class Worker(AbacoDAO):
     @classmethod
     def get_workers(cls, actor_id):
         """Retrieve all workers for an actor. Pass db_id as `actor_id` parameter."""
+        start_timer = timeit.default_timer()
         try:
-            return workers_store[actor_id]
+            result = workers_store[actor_id]
         except KeyError:
-            return {}
+            result = {}
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"get_workers took {ms} to run for actor {actor_id}")
+        return result
 
     @classmethod
     def get_worker(cls, actor_id, worker_id):
         """Retrieve a worker from the workers store. Pass db_id as `actor_id` parameter."""
+        start_timer = timeit.default_timer()
         try:
-            return workers_store[actor_id][worker_id]
+            result = workers_store[actor_id][worker_id]
         except KeyError:
             raise errors.WorkerException("Worker not found.")
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"get_worker took {ms} to run for actor {actor_id}, worker: {worker_id}")
+        return result
 
     @classmethod
     def delete_worker(cls, actor_id, worker_id):
@@ -1240,11 +1288,16 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_execution_time().")
         now = get_current_utc_time()
+        start_timer = timeit.default_timer()
         try:
             workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
         except KeyError as e:
             logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
             raise e
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"update_worker_execution_time took {ms} to run for actor {actor_id}, worker: {worker_id}")
         logger.info("worker execution time updated. worker_id: {}".format(worker_id))
 
     @classmethod
@@ -1258,7 +1311,7 @@ class Worker(AbacoDAO):
     @classmethod
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
-        logger.debug("LOOK HERE top of update_worker_status().")
+        logger.debug("top of update_worker_status().")
         # The valid state transitions are as follows - set correct ERROR:
         # REQUESTED -> SPAWNER_SETUP
         # SPAWNER_SETUP -> PULLING_IMAGE
@@ -1269,9 +1322,12 @@ class Worker(AbacoDAO):
 
         prev_status = workers_store[actor_id][worker_id]['status']
 
+        # workers can transition to SHUTTING_DOWN from any status
+        if status == SHUTTING_DOWN or status == SHUTDOWN_REQUESTED:
+            pass
         # workers can always transition to an ERROR status from any status and from an ERROR status to
         # any status.
-        if status != ERROR and ERROR not in prev_status:
+        elif status != ERROR and ERROR not in prev_status:
             if prev_status == REQUESTED and status != SPAWNER_SETUP:
                 raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
             elif prev_status == SPAWNER_SETUP and status != PULLING_IMAGE:
@@ -1284,17 +1340,22 @@ class Worker(AbacoDAO):
                 raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
 
         if status == ERROR:
-            status = ERROR + f" PREVIOUS {prev_status}"
+            status = ERROR + f" (PREVIOUS {prev_status})"
 
         logger.info(f"worker status will be changed from {prev_status} to {status}")
 
         # get worker's current status and then do V this separately
         # this is not threadsafe
+        start_timer = timeit.default_timer()
         try:
             workers_store.update_subfield(actor_id, worker_id, 'status', status)
         except Exception as e:
             logger.error("Got exception trying to update worker {} subfield status to {}; "
                          "e: {}; type(e): {}".format(worker_id, status, e, type(e)))
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"update_worker_status took {ms} to run for actor {actor_id}, worker: {worker_id}")
         logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
 
     def get_uuid_code(self):

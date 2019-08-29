@@ -9,7 +9,7 @@ import rabbitpy
 from agaveflask.auth import get_api_server
 
 from aga import Agave
-from auth import get_tenants, get_tenant_verify
+from auth import get_tenants, get_tenant_verify, get_tenant_userstore_prefix
 from channels import ClientsChannel
 from models import Actor, Client, Worker
 from errors import ClientException, WorkerException
@@ -192,7 +192,14 @@ class ClientGenerator(object):
             logger.error(m)
             return False, m, None
         logger.debug("new params were valid.")
-        return valid, msg, actor.owner
+        owner_prefix = get_tenant_userstore_prefix(actor.tenant)
+        logger.debug(f"using owner prefix: {owner_prefix} for tenant: {actor.tenant}")
+        if owner_prefix:
+            owner = f"{owner_prefix}/{actor.owner}"
+        else:
+            owner = actor.owner
+        logger.debug(f"using owner: {owner}")
+        return valid, msg, owner
 
     def check_del_params(self, cmd):
         """Additional checks for delete client requests."""

@@ -13,9 +13,9 @@ from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 
-from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir
+from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
+from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
@@ -75,6 +75,7 @@ class MetricsResource(Resource):
             db_id
             for db_id, actor
             in actors_store.items() if actor.get('stateless') and not actor.get('status') == 'ERROR'
+                                       and not actor.get('status') == SHUTTING_DOWN
         ]
 
         try:
@@ -617,18 +618,33 @@ class ActorsResource(Resource):
         args['tenant'] = g.tenant
         args['api_server'] = g.api_server
         args['owner'] = g.user
+
+        # There are two options for the uid and gid to run in within the container. 1) the UID and GID to use
+        # are computed by Abaco based on various configuration for the Abaco instance and tenant (such as
+        # whether to use TAS, use a fixed UID, etc.) and 2) use the uid and gid created in the container.
+        # Case 2) allows containers to be run as root and requires admin role in Abaco.
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
+        logger.debug("request set use_container_uid: {}; type: {}".format(use_container_uid, type(use_container_uid)))
         if not use_container_uid:
+            logger.debug("use_container_uid was false. looking up uid and gid...")
             uid, gid, home_dir = get_uid_gid_homedir(args, g.user, g.tenant)
+            logger.debug(f"got uid: {uid}, gid: {gid}, home_dir: {home_dir} from get_().")
             if uid:
                 args['uid'] = uid
             if gid:
                 args['gid'] = gid
             if home_dir:
                 args['tasdir'] = home_dir
-
+        # token attribute - if the user specifies whether the actor requires a token, we always use that.
+        # otherwise, we determine the default setting based on configs.
+        if 'token' in args and args.get('token') is not None:
+            token = args.get('token')
+            logger.debug(f"user specified token: {token}")
+        else:
+            token = get_token_default()
+        args['token'] = token
         if Config.get('web', 'case') == 'camel':
             max_workers = args.get('maxWorkers')
             args['max_workers'] = max_workers
@@ -667,20 +683,50 @@ class ActorResource(Resource):
     def delete(self, actor_id):
         logger.debug("top of DELETE /actors/{}".format(actor_id))
         id = g.db_id
-        logger.info("calling shutdown_workers() for actor: {}".format(id))
-        shutdown_workers(id)
-        logger.debug("shutdown_workers() done")
         try:
             actor = Actor.from_db(actors_store[id])
-            executions = actor.get('executions') or {}
-            for ex_id, val in executions.items():
-                del logs_store[ex_id]
-        except KeyError as e:
-            logger.info("got KeyError {} trying to retrieve actor or executions with id {}".format(
-                e, id))
-        # delete the actor's message channel
-        # TODO - needs work; each worker is subscribed to the ActorMsgChannel. If the workers are not
-        # closed before the ch.delete() below, the ActorMsgChannel will survive.
+        except KeyError:
+            actor = None
+
+        if actor:
+            # first set actor status to SHUTTING_DOWN so that no further autoscaling takes place
+            actor.set_status(id, SHUTTING_DOWN)
+            # delete all logs associated with executions -
+            try:
+                executions = actor.get('executions') or {}
+                for ex_id, val in executions.items():
+                    del logs_store[ex_id]
+            except KeyError as e:
+                logger.info("got KeyError {} trying to retrieve actor or executions with id {}".format(
+                    e, id))
+        # shutdown workers ----
+        logger.info("calling shutdown_workers() for actor: {}".format(id))
+        shutdown_workers(id)
+        logger.debug("returned from call to shutdown_workers().")
+        # wait up to 20 seconds for all workers to shutdown; since workers could be running an execution this could
+        # take some time, however, issuing a DELETE force halts all executions now, so this should not take too long.
+        idx = 0
+        shutdown = False
+        workers = None
+        while idx < 20 and not shutdown:
+            # get all workers in db:
+            try:
+                workers = Worker.get_workers(id)
+            except WorkerException as e:
+                logger.debug("did not find workers for actor: {}; escaping.".format(actor_id))
+                shutdown = True
+                break
+            if workers == {}:
+                logger.debug(f"all workers gone, escaping. idx: {idx}")
+                shutdown = True
+            else:
+                logger.debug(f"still some workers left; idx: {idx}; workers: {workers}")
+                idx = idx + 1
+                time.sleep(1)
+        logger.debug(f"out of sleep loop waiting for workers to shut down; final workers var: {workers}")
+        # delete the actor's message channel ----
+        # NOTE: If the workers are not yet completed deleted, since they subscribe to the ActorMsgChannel,
+        # there is a chance the ActorMsgChannel will survive.
         try:
             ch = ActorMsgChannel(actor_id=id)
             ch.delete()
@@ -694,7 +740,10 @@ class ActorResource(Resource):
         logger.info("actor {} permissions deleted from store.".format(id))
         del nonce_store[id]
         logger.info("actor {} nonnces delete from nonce store.".format(id))
-        return ok(result=None, msg='Actor deleted successfully.')
+        msg = 'Actor deleted successfully.'
+        if not workers == {}:
+            msg = "Actor deleted successfully, though Abaco is still cleaning up some of the actor's resources."
+        return ok(result=None, msg=msg)
 
     def put(self, actor_id):
         logger.debug("top of PUT /actors/{}".format(actor_id))
@@ -733,6 +782,15 @@ class ActorResource(Resource):
         # we do not allow a PUT to override the owner in case the PUT is issued by another user
         args['owner'] = previous_owner
 
+        # token is an attribute that gets defaulted at the Abaco instance or tenant level. as such, we want
+        # to use the default unless the user specified a value explicitly.
+        if 'token' in args and args.get('token') is not None:
+            token = args.get('token')
+            logger.debug("token in args; using: {token}")
+        else:
+            token = get_token_default()
+            logger.debug("token not in args; using default: {token}")
+        args['token'] = token
         use_container_uid = args.get('use_container_uid')
         if Config.get('web', 'case') == 'camel':
             use_container_uid = args.get('useContainerUid')
@@ -755,6 +813,7 @@ class ActorResource(Resource):
             worker_id = Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)
             # get actor queue name
             ch = CommandChannel(name=actor.queue)
+            # stop_existing defaults to True, so this command will also stop existing workers:
             ch.put_cmd(actor_id=actor.db_id, worker_id=worker_id, image=actor.image, tenant=args['tenant'])
             ch.close()
             logger.debug("put new command on command channel to update actor.")
@@ -1456,7 +1515,7 @@ class WorkerResource(Resource):
         # we just need to remove the worker record from the workers_store.
         # TODO - if worker.status == 'REQUESTED' ....
         logger.info("calling shutdown_worker(). worker: {}. actor: {}.".format(worker_id, actor_id))
-        shutdown_worker(worker['id'], delete_actor_ch=False)
+        shutdown_worker(id, worker['id'], delete_actor_ch=False)
         logger.info("shutdown_worker() called for worker: {}. actor: {}.".format(worker_id, actor_id))
         return ok(result=None, msg="Worker scheduled to be stopped.")
 
