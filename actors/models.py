@@ -240,7 +240,11 @@ class AbacoDAO(DbDict):
                 param_name = under_to_camel(name)
             else:
                 param_name = name
-            parser.add_argument(param_name, type=typ, required=required, help=help, default=default)
+            if param_name == 'hints':
+                action='append'
+            else:
+                action='store'
+            parser.add_argument(param_name, type=typ, required=required, help=help, default=default, action=action)
         return parser
 
     @classmethod
@@ -325,7 +329,7 @@ class Actor(AbacoDAO):
         ('link', 'optional', 'link', str, "Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.", ''),
         ('token', 'optional', 'token', inputs.boolean, 'Whether this actor requires an OAuth access token.', None),
         ('webhook', 'optional', 'webhook', str, "URL to publish this actor's events to.", ''),
-        ('hints', 'optional', 'hints', str, 'Hints for personal tagging or Abaco special hints', ''),
+        ('hints', 'optional', 'hints', str, 'Hints for personal tagging or Abaco special hints', []),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
         ('max_workers', 'optional', 'max_workers', int, 'How many workers this actor is allowed at the same time.', None),
