@@ -20,7 +20,7 @@ import requests as r
 webhook = r.post("http://localhost:8000/actors", 
                  headers={"x-jwt-assertion-DEV-DEVELOP": exampleJWT,
                  		  "Content-Type": "application/json"},
-                 data=json.dumps({"image": "abacosamples/webhooks",
+                 data=json.dumps({"image": "abacosamples/webhook",
                                   "default_environment":{"URL": exampleURL,
                                                          "HEADERS":{"Authentication": "Bearer exampleOAUTH",
                                                                     "Content-Type": exampleTYPE}}}))
