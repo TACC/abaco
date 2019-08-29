@@ -1,6 +1,27 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.4.0 - 2019-09-3 (target)
+### Added
+- Added `hints` attribute to the actor data model, a list of strings representing metadata about an actor. "Official"
+Abaco hints will be added over time to provide automatic configuration of actors.
+- Added support for the `sync` official hint: when an actor is registered with hint "sync", the Abaco autoscaler will
+leave at least one worker in the actor's worker pool up to a tenant-specific period of idle time. This idle time is
+configured using the `sync_max_idle_time` within the `[workers]` stanza of the `abaco.conf` file.
+
+### Changed
+- Changed the way Abaco generates OAuth tokens that it injects into actors by prefixing the username associated with
+the token by its userstore's id. This change fixes an issue where other Tapis services (such as profiles) would not
+work properly when hit with the token because the associated JWT was not generated properly by WSO2. Otherwise,
+this change should be transparent to the end user.
+- Fixed an issue where the `PUT /actors/{actor_id}` endpoint did not default the actor's `token` attribute to the tenant
+default. Now, if the `token` attribute is missing from the `PUT` message body, Abaco will use the default value for the
+tenant or instance.
+
+### Removed
+- No change.
+
+
 ## 1.3.0 - 2019-08-6
 ### Added
 - Added a `token` Boolean attribute to the actor data model, indicating whether a token will be generated for an actor.
@@ -26,7 +47,7 @@ default value for the actor token attribute for tenants, respectively, the globa
 configuration is set, actors in a given tenant will get the tenant's configuration.
 - The abaco.conf file now accepts a `{tenant}_generate_clients` configuration within the `[workers]` stanza that dictates
 whether client generation is available for a specific tenant.
-- Severl log messages were cleaned up and improved.
+- Several log messages were cleaned up and improved.
 
 ### Removed
 - No change.
