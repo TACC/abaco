@@ -596,10 +596,13 @@ class ActorsResource(Resource):
             if args['link']:
                 validate_link(args)
             if args['hints']:
+                # a combination of the for loop iteration and the check for bad characters, including '[' and '{'
+                # ensures that the hints parameter is a single string or a simple list of strings.
                 for hint in args['hints']:
                     for bad_char in ['"', "'", '{', '}', '[', ']']:
                         if bad_char in hint:
-                            raise BadRequest(f"Hints must be simple stings or numbers, no lists or dicts. Error character: {bad_char}")   
+                            raise BadRequest(f"Hints must be simple stings or numbers, no lists or dicts. "
+                                             f"Error character: {bad_char}")
 
         except BadRequest as e:
             msg = 'Unable to process the JSON description.'
