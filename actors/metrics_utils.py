@@ -1,6 +1,7 @@
 import requests
 import json
 import datetime
+import time
 
 from config import Config
 from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
@@ -16,6 +17,7 @@ message_gauges = {}
 worker_gaueges = {}
 cmd_channel_gauges = {}
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
+DEFAULT_SYNC_MAX_IDLE_TIME = 600 # defaults to 10*60 = 600 s = 10 min
 
 MAX_WORKERS_PER_HOST = Config.get('spawner', 'max_workers_per_host')
 
@@ -165,27 +167,57 @@ def scale_up(actor_id):
         return None
 
 
-def scale_down(actor_id):
+def scale_down(actor_id, is_sync_actor=False):
     logger.debug(f"top of scale_down for actor_id: {actor_id}")
     workers = Worker.get_workers(actor_id)
     logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
     try:
-        # if len(workers) == 1:
-        #     logger.debug("METRICS only one worker, won't scale down")
-        # else:
-            while len(workers) > 0:
-                logger.debug('METRICS made it STATUS check')
-                worker = workers.popitem()[1]
-                logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
-                # check status of the worker is ready
-                if worker['status'] == 'READY':
-                    # scale down
-                    try:
-                        shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
-                        continue
-                    except Exception as e:
-                        logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
-                    logger.debug('METRICS shut down worker {}'.format(worker['id']))
+        while len(workers) > 0:
+            logger.debug('METRICS made it STATUS check')
+            check_ttl = False
+            sync_max_idle_time = 0
+            if len(workers) == 1 and is_sync_actor:
+                logger.debug("only one worker, on sync actor. checking worker idle time..")
+                try:
+                    sync_max_idle_time = int(Config.get('worker', 'sync_max_idle_time'))
+                except Exception as e:
+                    logger.error(f"Got exception trying to read sync_max_idle_time from config; e:{e}")
+                    sync_max_idle_time = DEFAULT_SYNC_MAX_IDLE_TIME
+                check_ttl = True
+            worker = workers.popitem()[1]
+            if check_ttl:
+                try:
+                    last_execution = int(float(worker.get('last_execution_time', 0)))
+                except Exception as e:
+                    logger.error(f"metrics got exception trying to compute last_execution! e: {e}")
+                    last_execution = 0
+                # if worker has made zero executions, use the create_time
+                if last_execution == 0:
+                    last_execution = worker.get('create_time', 0)
+                logger.debug("using last_execution: {}".format(last_execution))
+                try:
+                    last_execution = int(float(last_execution))
+                except:
+                    logger.error("Could not cast last_execution {} to int(float()".format(last_execution))
+                    last_execution = 0
+                if last_execution + sync_max_idle_time < time.time():
+                    # shutdown worker
+                    logger.info("OK to shut down this worker -- beyond ttl.")
+                    # continue onto additional checks below
+                else:
+                    logger.info("Autoscaler not shuting down this worker - still time left.")
+                    break
+
+            logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
+            # check status of the worker is ready
+            if worker['status'] == 'READY':
+                # scale down
+                try:
+                    shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
+                    continue
+                except Exception as e:
+                    logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
+                logger.debug('METRICS shut down worker {}'.format(worker['id']))
 
     except IndexError:
         logger.debug('METRICS only one worker found for actor {}. '
