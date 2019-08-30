@@ -93,12 +93,6 @@ class MetricsResource(Resource):
         for actor_id in actor_ids:
             logger.debug("TOP OF CHECK METRICS for actor_id {}".format(actor_id))
 
-            # data = metrics_utils.query_message_count_for_actor(actor_id)
-            # try:
-            #     current_message_count = int(data[0]['value'][1])
-            # except:
-            #     logger.info("No current message count for actor {}".format(actor_id))
-            #     current_message_count = 0
             try:
                 current_message_count = inbox_lengths[actor_id.decode("utf-8")]
             except KeyError as e:
@@ -137,7 +131,17 @@ class MetricsResource(Resource):
                 else:
                     logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
                 if current_message_count == 0:
-                    metrics_utils.scale_down(actor_id)
+                    # first check if this is a "sync" actor
+                    is_sync_actor = False
+                    try:
+                        hints = list(actor.get("hints"))
+                    except:
+                        hints = []
+                    for hint in hints:
+                        if hint == actor.SYNC_HINT:
+                            is_sync_actor = True
+                            break
+                    metrics_utils.scale_down(actor_id, is_sync_actor)
                     logger.debug("METRICS made it to scale down block")
                 else:
                     logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
@@ -569,6 +573,25 @@ def validate_link(args):
     if link_dbid == g.db_id:
         raise DAOError("Invalid link parameter. An actor cannot link to itself.")
     check_for_link_cycles(g.db_id, link_dbid)
+
+
+class AbacoUtilizationResource(Resource):
+
+    def get(self):
+        logger.debug("top of GET /actors/utilization")
+        num_current_actors = len(actors_store)
+        num_actors = len(workers_store)
+        num_workers = 0
+        for k,v in workers_store.items():
+            num_workers += len(v.items())
+
+        ch = CommandChannel()
+        result = {'currentActors':num_current_actors,
+                  'totalActors': num_actors,
+                  'workers': num_workers,
+                  'commandQueue': len(ch._queue._queue)
+                  }
+        return ok(result=result, msg="Abaco utilization returned successfully.")
 
 class ActorsResource(Resource):
 

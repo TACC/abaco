@@ -357,6 +357,8 @@ class Actor(AbacoDAO):
         ('id', 'derived', 'id', str, 'Human readable id for this actor.', None),
         ]
 
+    SYNC_HINT = 'sync'
+
     def get_derived_value(self, name, d):
         """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
         # first, see if the attribute is already in the object:
@@ -520,7 +522,7 @@ class Alias(AbacoDAO):
     ]
 
     # the following nouns cannot be used for an alias as they
-    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin']
+    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization']
     FORBIDDEN_CHAR = [':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
 
 

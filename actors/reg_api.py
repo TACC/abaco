@@ -7,7 +7,8 @@ from agaveflask.utils import AgaveApi, handle_error
 from controllers import ActorResource, AliasesResource, AliasResource, AliasNoncesResource, AliasNonceResource, \
     ActorStateResource, ActorsResource, \
     ActorExecutionsResource, ActorExecutionResource, ActorExecutionResultsResource, \
-    ActorExecutionLogsResource, ActorNoncesResource, ActorNonceResource
+    ActorExecutionLogsResource, ActorNoncesResource, ActorNonceResource, \
+    AbacoUtilizationResource
 from auth import authn_and_authz
 from errors import errors
 
@@ -27,6 +28,7 @@ api.handle_user_exception = handle_error
 
 # Resources
 api.add_resource(ActorsResource, '/actors')
+api.add_resource(AbacoUtilizationResource, '/actors/utilization')
 
 api.add_resource(AliasesResource, '/actors/aliases')
 api.add_resource(AliasResource, '/actors/aliases/<string:alias>')
