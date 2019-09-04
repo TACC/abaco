@@ -8,6 +8,8 @@ Abaco hints will be added over time to provide automatic configuration of actors
 - Added support for the `sync` official hint: when an actor is registered with hint "sync", the Abaco autoscaler will
 leave at least one worker in the actor's worker pool up to a tenant-specific period of idle time. This idle time is
 configured using the `sync_max_idle_time` within the `[workers]` stanza of the `abaco.conf` file.
+- Added a "utilization" endpoint, `GET /actors/utilization`, which returns basic utilization data about the
+Abaco cluster.
 
 ### Changed
 - Changed the way Abaco generates OAuth tokens that it injects into actors by prefixing the username associated with

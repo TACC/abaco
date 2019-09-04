@@ -141,7 +141,8 @@ def authorization():
     if request.url_rule.rule == '/actors' \
         or request.url_rule.rule == '/actors/' \
         or '/actors/admin' in request.url_rule.rule \
-        or '/actors/aliases' in request.url_rule.rule:
+        or '/actors/aliases' in request.url_rule.rule \
+        or '/actors/utilization' in request.url_rule.rule:
         db_id = None
         logger.debug("setting db_id to None; rule: {}".format(request.url_rule.rule))
     else:
@@ -187,6 +188,10 @@ def authorization():
             return True
         else:
             raise PermissionsException("Abaco Admin role required.")
+
+    # the utilization endpoint is available to every authenticated user
+    if '/actors/utilization' == request.url_rule.rule or '/actors/utilization/' == request.url_rule.rule:
+        return True
 
     # there are special rules on the actors root collection:
     if '/actors' == request.url_rule.rule or '/actors/' == request.url_rule.rule:
