@@ -1,6 +1,14 @@
 # run with
 # docker run -v /:/host -v /var/run/docker.sock:/var/run/docker.sock -it -e case=camel -e base_url=http://172.17.0.1:8000 -v $(pwd)/local-dev.conf:/etc/service.conf --rm --entrypoint=bash abaco/testsuite:$TAG
-
+# Once inside the container:
+# cd tests
+# Export the following variables to configure the behavior
+# BASE= the base URL for Abaco.
+# NUM_ACTORS = total number of actors
+# NUM_WORKERS = total number of workers per actor
+# NUM_MESSAGES_PER_ACTOR = total number of messages per actor
+# then run:
+# python3 load_tests.py
 import json
 import multiprocessing
 import os
@@ -95,6 +103,20 @@ def get_executions(actor_ids):
     return ex_ids
 
 
+def send_one_message(actor_ids):
+    execution_ids = {}
+    for idx, aid in enumerate(actor_ids):
+        print("sending one primer message to actor: {}".format(aid))
+        execution_ids[aid] = []
+        url = '{}/actors/{}/messages'.format(base, aid)
+        rsp = requests.post(url, data={'message': 'test1_{}'.format(idx)}, headers=headers)
+        result = basic_response_checks(rsp)
+        ex_id = result['executionId']
+        print("Send actor id {} message {}; execution id: {}".format(aid, idx, ex_id))
+        execution_ids[aid].append(ex_id)
+    print("All primer messages sent.")
+    return execution_ids
+
 def send_messages(actor_ids, num_messages_per_actor):
     execution_ids = {}
     for idx, aid in enumerate(actor_ids):
@@ -179,7 +201,7 @@ def check_for_complete(actor_ids):
                 time.sleep(2)
             else:
                 time.sleep(1)
-    print("All executions compelte.")
+    print("All executions complete.")
 
 
 def main():
@@ -199,6 +221,8 @@ def main():
     # wait for actors and workers to reach READY status
     check_for_ready(actor_ids)
     ready_t = timeit.default_timer()
+    # send a "primer" message -
+    send_one_message(actor_ids)
     # send actors messages -
     NUM_MESSAGES_PER_ACTOR = int(os.environ.get('NUM_MESSAGES_PER_ACTOR', 1500))
     THREADED = os.environ.get('THREADED_MESSAGES', 'TRUE')
