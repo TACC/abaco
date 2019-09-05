@@ -683,6 +683,8 @@ class ActorsResource(Resource):
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
         actors_store[actor.db_id] = actor.to_db()
+        # initialize the actor's executions to the empty dictionary
+        executions_store[actor.db_id] = {}
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))

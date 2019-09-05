@@ -19,6 +19,8 @@ this change should be transparent to the end user.
 - Fixed an issue where the `PUT /actors/{actor_id}` endpoint did not default the actor's `token` attribute to the tenant
 default. Now, if the `token` attribute is missing from the `PUT` message body, Abaco will use the default value for the
 tenant or instance.
+- An actor's executions list is now initialized when the actor is created to prevent a race condition that can occur 
+when multiple client threads try to add the very first execution (i.e., send the first message).
 
 ### Removed
 - No change.
