@@ -365,6 +365,12 @@ class AliasResource(Resource):
         logger.debug("top of DELETE /actors/aliases/{}".format(alias))
         alias_id = Alias.generate_alias_id(g.tenant, alias)
         try:
+            alias = Alias.from_db(alias_store[alias_id])
+        except KeyError:
+            logger.debug("did not find alias with id: {}".format(alias))
+            raise ResourceError(
+                "No alias found: {}.".format(alias), 404)
+        try:
             del alias_store[alias_id]
             # also remove all permissions - there should be at least one permissions associated
             # with the owner
