@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.4.0 - 2019-09-3 (target)
+## 1.4.0 - 2019-09-16
 ### Added
 - Added `hints` attribute to the actor data model, a list of strings representing metadata about an actor. "Official"
 Abaco hints will be added over time to provide automatic configuration of actors.
@@ -21,6 +21,7 @@ default. Now, if the `token` attribute is missing from the `PUT` message body, A
 tenant or instance.
 - An actor's executions list is now initialized when the actor is created to prevent a race condition that can occur 
 when multiple client threads try to add the very first execution (i.e., send the first message).
+- The `DELETE /actors/aliases/{alias}` now returns a 404 not found if the alias `{alias}` does not exist. 
 
 ### Removed
 - No change.

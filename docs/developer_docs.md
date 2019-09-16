@@ -142,7 +142,7 @@ just one test (in this case, the `test_create_actor_with_webhook` test) from wit
 file with:
 
 ```shell
-$ docker run --network=abaco_copy_abaco -e base_url=http://nginx -e case=camel -v /:/host -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG /tests/test_abaco_core.py::test_create_actor_with_webhook
+$ docker run --network=abaco_abaco -e base_url=http://nginx -e case=camel -v /:/host -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG /tests/test_abaco_core.py::test_create_actor_with_webhook
 ``` 
 
 Run the unit tests with a command similar to the following, changing the test module as the end as necessary:
