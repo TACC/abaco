@@ -670,7 +670,8 @@ class Nonce(AbacoDAO):
             raise errors.DAOError("Could not instantiate nonce: roles parameter missing.")
 
         # generate a nonce id:
-        self.id = self.get_nonce_id(self.tenant, self.get_uuid())
+        if not hasattr(self, 'id') or not self.id:
+            self.id = self.get_nonce_id(self.tenant, self.get_uuid())
 
         # derive the actor_id from the db_id if this is an actor nonce:
         logger.debug("inside get_derived_value for nonce; name={}; d={}; self={}".format(name, d, self))

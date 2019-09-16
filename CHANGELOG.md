@@ -22,6 +22,9 @@ tenant or instance.
 - An actor's executions list is now initialized when the actor is created to prevent a race condition that can occur 
 when multiple client threads try to add the very first execution (i.e., send the first message).
 - The `DELETE /actors/aliases/{alias}` now returns a 404 not found if the alias `{alias}` does not exist. 
+- Fixed an issue with `GET /actors/{actor_id}/nonces` where nonces created before the 1.1.0 release (which introduced nonces
+associated with aliases) were not properly serialized in the response, causing random id's to be generated for the nonces
+instead of returning their actual id's. 
 
 ### Removed
 - No change.
