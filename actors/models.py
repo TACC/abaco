@@ -1041,9 +1041,10 @@ class Execution(AbacoDAO):
         return '053'
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/actors/v2/{}/executions/{}'.format(self.api_server, self.actor_id, self.id),
+        aid = Actor.get_display_id(self.tenant, self.actor_id)
+        return {'_links': { 'self': '{}/actors/v2/{}/executions/{}'.format(self.api_server, aid, self.id),
                             'owner': '{}/profiles/v2/{}'.format(self.api_server, self.executor),
-                            'logs': '{}/actors/v2/{}/executions/{}/logs'.format(self.api_server, self.actor_id, self.id)
+                            'logs': '{}/actors/v2/{}/executions/{}/logs'.format(self.api_server, aid, self.id)
         }}
 
     def display(self):
