@@ -1,6 +1,18 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.5.0 - 2019-09-16 (target 2019-11-01)
+### Added
+
+### Changed
+- Fixed issue where the actor's token attribute was not being processed correctly causing tokens to be generated even for actors for which the attribute was false.
+- Fixed issue where hypyerlinks in response model for executions were not generated correctly, showing the actor's internal database id instead of the human readable id. 
+
+
+### Removed
+- No change.
+
+
 ## 1.4.0 - 2019-09-16
 ### Added
 - Added `hints` attribute to the actor data model, a list of strings representing metadata about an actor. "Official"

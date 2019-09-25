@@ -187,12 +187,15 @@ class Spawner(object):
             logger.debug("client generation was configured to be available; now checking the actor's token attr.")
             # updated 1.3.0-- check whether the actor requires a token:
             if actor.token:
-                logger.debug("spawner starting client generation")
-                client_id, \
-                client_access_token, \
-                client_refresh_token, \
-                api_server, \
-                client_secret = self.client_generation(actor_id, worker_id, tenant)
+                if type(actor.token) == str and actor.token.lower() == 'false':
+                    logger.debug("actor.token was a string set to false, so not generating a token")
+                else:
+                    logger.debug("spawner starting client generation")
+                    client_id, \
+                    client_access_token, \
+                    client_refresh_token, \
+                    api_server, \
+                    client_secret = self.client_generation(actor_id, worker_id, tenant)
             else:
                 logger.debug("actor's token attribute was False. Not generating client.")
         ch = SpawnerWorkerChannel(worker_id=worker_id)
