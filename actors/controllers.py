@@ -138,7 +138,7 @@ class MetricsResource(Resource):
                     except:
                         hints = []
                     for hint in hints:
-                        if hint == actor.SYNC_HINT:
+                        if hint == Actor.SYNC_HINT:
                             is_sync_actor = True
                             break
                     metrics_utils.scale_down(actor_id, is_sync_actor)
