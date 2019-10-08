@@ -67,6 +67,8 @@ UPDATE = PermissionLevel('UPDATE')
 
 PERMISSION_LEVELS = (NONE.name, READ.name, EXECUTE.name, UPDATE.name)
 
+ALIAS_NONCE_PERMISSION_LEVELS = (NONE.name, READ.name, EXECUTE.name)
+
 # role set by agaveflask in case the access_control_type is none
 ALL_ROLE = 'ALL'
 
