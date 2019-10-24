@@ -36,7 +36,7 @@
 #     for getting the id of a different actor.
 #
 # 3. Actors registered and owned by testuser:
-# abaco_test_suite
+# abaco_test_suite -- a stateful actor
 # abaco_test_suite_alias  -- add "jane" and "doe" aliases to this actor; same user.
 # abaco_test_suite_statelesss
 # abaco_test_suite_hints
@@ -1678,7 +1678,7 @@ def switch_tenant_in_header(headers):
     jwt = headers.get('X-Jwt-Assertion-DEV-DEVELOP')
     return {'X-Jwt-Assertion-DEV-STAGING': jwt}
 
-
+@pytest.mark.tenant
 def test_tenant_list_actors(headers):
     # passing another tenant should result in 0 actors.
     headers = switch_tenant_in_header(headers)
@@ -1687,17 +1687,19 @@ def test_tenant_list_actors(headers):
     result = basic_response_checks(rsp)
     assert len(result) == 0
 
+@pytest.mark.tenant
 def test_tenant_register_actor(headers):
     headers = switch_tenant_in_header(headers)
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant'}
-    rsp = requests.post(url, data=data, headers=headers)
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant', 'stateless': False}
+    rsp = requests.post(url, json=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert result['image'] == 'jstubbs/abaco_test'
     assert result['name'] == 'abaco_test_suite_other_tenant'
     assert result['id'] is not None
 
+@pytest.mark.tenant
 def test_tenant_actor_is_ready(headers):
     headers = switch_tenant_in_header(headers)
     count = 0
@@ -1712,6 +1714,7 @@ def test_tenant_actor_is_ready(headers):
         count += 1
     assert False
 
+@pytest.mark.tenant
 def test_tenant_list_registered_actors(headers):
     # passing another tenant should result in 1 actor.
     headers = switch_tenant_in_header(headers)
@@ -1720,6 +1723,7 @@ def test_tenant_list_registered_actors(headers):
     result = basic_response_checks(rsp)
     assert len(result) == 1
 
+@pytest.mark.tenant
 def test_tenant_list_actor(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1731,6 +1735,7 @@ def test_tenant_list_actor(headers):
     assert result['name'] == 'abaco_test_suite_other_tenant'
     assert result['id'] is not None
 
+@pytest.mark.tenant
 def test_tenant_list_executions(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1739,6 +1744,7 @@ def test_tenant_list_executions(headers):
     result = basic_response_checks(rsp)
     assert len(result.get('executions')) == 0
 
+@pytest.mark.tenant
 def test_tenant_list_messages(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1747,6 +1753,7 @@ def test_tenant_list_messages(headers):
     result = basic_response_checks(rsp)
     assert result.get('messages') == 0
 
+@pytest.mark.tenant
 def test_tenant_list_workers(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
