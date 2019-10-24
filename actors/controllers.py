@@ -683,9 +683,11 @@ class ActorsResource(Resource):
         return ok(result=actors, msg="Actors retrieved successfully.")
 
     def validate_post(self):
+        logger.debug("top of validate post in /actors")
         parser = Actor.request_parser()
         try:
             args = parser.parse_args()
+            logger.debug(f"initial actor args from parser: {args}")
             if args['queue']:
                 queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
                 valid_queues = queues_list.split(',')
