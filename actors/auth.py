@@ -286,7 +286,7 @@ def check_privileged():
     data = request.get_json()
     if not data:
         data = request.form
-    # various APIs (e.g., the state api) allow an arbitary JSON serializable objects which won't have a get method:
+    # various APIs (e.g., the state api) allow an arbitrary JSON serializable objects which won't have a get method:
     if not hasattr(data, 'get'):
         return True
     if not codes.PRIVILEGED_ROLE in g.roles:
