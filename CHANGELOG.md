@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 definition of an alias. Requires `UPDATE` permission for the alias as well as for the actor to which the alias should be defined. 
 
 ### Changed
+- Fixed a bug where nonces defined for aliases would not be honored when using the alias in the URL (they were only honored when using the actor id assigned to the alias).   
 - Fixed issue where autoscaler did not properly scale down worker pools for actors with the `sync` hint. They are now scaled down to 1.
 - The permission check on all on all `/aliases/{alias}` endpoints has been updated to require UPDATE on the associated `actor_id`. 
 - Fixed error messaging when using a nonce and the API endpoint+HTTP verb combination do not exist.
