@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.5.0 - 2019-11-10 (target)
+## 1.5.0 - 2019-10-29
 ### Added
 - Added an endpoint `PUT /actors/aliases/{alias}` for updating the 
 definition of an alias. Requires `UPDATE` permission for the alias as well as for the actor to which the alias should be defined. 
