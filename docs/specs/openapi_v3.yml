@@ -109,6 +109,36 @@ paths:
                 properties:
                   result:
                     $ref: '#/components/schemas/Actor'
+    put:
+      tags:
+      - Actors
+      summary: Update an actor
+      description: Update an actor's definition.
+      operationId: updateActor
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewActor'
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Actor'
     delete:
       tags:
       - Actors
@@ -745,6 +775,37 @@ paths:
                 properties:
                   result:
                     $ref: '#/components/schemas/Alias'
+    put:
+      tags:
+      - Actors
+      - Aliases
+      summary: Update an actor alias
+      description: Update an alias definition.
+      operationId: updateActorAlias
+      parameters:
+      - name: alias
+        in: path
+        description: Unique alias of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewAlias'
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Alias'
     delete:
       tags:
       - Actors
@@ -1182,9 +1243,3 @@ components:
           items:
             type: string
           description: The roles associated with the nonce.
-
-
-
-
-
-      

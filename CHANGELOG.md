@@ -13,7 +13,6 @@ definition of an alias. Requires `UPDATE` permission for the alias as well as fo
 - Fixed error messaging when using a nonce and the API endpoint+HTTP verb combination do not exist.
 - The admin role is now recognized when checking access to certain objects in some edge cases, including when a nonce is used. 
 
-
 ### Removed
 - It is no longer possible to create an alias nonce for permission levels UPDATE. 
 
