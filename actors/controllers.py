@@ -15,7 +15,7 @@ from agaveflask.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
+from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
@@ -138,7 +138,7 @@ class MetricsResource(Resource):
                     except:
                         hints = []
                     for hint in hints:
-                        if hint == actor.SYNC_HINT:
+                        if hint == Actor.SYNC_HINT:
                             is_sync_actor = True
                             break
                     metrics_utils.scale_down(actor_id, is_sync_actor)
@@ -333,6 +333,10 @@ class AliasesResource(Resource):
             logger.debug("did not find actor: {}.".format(dbid))
             raise ResourceError(
                 "No actor found with id: {}.".format(actor_id), 404)
+        # update 10/2019: check that use has UPDATE permission on the actor -
+        if not check_permissions(user=g.user, identifier=dbid, level=codes.UPDATE):
+            raise PermissionsException(f"Not authorized -- you do not have access to {actor_id}.")
+
         # supply "provided" fields:
         args['tenant'] = g.tenant
         args['db_id'] = dbid
@@ -358,8 +362,65 @@ class AliasResource(Resource):
             logger.debug("did not find alias with id: {}".format(alias))
             raise ResourceError(
                 "No alias found: {}.".format(alias), 404)
-        logger.debug("found actor {}".format(alias))
+        logger.debug("found alias {}".format(alias))
         return ok(result=alias.display(), msg="Alias retrieved successfully.")
+
+    def validate_put(self):
+        logger.debug("top of validate_put")
+        try:
+            data = request.get_json()
+        except:
+            data = None
+        if data and 'alias' in data or 'alias' in request.form:
+            logger.debug("found alias in the PUT.")
+            raise DAOError("Invalid alias update description. The alias itself cannot be updated in a PUT request.")
+        parser = Alias.request_parser()
+        logger.debug("got the alias parser")
+        # remove since alias is only required for POST, not PUT
+        parser.remove_argument('alias')
+        try:
+            args = parser.parse_args()
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            raise DAOError("Invalid alias description. Missing required field: {}".format(msg))
+        return args
+
+    def put(self, alias):
+        logger.debug("top of PUT /actors/aliases/{}".format(alias))
+        alias_id = Alias.generate_alias_id(g.tenant, alias)
+        try:
+            alias_obj = Alias.from_db(alias_store[alias_id])
+        except KeyError:
+            logger.debug("did not find alias with id: {}".format(alias))
+            raise ResourceError("No alias found: {}.".format(alias), 404)
+        logger.debug("found alias {}".format(alias_obj))
+        args = self.validate_put()
+        actor_id = args.get('actor_id')
+        if Config.get('web', 'case') == 'camel':
+            actor_id = args.get('actorId')
+        dbid = Actor.get_dbid(g.tenant, actor_id)
+        # update 10/2019: check that use has UPDATE permission on the actor -
+        if not check_permissions(user=g.user, identifier=dbid, level=codes.UPDATE, roles=g.roles):
+            raise PermissionsException(f"Not authorized -- you do not have UPDATE "
+                                       f"access to the actor you want to associate with this alias.")
+        logger.debug(f"dbid: {dbid}")
+        # supply "provided" fields:
+        args['tenant'] = alias_obj.tenant
+        args['db_id'] = dbid
+        args['owner'] = alias_obj.owner
+        args['alias'] = alias_obj.alias
+        args['alias_id'] = alias_obj.alias_id
+        args['api_server'] = alias_obj.api_server
+        logger.debug("Instantiating alias object. args: {}".format(args))
+        new_alias_obj = Alias(**args)
+        logger.debug("Alias object instantiated; updating alias in alias_store. "
+                     "alias: {}".format(new_alias_obj))
+        alias_store[alias_id] = new_alias_obj
+        logger.info("alias updated for actor: {}.".format(dbid))
+        set_permission(g.user, new_alias_obj.alias_id, UPDATE)
+        return ok(result=new_alias_obj.display(), msg="Actor alias updated successfully.")
 
     def delete(self, alias):
         logger.debug("top of DELETE /actors/aliases/{}".format(alias))
@@ -370,6 +431,13 @@ class AliasResource(Resource):
             logger.debug("did not find alias with id: {}".format(alias))
             raise ResourceError(
                 "No alias found: {}.".format(alias), 404)
+
+        # update 10/2019: check that use has UPDATE permission on the actor -
+        # TODO - check: do we want to require UPDATE on the actor to delete the alias? Seems like UPDATE
+        #               on the alias iteself should be sufficient...
+        # if not check_permissions(user=g.user, identifier=alias.db_id, level=codes.UPDATE):
+        #     raise PermissionsException(f"Not authorized -- you do not have UPDATE "
+        #                                f"access to the actor associated with this alias.")
         try:
             del alias_store[alias_id]
             # also remove all permissions - there should be at least one permissions associated
@@ -435,10 +503,11 @@ class AliasNoncesResource(Resource):
                 msg = e.data.get('message')
             raise DAOError("Invalid nonce description: {}".format(msg))
         # additional checks
+
         if 'level' in args:
-            if not args['level'] in PERMISSION_LEVELS:
+            if not args['level'] in ALIAS_NONCE_PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
-                               "The level attribute must be one of: {}".format(PERMISSION_LEVELS))
+                               "The level attribute must be one of: {}".format(ALIAS_NONCE_PERMISSION_LEVELS))
         if Config.get('web', 'case') == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
@@ -614,9 +683,11 @@ class ActorsResource(Resource):
         return ok(result=actors, msg="Actors retrieved successfully.")
 
     def validate_post(self):
+        logger.debug("top of validate post in /actors")
         parser = Actor.request_parser()
         try:
             args = parser.parse_args()
+            logger.debug(f"initial actor args from parser: {args}")
             if args['queue']:
                 queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
                 valid_queues = queues_list.split(',')

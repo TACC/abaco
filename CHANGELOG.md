@@ -1,16 +1,22 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.5.0 - 2019-09-16 (target 2019-11-01)
+## 1.5.0 - 2019-10-29
 ### Added
+- Added an endpoint `PUT /actors/aliases/{alias}` for updating the 
+definition of an alias. Requires `UPDATE` permission for the alias as well as for the actor to which the alias should be defined. 
 
 ### Changed
+- Fixed a bug where nonces defined for aliases would not be honored when using the alias in the URL (they were only honored when using the actor id assigned to the alias).   
+- Fixed issue where autoscaler did not properly scale down worker pools for actors with the `sync` hint. They are now scaled down to 1.
+- The permission check on all on all `/aliases/{alias}` endpoints has been updated to require UPDATE on the associated `actor_id`. 
 - Fixed issue where the actor's token attribute was not being processed correctly causing tokens to be generated even for actors for which the attribute was false.
 - Fixed issue where hypyerlinks in response model for executions were not generated correctly, showing the actor's internal database id instead of the human readable id. 
-
+- Fixed error messaging when using a nonce and the API endpoint+HTTP verb combination do not exist.
+- The admin role is now recognized when checking access to certain objects in some edge cases, including when a nonce is used. 
 
 ### Removed
-- No change.
+- It is no longer possible to create an alias nonce for permission levels UPDATE. 
 
 
 ## 1.4.0 - 2019-09-16

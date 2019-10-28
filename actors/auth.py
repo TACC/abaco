@@ -84,6 +84,19 @@ def check_nonce():
     any privileged action cannot be taken via a nonce. 
     """
     logger.debug("top of check_nonce")
+    # first check whether the request is even valid -
+    if hasattr(request, 'url_rule'):
+        logger.debug("request.url_rule: {}".format(request.url_rule))
+        if hasattr(request.url_rule, 'rule'):
+            logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
+        else:
+            logger.info("url_rule has no rule.")
+            raise ResourceError(
+                "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
+    else:
+        logger.info("Request has no url_rule")
+        raise ResourceError(
+            "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
     try:
         nonce_id = request.args['x-nonce']
     except KeyError:
@@ -273,7 +286,7 @@ def check_privileged():
     data = request.get_json()
     if not data:
         data = request.form
-    # various APIs (e.g., the state api) allow an arbitary JSON serializable objects which won't have a get method:
+    # various APIs (e.g., the state api) allow an arbitrary JSON serializable objects which won't have a get method:
     if not hasattr(data, 'get'):
         return True
     if not codes.PRIVILEGED_ROLE in g.roles:
@@ -312,12 +325,16 @@ def check_privileged():
         logger.debug("not trying to use privileged options.")
         return True
 
-def check_permissions(user, identifier, level):
+def check_permissions(user, identifier, level, roles=None):
     """Check the permissions store for user and level. Here, `identifier` is a unique id in the
     permissions_store; e.g., actor db_id or alias_id.
     """
     logger.debug("Checking user: {} permissions for identifier: {}".format(user, identifier))
-    # get all permissions for this actor
+    # first, if roles were passed, check for admin role -
+    if roles:
+        if codes.ADMIN_ROLE in roles:
+            return True
+    # get all permissions for this actor -
     permissions = get_permissions(identifier)
     for p_user, p_name in permissions.items():
         # if the actor has been shared with the WORLD_USER anyone can use it
@@ -354,7 +371,10 @@ def get_db_id():
         logger.error("Unrecognized request -- could not find the actor id. path_split: {}".format(path_split))
         raise PermissionsException("Not authorized.")
     logger.debug("path_split: {}".format(path_split))
-    actor_identifier = path_split[idx]
+    try:
+        actor_identifier = path_split[idx]
+    except IndexError:
+        raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
     logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
     try:
         actor_id = Actor.get_actor_id(g.tenant, actor_identifier)

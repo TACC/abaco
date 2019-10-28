@@ -10,8 +10,44 @@
 # Then, also from the root directory, execute:
 #     docker run -e base_url=http://172.17.0.1:8000 -e case=camel -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG
 # Change the -e case=camel to -e case=snake depending on the functionality you want to test.
-
 #
+#
+# Test Suite Outline
+# I_ non-http tests
+# II) actor registrations
+# III) invlaid http endpoint tests
+# IV) check actors are ready
+# V) execution tests
+# VI) update actor tests
+# VII) custom queue tests (WIP)
+# VIII) alias tests
+# IX) nonce tests
+# X) workers tests
+# XI) roles and authorization tests
+# XII) tenancy tests
+# XIII) events tests
+
+# Design Notes
+# 1. The *headers() functions in the util.py module provides the JWTs used for the tests. The plain headers() returns a
+#    JWT for a user with the Abaco admin role (username='testuser'), but there is also limited_headers() and
+#    priv_headers()
+#    for getting JWTs for other users.
+# 2. The get_actor_id() function by default returns the abaco_test_suite actor_id but takes an optional name parameter
+#     for getting the id of a different actor.
+#
+# 3. Actors registered and owned by testuser:
+# abaco_test_suite -- a stateful actor
+# abaco_test_suite_alias  -- add "jane" and "doe" aliases to this actor; same user.
+# abaco_test_suite_statelesss
+# abaco_test_suite_hints
+# abaco_test_suite_default_env
+# abaco_test_suite_func
+# abaco_test_suite_sleep_loop
+#
+# 4. Actors registered and owned by testotheruser user (limited):
+# abaco_test_suite_limited_user
+#
+
 # # --- Original notes for running natively ------
 # Start the local development abaco stack (docker-compose-local.yml) and run these tests with py.test from the cwd.
 #     $ py.test test_abaco_core.py
@@ -185,6 +221,19 @@ def test_register_stateless_actor(headers):
     assert result['name'] == 'abaco_test_suite_statelesss'
     assert result['id'] is not None
 
+@pytest.mark.regapi
+def test_register_hints_actor(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/wc', 'name': 'abaco_test_suite_hints', 'hints': ['sync', 'test', 'hint_1']}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testuser'
+    assert result['image'] == 'abacosamples/wc'
+    assert result['name'] == 'abaco_test_suite_hints'
+    assert result['id'] is not None
+
 
 @pytest.mark.regapi
 def test_register_actor_default_env(headers):
@@ -221,6 +270,20 @@ def test_register_actor_func(headers):
     assert result['image'] == 'abacosamples/py3_func'
     assert result['name'] == 'abaco_test_suite_func'
     assert result['id'] is not None
+
+@pytest.mark.regapi
+def test_register_actor_limited_user(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/test', 'name': 'abaco_test_suite_limited_user'}
+    rsp = requests.post(url, data=data, headers=limited_headers())
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testotheruser'
+    assert result['image'] == 'abacosamples/test'
+    assert result['name'] == 'abaco_test_suite_limited_user'
+    assert result['id'] is not None
+
 
 @pytest.mark.regapi
 def test_register_actor_sleep_loop(headers):
@@ -461,6 +524,10 @@ def test_alias_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     check_actor_is_ready(headers, actor_id)
 
+@pytest.mark.regapi
+def test_hints_actor_is_ready(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_hints')
+    check_actor_is_ready(headers, actor_id)
 
 @pytest.mark.regapi
 def test_stateless_actor_is_ready(headers):
@@ -471,7 +538,6 @@ def test_stateless_actor_is_ready(headers):
 def test_default_env_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_default_env')
     check_actor_is_ready(headers, actor_id)
-
 
 @pytest.mark.regapi
 def test_func_actor_is_ready(headers):
@@ -733,6 +799,16 @@ def test_execute_actor_json(headers):
     data = {'key1': 'value1', 'key2': 'value2'}
     execute_actor(headers, actor_id=actor_id, json_data=data)
 
+def test_execute_basic_actor_synchronous(headers):
+    actor_id = get_actor_id(headers)
+    data = {'message': 'testing execution'}
+    execute_actor(headers, actor_id, data=data, synchronous=True)
+
+
+# ##################
+# updates to actors
+# ##################
+
 def test_update_actor(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}'.format(base_url, actor_id)
@@ -773,11 +849,6 @@ def test_update_actor_other_user(headers):
         assert not result['last_update_time'] == orig_actor['last_update_time']
     else:
         assert not result['lastUpdateTime'] == orig_actor['lastUpdateTime']
-
-def test_execute_basic_actor_synchronous(headers):
-    actor_id = get_actor_id(headers)
-    data = {'message': 'testing execution'}
-    execute_actor(headers, actor_id, data=data, synchronous=True)
 
 
 ###############
@@ -906,6 +977,7 @@ def test_actor_with_default_queue(headers):
 def test_2_actors_with_different_queues(headers):
     pass
 
+
 # ##########
 # alias API
 # ##########
@@ -1004,6 +1076,28 @@ def test_list_alias_permission(headers):
 
 
 @pytest.mark.aliastest
+def test_update_alias(headers):
+    # alias UPDATE permissions alone are not sufficient to change the definition of the alias to an actor -
+    # the user must have UPDATE access to the underlying actor_id as well.
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    # change the alias to point to the "abaco_test_suite" actor:
+    actor_id = get_actor_id(headers)
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    data = {field: actor_id}
+    rsp = requests.put(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert field in result
+    assert result[field] == actor_id
+    # now, change the alias back to point to the original "abaco_test_suite_alias" actor:
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    data = {field: actor_id}
+    rsp = requests.put(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+
+
+@pytest.mark.aliastest
 def test_other_user_cant_list_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
     rsp = requests.get(url, headers=priv_headers())
@@ -1039,6 +1133,22 @@ def test_other_user_still_cant_list_actor(headers):
     assert rsp.status_code == 400
     data = response_format(rsp)
     assert 'you do not have access to this actor' in data['message']
+
+@pytest.mark.aliastest
+def test_other_user_still_cant_update_alias_wo_actor(headers):
+    # alias UPDATE permissions alone are not sufficient to change the definition of the alias to an actor -
+    # the user must have UPDATE access to the underlying actor_id as well.
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    # priv user does not have access to the abaco_test_suite_alias actor
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    data = {field: get_actor_id(headers, name="abaco_test_suite_alias")}
+
+    rsp = requests.put(url, data=data, headers=priv_headers())
+    assert rsp.status_code == 400
+    data = response_format(rsp)
+    assert 'ou do not have UPDATE access to the actor you want to associate with this alias' in data['message']
 
 @pytest.mark.aliastest
 def test_other_user_still_cant_create_alias_nonce(headers):
@@ -1568,7 +1678,7 @@ def switch_tenant_in_header(headers):
     jwt = headers.get('X-Jwt-Assertion-DEV-DEVELOP')
     return {'X-Jwt-Assertion-DEV-STAGING': jwt}
 
-
+@pytest.mark.tenant
 def test_tenant_list_actors(headers):
     # passing another tenant should result in 0 actors.
     headers = switch_tenant_in_header(headers)
@@ -1577,17 +1687,19 @@ def test_tenant_list_actors(headers):
     result = basic_response_checks(rsp)
     assert len(result) == 0
 
+@pytest.mark.tenant
 def test_tenant_register_actor(headers):
     headers = switch_tenant_in_header(headers)
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant'}
-    rsp = requests.post(url, data=data, headers=headers)
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant', 'stateless': False}
+    rsp = requests.post(url, json=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert result['image'] == 'jstubbs/abaco_test'
     assert result['name'] == 'abaco_test_suite_other_tenant'
     assert result['id'] is not None
 
+@pytest.mark.tenant
 def test_tenant_actor_is_ready(headers):
     headers = switch_tenant_in_header(headers)
     count = 0
@@ -1602,6 +1714,7 @@ def test_tenant_actor_is_ready(headers):
         count += 1
     assert False
 
+@pytest.mark.tenant
 def test_tenant_list_registered_actors(headers):
     # passing another tenant should result in 1 actor.
     headers = switch_tenant_in_header(headers)
@@ -1610,6 +1723,7 @@ def test_tenant_list_registered_actors(headers):
     result = basic_response_checks(rsp)
     assert len(result) == 1
 
+@pytest.mark.tenant
 def test_tenant_list_actor(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1621,6 +1735,7 @@ def test_tenant_list_actor(headers):
     assert result['name'] == 'abaco_test_suite_other_tenant'
     assert result['id'] is not None
 
+@pytest.mark.tenant
 def test_tenant_list_executions(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1629,6 +1744,7 @@ def test_tenant_list_executions(headers):
     result = basic_response_checks(rsp)
     assert len(result.get('executions')) == 0
 
+@pytest.mark.tenant
 def test_tenant_list_messages(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1637,6 +1753,7 @@ def test_tenant_list_messages(headers):
     result = basic_response_checks(rsp)
     assert result.get('messages') == 0
 
+@pytest.mark.tenant
 def test_tenant_list_workers(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')

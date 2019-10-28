@@ -179,7 +179,7 @@ def scale_down(actor_id, is_sync_actor=False):
             if len(workers) == 1 and is_sync_actor:
                 logger.debug("only one worker, on sync actor. checking worker idle time..")
                 try:
-                    sync_max_idle_time = int(Config.get('worker', 'sync_max_idle_time'))
+                    sync_max_idle_time = int(Config.get('workers', 'sync_max_idle_time'))
                 except Exception as e:
                     logger.error(f"Got exception trying to read sync_max_idle_time from config; e:{e}")
                     sync_max_idle_time = DEFAULT_SYNC_MAX_IDLE_TIME

@@ -1019,7 +1019,7 @@ class Execution(AbacoDAO):
             max_log_length = DEFAULT_MAX_LOG_LENGTH
         if len(logs) > DEFAULT_MAX_LOG_LENGTH:
             logger.info("truncating log for execution: {}".format(exc_id))
-            logs = logs[:max_log_length]
+            logs = logs[:max_log_length] + " LOG LIMIT EXCEEDED; this execution log was TRUNCATED!"
         start_timer = timeit.default_timer()
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
