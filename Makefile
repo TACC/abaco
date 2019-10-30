@@ -79,15 +79,18 @@ test-vars:
 
 
 # Ends all active Docker containers needed for abaco
-clean:
+down:
 	@docker-compose down
 
 
 # Does a clean and also deletes all images needed for abaco
-prune:
-	@docker-compose down --rmi all
+clean:
+	@docker-compose down -v --rmi all --remove-orphans
 
 
-# Delete all images forcefully (so it also deletes containers)
+# Delete ALL images, containers, and volumes forcefully
 nuke:
 	@docker rm -f `docker ps -aq`
+	@docker rmi -f `docker images -aq`
+	@docker container prune -f
+	@docker volume prune -f
