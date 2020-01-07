@@ -300,10 +300,14 @@ class MongoStore(AbstractStore):
         self._db = self._mongo_database[db]
 
     def __getitem__(self, key):
-        result = self._db.find_one({'_id': key})
+        result = self._db.find_one(
+            {'_id': key},
+            projection={'_id': False})
+        logger.error(result)
+        
         if not result:
             raise KeyError()
-        return result[key]
+        return result
 
     def __setitem__(self, key, value):
         self._db.save({'_id': key, key: value})
@@ -317,7 +321,7 @@ class MongoStore(AbstractStore):
         # return self._db.scan_iter()
 
     def __len__(self):
-        return self._db.count()
+        return self._db.estimated_document_count()
 
     def _prepset(self, value):
         if type(value) is bytes:
@@ -330,24 +334,117 @@ class MongoStore(AbstractStore):
 
     def update(self, key, field, value):
         "Atomic ``self[key][field] = value``."""
-        result = self._db.find_and_modify(query={'_id': key},
-                                          update={'$set': {'{}.{}'.format(key,field): value}})
+        result = self._db.find_and_modify(
+            query={'_id': key},
+            update={'$set': {'{}'.format(field): value}})
         if not result:
             raise KeyError()
 
     def pop_field(self, key, field):
         "Atomic pop ``self[key][field]``."""
-        result = self._db.find_and_modify(query={'_id': key},
-                                          update={'$unset': {'{}.{}'.format(key, field): ''}})
+        result = self._db.find_and_modify(
+            query={'_id': key},
+            update={'$unset': {'{}.{}'.format(key, field): ''}})
         result = result.get(key)
         return result[field]
 
     def update_subfield(self, key, field1, field2, value):
         "Atomic ``self[key][field1][field2] = value``."""
-        self._db.update_one({'_id': key}, {'$set': {'{}.{}.{}'.format(key, field1, field2): value}})
+        self._db.update_one(
+            {'_id': key},
+            {'$set': {'{}.{}'.format(field1, field2): value}})
 
     def getset(self, key, value):
         "Atomically: ``self[key] = value`` and return previous ``self[key]``."
-        value = self._db.find_and_modify(query={'_id': key},
-                                         update={key: value})
+        value = self._db.find_and_modify(
+            query={'_id': key},
+            update={key: value})
         return value[key]
+
+            
+    def items(self, filter_inp=None):
+        " Either returns all with no inputs, or filters when given filters"
+        return list(self._db.find(
+            filter=filter_inp,
+            projection={'_id': False}))
+
+    def add_if_empty(self, key, field, value):
+        """
+        Atomic ``self[key][field] = value`` if s``self[key]`` does not exist or is empty.
+        Add a value, `value`, to a field, `field`, under key, `key`, only if the key does not exist
+        or it's value is currently empty. Returns the value if it was added; otherwise, returns None.
+        """
+        # For worker store only
+        # Makes the key_str unique so atomicity works and multiples can't be made
+        # actor_id, worker_id, worker
+        #self._db.create_index(key_str, unique=True)
+
+        res = self._db.update_one(
+            {'_id': key},
+            {'$setOnInsert': {field: value}},
+            upsert=True)
+
+        if res.upserted_id:
+            return field
+        else:
+            return None
+
+
+    #### CHECK IF THIS WORKS
+    def add_key_val_if_empty(self, key, value):
+        """
+        Atomic ``self[key] = value`` if ``self[key]`` does not exist or is empty.
+        If the key does exist, returns None.
+        """
+        # Makes the key_str unique so atomicity works and multiples can't be made
+        # self._db.create_index(, unique=True)
+
+        res = self._db.update_one(
+            {'_id': key},
+            {'$setOnInsert': value},
+            upsert=True)
+
+        if res.upserted_id:
+            return key
+        else:
+            return None
+
+    def pop_fromlist(self, key, idx=-1):
+        """
+        Atomic self[key].pop(idx); assumes the data structure under `key` is a list.
+        
+        :return: 
+        """
+        with self._db.pipeline() as pipe:
+            while 1:
+                try:
+                    pipe.watch(key)
+                    cur = _do_get(pipe.get, key)
+                    value = cur.pop(idx)
+                    pipe.multi()
+                    _do_set(pipe.set, key, cur)
+                    pipe.execute()
+                    return value
+                except redis.WatchError:
+                    continue
+
+    def append_tolist(self, key, obj):
+        """
+        Atomic self[key].append(obj); assumes the data structure under `key` is a list.
+
+        :return: 
+        """
+        with self._db.pipeline() as pipe:
+            while 1:
+                try:
+                    pipe.watch(key)
+                    cur = _do_get(pipe.get, key)
+                    cur.append(obj)
+                    pipe.multi()
+                    _do_set(pipe.set, key, cur)
+                    pipe.execute()
+                    return None
+                except redis.WatchError:
+                    continue
+                finally:
+                    pipe.reset()

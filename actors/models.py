@@ -881,11 +881,9 @@ class Execution(AbacoDAO):
                    })
         execution = Execution(**ex)
         start_timer = timeit.default_timer()
-        try:
-            executions_store.update(actor_id, execution.id, execution)
-        except KeyError:
-            # if actor has no executions, a KeyError will be thrown
-            executions_store[actor_id] = {execution.id: execution}
+        
+        executions_store.add_if_empty(actor_id, execution.id, execution)
+
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1271,7 +1269,7 @@ class Worker(AbacoDAO):
             workers_store.update(actor_id, worker_id, worker)
             logger.info("added additional worker with id: {} to workers_store.".format(worker_id))
         except KeyError:
-            workers_store[actor_id] = {worker_id: worker}
+            workers_store.add_if_empty(actor_id, worker_id, worker)
             logger.info("added first worker with id: {} to workers_store.".format(worker_id))
         return worker_id
 
@@ -1443,9 +1441,5 @@ def set_permission(user, actor_id, level):
     logger.debug("top of set_permission().")
     if not isinstance(level, PermissionLevel):
         raise errors.DAOError("level must be a PermissionLevel object.")
-    try:
-        permissions_store.update(actor_id, user, level.name)
-    except KeyError:
-        # if actor has no permissions, a KeyError will be thrown
-        permissions_store[actor_id] = {user: level.name}
+    permissions_store.add_if_empty(actor_id, user, str(level))
     logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))

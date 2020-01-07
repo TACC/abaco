@@ -85,7 +85,7 @@ down:
 
 # Does a clean and also deletes all images needed for abaco
 clean:
-	@docker-compose down -v --rmi all --remove-orphans
+	@docker-compose down --remove-orphans -v --rmi all 
 
 
 # Delete ALL images, containers, and volumes forcefully

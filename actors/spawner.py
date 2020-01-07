@@ -71,10 +71,12 @@ class Spawner(object):
         logger.debug("top of get_tot_workers")
         self.tot_workers = 0
         logger.debug('spawner host_id: {}'.format(self.host_id))
-        for k,v in workers_store.items():
-            for wid, worker in v.items():
-                if worker.get('host_id') == self.host_id:
+        for worker_info in workers_store.items():
+            try:
+                if worker_info['host_id'] == self.host_id:
                     self.tot_workers += 1
+            except KeyError:
+                continue
         logger.debug("returning total workers: {}".format(self.tot_workers))
         return self.tot_workers
 
