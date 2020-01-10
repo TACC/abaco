@@ -766,7 +766,7 @@ class Nonce(AbacoDAO):
             nonce_store.update(nonce_key, nonce.id, nonce)
             logger.debug("nonce {} appended to nonces for actor/alias {}".format(nonce.id, nonce_key))
         except KeyError:
-            nonce_store[nonce_key] = {nonce.id: nonce}
+            nonce_store.add_if_empty(nonce_key, nonce.id, nonce)
             logger.debug("nonce {} added for actor/alias {}".format(nonce.id, nonce_key))
 
     @classmethod
@@ -777,6 +777,54 @@ class Nonce(AbacoDAO):
 
     @classmethod
     def check_and_redeem_nonce(cls, actor_id, alias, nonce_id, level):
+        """
+        Atomically, check for the existence of a nonce for a given actor_id and redeem it if it
+        has not expired. Otherwise, raises PermissionsError. 
+        """
+        # first, make sure the nonce exists for the nonce_key:
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
+        try:
+            nonce = nonce_store[nonce_key][nonce_id]
+        except KeyError:
+            raise errors.PermissionsException("Nonce does not exist.")
+
+        # check if the nonce level is sufficient
+        try:
+            if PermissionLevel(nonce['level']) < level:
+                raise errors.PermissionsException("Nonce does not have sufficient permissions level.")
+        except KeyError:
+            raise errors.PermissionsException("Nonce did not have an associated level.")
+        
+        try:
+            # Check for remaining uses equal to -1
+            res = nonce_store.full_update(
+                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$eq': -1}},
+                {'$inc': {nonce_id + '.current_uses': 1},
+                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+            if res.raw_result['updatedExisting'] == True:
+                logger.debug("nonce has infinite uses. updating nonce.")
+                return
+
+            # Check for remaining uses greater than 0
+            res = nonce_store.full_update(
+                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$gt': 0}},
+                {'$inc': {nonce_id + '.current_uses': 1,
+                        nonce_id + '.remaining_uses': -1},
+                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+            if res.raw_result['updatedExisting'] == True:
+                logger.debug("nonce still has uses remaining. updating nonce.")
+                return
+            
+            logger.debug("nonce did not have at least 1 use remaining.")
+            raise errors.PermissionsException("No remaining uses left for this nonce.")
+        except KeyError:
+            logger.debug("nonce did not have a remaining_uses attribute.")
+            raise errors.PermissionsException("No remaining uses left for this nonce.")
+
+
+    ###OLD
+    @classmethod
+    def check_and_redeem_nonce_OLD(cls, actor_id, alias, nonce_id, level):
         """
         Atomically, check for the existence of a nonce for a given actor_id and redeem it if it
         has not expired. Otherwise, raises PermissionsError. 
@@ -882,7 +930,7 @@ class Execution(AbacoDAO):
         execution = Execution(**ex)
         start_timer = timeit.default_timer()
         
-        executions_store.add_if_empty(actor_id, execution.id, execution)
+        executions_store.update(actor_id, execution.id, execution)
 
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
@@ -1021,7 +1069,7 @@ class Execution(AbacoDAO):
         start_timer = timeit.default_timer()
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
-            logs_store.set_with_expiry(exc_id, logs)
+            logs_store.set_with_expiry(exc_id, 'logs', logs)
         else:
             logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
             logs_store[exc_id] = logs
@@ -1441,5 +1489,7 @@ def set_permission(user, actor_id, level):
     logger.debug("top of set_permission().")
     if not isinstance(level, PermissionLevel):
         raise errors.DAOError("level must be a PermissionLevel object.")
-    permissions_store.add_if_empty(actor_id, user, str(level))
+    new = permissions_store.add_if_empty(actor_id, user, str(level))
+    if not new:
+        permissions_store.update(actor_id, user, str(level))
     logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))

@@ -40,23 +40,33 @@ MAX_EXECUTIONS_PER_MONGO_DOC = 25000
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
-    return [db_id for db_id, _ in actors_store.items()]
+    return [actor.db_id for actor in actors_store.items()]
 
 def check_workers_store(ttl):
     logger.debug("Top of check_workers_store.")
     """Run through all workers in workers_store and ensure there is no data integrity issue."""
-    for actor_id, worker in workers_store.items():
-        check_worker_health(worker, actor_id, ttl)
+    for workers_by_actor in workers_store.items({}, proj_inp=None):
+        if len(workers_by_actor) > 1:
+            aid = workers_by_actor['_id']
+            del workers_by_actor['_id']
+            for worker in workers_by_actor.values():
+                check_worker_health(aid, worker, ttl)
 
 def get_worker(wid):
     """
     Check to see if a string `wid` is the id of a worker in the worker store.
     If so, return it; if not, return None.
     """
-    for actor_id, value in workers_store.items():
-        for worker_id, worker in value.items():
-            if worker_id == wid:
-                return worker
+    for workers_by_actor in workers_store.items({}, proj_inp=None):
+        if len(workers_by_actor) > 1:
+            aid = workers_by_actor['_id']
+            del workers_by_actor['_id']
+            for worker in workers_by_actor.values():
+                try:
+                    if worker['id'] == wid:
+                        return worker
+                except KeyError:
+                    pass
     return None
 
 def clean_up_socket_dirs():
@@ -225,7 +235,7 @@ def batch_executions(aid):
     executions_store['{}_HIST_{}'.format(aid, i)] = d2
 
 
-def check_worker_health(actor_id, worker):
+def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
     worker_id = worker.get('id')
@@ -260,8 +270,9 @@ def zero_out_workers_db():
       3) run clean_up_clients_store().
     :return:
     """
-    for k, _ in workers_store.items():
-        workers_store[k] = {}
+    for actor in workers_store.find({}, proj_inp=False):
+        key = actor['_id']
+        workers_store.replace_one({'_id': key}, {'_id': key})
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
@@ -457,9 +468,10 @@ def shutdown_all_workers():
     This function is useful when deploying a new version of the worker code.
     """
     # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
-    for actor_id, worker in workers_store.items():
-        # call check_workers with ttl = 0 so that all will be shut down:
-        check_workers(actor_id, 0)
+    logger.debug("Top of shutdown_all_workers.")
+    for workers_by_actor in workers_store.items({}, proj_inp=None):
+        if len(workers_by_actor) > 1:
+            check_workers(workers_by_actor['_id'], 0)
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))

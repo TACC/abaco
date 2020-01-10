@@ -11,7 +11,7 @@ TEST="$1"
 
 # if nothing passed, run the full suite
 if [ -z $TEST ]; then
-  pytest /tests/test_abaco_core.py
+  pytest --maxfail $maxErrors /tests/test_abaco_core.py
 elif [ "$#" -eq 2 ]; then
   TEST="$1 $2"
   echo $TEST

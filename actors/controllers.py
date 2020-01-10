@@ -72,10 +72,10 @@ class MetricsResource(Resource):
         logger.debug("top of get in MetricResource")
 
         actor_ids = [
-            db_id
-            for db_id, actor
-            in actors_store.items() if actor.get('stateless') and not actor.get('status') == 'ERROR'
-                                       and not actor.get('status') == SHUTTING_DOWN
+            actor.db_id
+            for actor in actors_store.items() if actor.get('stateless')
+                        and not actor.get('status') == 'ERROR'
+                        and not actor.get('status') == SHUTTING_DOWN
         ]
 
         try:
@@ -157,8 +157,8 @@ class AdminActorsResource(Resource):
         logger.debug("top of GET /admin/actors")
         case = Config.get('web', 'case')
         actors = []
-        for k, v in actors_store.items():
-            actor = Actor.from_db(v)
+        for actor_info in actors_store.items():
+            actor = Actor.from_db(actor_info)
             actor.workers = []
             for id, worker in Worker.get_workers(actor.db_id).items():
                 if case == 'camel':
@@ -248,11 +248,11 @@ class AdminExecutionsResource(Resource):
                   'actors': []
         }
         case = Config.get('web', 'case')
-        for actor_dbid, executions in executions_store.items():
+        for executions_by_actor in executions_store.items():
             # determine if actor still exists:
             actor = None
             try:
-                actor = Actor.from_db(actors_store[actor_dbid])
+                actor = Actor.from_db(actors_store[executions_by_actor['_id']])
             except KeyError:
                 pass
             # iterate over executions for this actor:
@@ -260,7 +260,7 @@ class AdminExecutionsResource(Resource):
             actor_runtime = 0
             actor_io = 0
             actor_cpu = 0
-            for ex_id, execution in executions.items():
+            for execution in executions_by_actor:
                 actor_exs += 1
                 actor_runtime += execution.get('runtime', 0)
                 actor_io += execution.get('io', 0)
@@ -300,9 +300,9 @@ class AliasesResource(Resource):
         logger.debug("top of GET /aliases")
 
         aliases = []
-        for k, v in alias_store.items():
-            if v['tenant'] == g.tenant:
-                aliases.append(Alias.from_db(v).display())
+        for alias in alias_store.items():
+            if alias['tenant'] == g.tenant:
+                aliases.append(Alias.from_db(alias).display())
         logger.info("aliases retrieved.")
         return ok(result=aliases, msg="Aliases retrieved successfully.")
 
@@ -417,7 +417,8 @@ class AliasResource(Resource):
         new_alias_obj = Alias(**args)
         logger.debug("Alias object instantiated; updating alias in alias_store. "
                      "alias: {}".format(new_alias_obj))
-        alias_store[alias_id] = new_alias_obj
+        alias_store.updateDoc(alias_id, new_alias_obj)
+        #alias_store[alias_id] = new_alias_obj
         logger.info("alias updated for actor: {}.".format(dbid))
         set_permission(g.user, new_alias_obj.alias_id, UPDATE)
         return ok(result=new_alias_obj.display(), msg="Actor alias updated successfully.")
@@ -571,7 +572,7 @@ def check_for_link_cycles(db_id, link_dbid):
     # create the links graph, resolving each link attribute to a db_id along the way:
     # start with the passed in link, this is the "proposed" link -
     links = {db_id: link_dbid}
-    for _, actor in actors_store.items():
+    for actor in actors_store.items():
         if actor.get('link'):
             try:
                 link_id = Actor.get_actor_id(actor.get('tenant'), actor.get('link'))
@@ -674,9 +675,9 @@ class ActorsResource(Resource):
         logger.debug("top of GET /actors")
 
         actors = []
-        for k, v in actors_store.items():
-            if v['tenant'] == g.tenant:
-                actor = Actor.from_db(v)
+        for actor_info in actors_store.items():
+            if actor_info['tenant'] == g.tenant:
+                actor = Actor.from_db(actor_info)
                 if check_permissions(g.user, actor.db_id, READ):
                     actors.append(actor.display())
         logger.info("actors retrieved.")
@@ -759,9 +760,9 @@ class ActorsResource(Resource):
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
-        actors_store[actor.db_id] = actor.to_db()
+        actors_store.add_key_val_if_empty(actor.db_id, actor)
         # initialize the actor's executions to the empty dictionary
-        #executions_store[actor.db_id] = {}
+        executions_store.add_key_val_if_empty(actor.db_id, {'_id': actor.db_id})
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))
@@ -912,7 +913,10 @@ class ActorResource(Resource):
         args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
         actor = Actor(**args)
-        actors_store[actor.db_id] = actor.to_db()
+
+        actors_store.updateDoc(actor.db_id, actor)
+
+        #actors_store[actor.db_id] = actor.to_db()
         logger.info("updated actor {} stored in db.".format(actor_id))
         if update_image:
             worker_id = Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)
@@ -1246,7 +1250,7 @@ class ActorExecutionLogsResource(Resource):
             logger.debug("did not find execution: {}. actor: {}.".format(execution_id, actor_id))
             raise ResourceError("Execution {} not found.".format(execution_id))
         try:
-            logs = logs_store[execution_id]
+            logs = logs_store[execution_id]['logs']
         except KeyError:
             logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
             logs = ""
@@ -1502,7 +1506,7 @@ class MessagesResource(Resource):
                     # if we still have no result, get the logs -
                     if not result:
                         try:
-                            result = logs_store[execution_id]
+                            result = logs_store[execution_id]['logs']
                         except KeyError:
                             logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
                             result = ""
