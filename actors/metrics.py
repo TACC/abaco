@@ -12,8 +12,8 @@ PROMETHEUS_URL = 'http://127.0.0.1:9090'
 def main():
     logger.info("Running Metrics check.")
     actor_ids = [
-        db_id
-        for db_id, _
+        actor.db_id
+        for actor
         in actors_store.items()
     ]
     for actor_id in actor_ids:

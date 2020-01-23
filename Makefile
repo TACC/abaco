@@ -1,6 +1,6 @@
 # Makefile for local development
 
-.PHONY: clean prune nuke
+.PHONY: down clean nuke
 
 # Retrieves present working directory (./abaco) and sets abaco tag based on
 # current or default values
@@ -17,43 +17,40 @@ export TAG := :dev
 endif
 
 
-# Builds Docker images to run local-dev (abaco/core, abaco/prom, abaco/nginx, etc.)
-build:
-	### Local Dev Images ###
+# Gets all images and starts Abaco suite in daemon mode
+deploy:	
+	@docker rmi abaco/core$$TAG
 	@docker pull abaco/core$$TAG
-	@docker pull abaco/nginx$$TAG
-
-	### Database images ###
-	@docker pull rabbitmq:3.5.3-management
-	@docker pull redis
-	@docker pull mongo
-
-	### In-Development Images ###
-	@docker pull abaco/prom$$TAG
-	@docker pull abaco/dashboard
-
-
-# Build local
-local-build:
-	@docker build ./ -t abaco/core:dev
-
-
-# Starts up local environment (docker containers) in daemon mode
-deploy: build
 	@docker-compose up -d
 
 
-local-deploy: local-build
+# Builds core locally and sets to correct tag. This should take priority over DockerHub images
+build:
+	@docker build ./ -t abaco/core$$TAG
+
+
+# Builds core locally and then runs with Abaco suite with that abaco/core image in daemon mode
+local-deploy: build
 	@docker-compose up -d
+
 
 # Deploys, but not silently and will abort if a container exits.
 test-deploy:
 	@docker-compose up --abort-on-container-exit
 
 
+# Pulls all Docker images not yet available but needed to run Abaco suite
+pull:
+	@docker-compose pull
+
+
 # Runs test suite against current repository
-test: deploy
-	@./build_and_test.sh
+# Runs specific test based on the 'test' environment variable
+# ex: export test=test/load_tests.py
+test:
+	sleep 5
+	docker build -t abaco/testsuite$$TAG -f Dockerfile-test .
+	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=1 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$$TAG $$test
 
 
 # Builds a few sample Docker images
@@ -72,8 +69,8 @@ all-samples:
 	done
 
 
-# Test variables
-test-vars:
+# Test setting of environment variables
+vars:
 	@echo $$TAG
 	@echo $$abaco_path
 
@@ -85,10 +82,10 @@ down:
 
 # Does a clean and also deletes all images needed for abaco
 clean:
-	@docker-compose down -v --rmi all --remove-orphans
+	@docker-compose down --remove-orphans -v --rmi all 
 
 
-# Delete ALL images, containers, and volumes forcefully
+# Deletes ALL images, containers, and volumes forcefully
 nuke:
 	@docker rm -f `docker ps -aq`
 	@docker rmi -f `docker images -aq`
