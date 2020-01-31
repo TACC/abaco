@@ -47,8 +47,8 @@ def test_set_key(st):
 def test_set_with_expiry(st):
     st.set_with_expiry('test_exp', 'field', 'val')
     assert st.get('test_exp')['field'] == 'val'
-    # in our tests, the mongo expiry functionality is NOT dependable; it seems to eventually remove the key but the time
-    # it takes seems to fluctuate. for mongo, we'll test at the end of the suite to make sure the key is removed.
+    # Mongo expiry is checked every 60 seconds so results will fluctuate slightly due to timing.
+    # We'll test at the end of the suite to make sure the key is removed.
 
 def _thread(st, n):
     for i in range(n):
@@ -256,8 +256,8 @@ def test_redis_two_lists(st):
     assert len(st['locked']) == 3
 
 def test_set_with_expiry2(st):
-    # in our tests, the mongo expiry functionality is NOT dependable; it seems to eventually remove the key but the time
-    # it takes seems to fluctuate. for mongo, we'll test at the end of the suite to make sure the key is removed.
+    # Mongo expiry is checked every 60 seconds so results will fluctuate slightly due to timing.
+    # We'll test at the end of the suite to make sure the key is removed.
     tot = 0
     while tot < 5:
         try:
