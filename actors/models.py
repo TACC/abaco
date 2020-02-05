@@ -492,7 +492,7 @@ class Actor(AbacoDAO):
         actor_id (str) should be the actor db_id.
         """
         logger.debug("top of set_status for status: {}".format(status))
-        actors_store.update(actor_id, 'status', status)
+        actors_store[actor_id, 'status'] = status
         # we currently publish status change events for actors when the status is changing to ERROR or READY:
         if status == ERROR or status == READY:
             try:
@@ -503,7 +503,7 @@ class Actor(AbacoDAO):
                 logger.error("Got exception trying to publish an actor status event. "
                              "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
         if status_message:
-            actors_store.update(actor_id, 'status_message', status_message)
+            actors_store[actor_id, 'status_message'] = status_message
 
 
 class Alias(AbacoDAO):
@@ -559,7 +559,7 @@ class Alias(AbacoDAO):
         # second, make sure alias is not using a forbidden char:
         self.check_forbidden_char()
         # attempt to create the alias within a transaction
-        obj = alias_store.add_key_val_if_empty(self.alias_id, self)
+        obj = alias_store.add_if_empty([self.alias_id], self)
         if not obj:
             raise errors.DAOError("Alias {} already exists.".format(self.alias))
         return obj
@@ -763,17 +763,17 @@ class Nonce(AbacoDAO):
         """
         nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce_store.update(nonce_key, nonce.id, nonce)
+            nonce_store[nonce_key, nonce.id] = nonce
             logger.debug("nonce {} appended to nonces for actor/alias {}".format(nonce.id, nonce_key))
         except KeyError:
-            nonce_store.add_if_empty(nonce_key, nonce.id, nonce)
+            nonce_store.add_if_empty([nonce_key, nonce.id], nonce)
             logger.debug("nonce {} added for actor/alias {}".format(nonce.id, nonce_key))
 
     @classmethod
     def delete_nonce(cls, actor_id, alias, nonce_id):
         """Delete a nonce from the nonce_store."""
         nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
-        nonce_store.pop_field(nonce_key, nonce_id)
+        nonce_store.pop_field([nonce_key, nonce_id])
 
     @classmethod
     def check_and_redeem_nonce(cls, actor_id, alias, nonce_id, level):
@@ -853,12 +853,12 @@ class Nonce(AbacoDAO):
                     logger.debug("nonce has infinite uses. updating nonce.")
                     nonce['current_uses'] += 1
                     nonce['last_use_time'] = get_current_utc_time()
-                    nonce_store.update(nonce_key, nonce_id, nonce)
+                    nonce_store[nonce_key, nonce_id] = nonce
                 elif nonce['remaining_uses'] > 0:
                     logger.debug("nonce still has uses remaining. updating nonce.")
                     nonce['current_uses'] += 1
                     nonce['remaining_uses'] -= 1
-                    nonce_store.update(nonce_key, nonce_id, nonce)
+                    nonce_store[nonce_key, nonce_id] = nonce
                 else:
                     logger.debug("nonce did not have at least 1 use remaining.")
                     raise errors.PermissionsException("No remaining uses left for this nonce.")
@@ -931,7 +931,7 @@ class Execution(AbacoDAO):
         execution = Execution(**ex)
         start_timer = timeit.default_timer()
         
-        executions_store.update(actor_id, execution.id, execution)
+        executions_store[actor_id, execution.id] = execution
 
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
@@ -952,7 +952,7 @@ class Execution(AbacoDAO):
             actor_id, execution_id, worker_id))
         start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'worker_id', worker_id)
+            executions_store[actor_id, execution_id, 'worker_id'] = worker_id
             logger.debug("worker added to execution: {} actor: {} worker: {}".format(
             execution_id, actor_id, worker_id))
         except KeyError as e:
@@ -977,7 +977,7 @@ class Execution(AbacoDAO):
             actor_id, execution_id, status))
         start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'status', status)
+            executions_store[actor_id, execution_id, 'status'] = status
             logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
             execution_id, actor_id, status))
         except KeyError as e:
@@ -1016,13 +1016,13 @@ class Execution(AbacoDAO):
             raise errors.ExecutionException("'runtime' parameter required to finalize execution.")
         start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'status', status)
-            executions_store.update_subfield(actor_id, execution_id, 'io', stats['io'])
-            executions_store.update_subfield(actor_id, execution_id, 'cpu', stats['cpu'])
-            executions_store.update_subfield(actor_id, execution_id, 'runtime', stats['runtime'])
-            executions_store.update_subfield(actor_id, execution_id, 'final_state', final_state)
-            executions_store.update_subfield(actor_id, execution_id, 'exit_code', exit_code)
-            executions_store.update_subfield(actor_id, execution_id, 'start_time', start_time)
+            executions_store[actor_id, execution_id, 'status'] = status
+            executions_store[actor_id, execution_id, 'io'] = stats['io']
+            executions_store[actor_id, execution_id, 'cpu'] = stats['cpu']
+            executions_store[actor_id, execution_id, 'runtime'] = stats['runtime']
+            executions_store[actor_id, execution_id, 'final_state'] = final_state
+            executions_store[actor_id, execution_id, 'exit_code'] = exit_code
+            executions_store[actor_id, execution_id, 'start_time'] = start_time
         except KeyError:
             logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
@@ -1070,7 +1070,7 @@ class Execution(AbacoDAO):
         start_timer = timeit.default_timer()
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
-            logs_store.set_with_expiry(exc_id, 'logs', logs)
+            logs_store.set_with_expiry([exc_id, 'logs'], logs)
         else:
             logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
             logs_store[exc_id] = logs
@@ -1277,7 +1277,7 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of delete_worker(). actor_id: {}; worker_id: {}".format(actor_id, worker_id))
         try:
-            wk = workers_store.pop_field(actor_id, worker_id)
+            wk = workers_store.pop_field([actor_id, worker_id])
             logger.info("worker deleted. actor: {}. worker: {}.".format(actor_id, worker_id))
         except KeyError as e:
             logger.info("KeyError deleting worker. actor: {}. worker: {}. exception: {}".format(actor_id, worker_id, e))
@@ -1293,7 +1293,7 @@ class Worker(AbacoDAO):
         logger.debug("top of ensure_one_worker.")
         worker_id = Worker.get_uuid()
         worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant}
-        val = workers_store.add_if_empty(actor_id, worker_id, worker)
+        val = workers_store.add_if_empty([actor_id, worker_id], worker)
         if val:
             logger.info("got worker: {} from add_if_empty.".format(val))
             return worker_id
@@ -1315,10 +1315,10 @@ class Worker(AbacoDAO):
         try:
             # we know this worker_id is new since we just generated it, so we don't need to use the update
             # method.
-            workers_store.update(actor_id, worker_id, worker)
+            workers_store[actor_id, worker_id] = worker
             logger.info("added additional worker with id: {} to workers_store.".format(worker_id))
         except KeyError:
-            workers_store.add_if_empty(actor_id, worker_id, worker)
+            workers_store.add_if_empty([actor_id, worker_id], worker)
             logger.info("added first worker with id: {} to workers_store.".format(worker_id))
         return worker_id
 
@@ -1331,7 +1331,7 @@ class Worker(AbacoDAO):
         returned.
         """
         logger.debug("top of add_worker().")
-        workers_store.update(actor_id, worker['id'], worker)
+        workers_store[actor_id, worker['id']] = worker
         logger.info("worker {} added to actor: {}".format(worker, actor_id))
 
     @classmethod
@@ -1341,7 +1341,7 @@ class Worker(AbacoDAO):
         now = get_current_utc_time()
         start_timer = timeit.default_timer()
         try:
-            workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
+            workers_store[actor_id, worker_id, 'last_execution_time'] = now
         except KeyError as e:
             logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
             raise e
@@ -1356,7 +1356,7 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_health_time().")
         now = get_current_utc_time()
-        workers_store.update_subfield(actor_id, worker_id, 'last_health_check_time', now)
+        workers_store[actor_id, worker_id, 'last_health_check_time'] = now
         logger.info("worker last_health_check_time updated. worker_id: {}".format(worker_id))
 
     @classmethod
@@ -1383,12 +1383,10 @@ class Worker(AbacoDAO):
         try:
             # workers can transition to SHUTTING_DOWN from any status
             if status == SHUTTING_DOWN or status == SHUTDOWN_REQUESTED:
-                res = workers_store.update_one(
-                    {'_id': actor_id},
-                    {'$set': {worker_id + '.status': status}})
+                workers_store[actor_id, worker_id, 'status'] = status
                 
             elif status == ERROR:
-                res = workers_store.update_one(
+                res = workers_store.full_update(
                     {'_id': actor_id},
                     [{'$set': {worker_id + '.status': {"$concat": [ERROR, " (PREVIOUS ", f"${worker_id}.status", ")"]}}}])
             # workers can always transition to an ERROR status from any status and from an ERROR status to
@@ -1399,14 +1397,14 @@ class Worker(AbacoDAO):
                 except ValueError:
                     valid_status_1 = valid_transitions[status][0]
                     valid_status_2 = None
-                res = workers_store.update_one(
+                res = workers_store.full_update(
                     {'_id': actor_id,
                     '$or': [{worker_id + '.status': valid_status_1},
                             {worker_id + '.status': valid_status_2}]},
                     {'$set': {worker_id + '.status': status}})
                 # Checks if nothing was modified (1 if yes, 0 if no)
                 if not res.raw_result['nModified']:
-                    prev_status = workers_store.find_one({'_id': actor_id})[worker_id]['status']
+                    prev_status = workers_store[actor_id, worker_id, 'status']
                     raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:
             logger.error("Got exception trying to update worker {} subfield status to {}; "
@@ -1499,7 +1497,7 @@ def set_permission(user, actor_id, level):
     logger.debug("top of set_permission().")
     if not isinstance(level, PermissionLevel):
         raise errors.DAOError("level must be a PermissionLevel object.")
-    new = permissions_store.add_if_empty(actor_id, user, str(level))
+    new = permissions_store.add_if_empty([actor_id, user], str(level))
     if not new:
-        permissions_store.update(actor_id, user, str(level))
+        permissions_store[actor_id, user] = str(level)
     logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))

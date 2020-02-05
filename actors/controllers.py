@@ -418,7 +418,7 @@ class AliasResource(Resource):
         new_alias_obj = Alias(**args)
         logger.debug("Alias object instantiated; updating alias in alias_store. "
                      "alias: {}".format(new_alias_obj))
-        alias_store.updateDoc(alias_id, new_alias_obj)
+        alias_store[alias_id] = new_alias_obj
         #alias_store[alias_id] = new_alias_obj
         logger.info("alias updated for actor: {}.".format(dbid))
         set_permission(g.user, new_alias_obj.alias_id, UPDATE)
@@ -762,9 +762,9 @@ class ActorsResource(Resource):
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
         # Change function
-        actors_store.add_key_val_if_empty(actor.db_id, actor)
+        actors_store.add_if_empty([actor.db_id], actor)
         # initialize the actor's executions to the empty dictionary
-        executions_store.add_key_val_if_empty(actor.db_id, {'_id': actor.db_id})
+        executions_store.add_if_empty([actor.db_id], {'_id': actor.db_id})
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))
@@ -918,7 +918,7 @@ class ActorResource(Resource):
         logger.debug("update args: {}".format(args))
         actor = Actor(**args)
 
-        actors_store.updateDoc(actor.db_id, actor)
+        actors_store[actor.db_id] = actor
 
         #actors_store[actor.db_id] = actor.to_db()
         logger.info("updated actor {} stored in db.".format(actor_id))
@@ -1001,7 +1001,7 @@ class ActorStateResource(Resource):
             raise ResourceError("actor is stateless.", 404)
         state = self.validate_post()
         logger.debug("state post params validated: {}".format(actor_id))
-        actors_store.update(dbid, 'state', state)
+        actors_store[dbid, 'state'] = state
         logger.info("state updated: {}".format(actor_id))
         actor = Actor.from_db(actors_store[dbid])
         return ok(result=actor.display(), msg="State updated successfully.")

@@ -45,7 +45,7 @@ def test_set_key(st):
     assert st.get('test_val')['test_val'] == 'val'
 
 def test_set_with_expiry(st):
-    st.set_with_expiry('test_exp', 'field', 'val')
+    st.set_with_expiry(['test_exp', 'field'], 'val')
     assert st.get('test_exp')['field'] == 'val'
     # Mongo expiry is checked every 60 seconds so results will fluctuate slightly due to timing.
     # We'll test at the end of the suite to make sure the key is removed.
@@ -55,7 +55,7 @@ def _thread(st, n):
         st.update('test', 'k2', f'w{i}')
 
 def test_update(st):
-    st.updateDoc('test', {'k': 'v', 'k2': 'v2'})
+    st['test'] = {'k': 'v', 'k2': 'v2'}
     t = threading.Thread(target=_thread, args=(st, n))
     t.start()
     for i in range(n):
@@ -64,23 +64,23 @@ def test_update(st):
     assert st['test'] == {'k': f'v{n-1}', 'k2': f'w{n-1}'}
 
 def test_pop_field(st):
-    st.updateDoc('test', {'k': 'v', 'k2': 'v2', 'key': 'val'})
+    st['test'] = {'k': 'v', 'k2': 'v2', 'key': 'val'}
     # this is the naive functionality we want; of course, this is not thread safe:
     cur = st['test']
     val = cur.pop('key')
-    st.updateDoc('test', cur)
+    st['test'] = cur
     assert val == 'val'
     assert st['test'] == {'k': 'v', 'k2': 'v2', 'key': 'val'}
 
     # here's the non-threaded test:
-    st.updateDoc('test', {'k': 'v', 'k2': 'v2', 'key': 'val'})
+    st['test'] = {'k': 'v', 'k2': 'v2', 'key': 'val'}
     assert st['test']['key'] == 'val'
-    val = st.pop_field('test', 'key')
+    val = st.pop_field(['test', 'key'])
     assert val == 'val'
     assert not type(st['test']) == str
 
     # and finally, a threaded test:
-    st.updateDoc('test', {'k': 'v', 'k2': 'v2'})
+    st['test'] = {'k': 'v', 'k2': 'v2'}
     for i in range(n):
         st.update('test', f'key{i}', f'v{i}')
     st['test']['key0'] = 'v0'
@@ -89,27 +89,27 @@ def test_pop_field(st):
     t = threading.Thread(target=_thread, args=(st, n))
     t.start()
     for i in range(n):
-        val = st.pop_field('test', f'key{i}')
+        val = st.pop_field(['test', f'key{i}'])
         assert val == f'v{i}'
     t.join()
     assert st['test'] == {'k': 'v', 'k2': f'w{n-1}'}
 
 def test_update_subfield(st):
-    st.updateDoc('test', {'k': {'sub': 'v'}, 'k2': 'v2'})
+    st['test'] = {'k': {'sub': 'v'}, 'k2': 'v2'}
     t = threading.Thread(target=_thread, args=(st, n))
     t.start()
     for i in range(n):
-        st.update_subfield('test', 'k', 'sub', f'v{i}')
+        st['test', 'k', 'sub'] = f'v{i}'
     t.join()
     assert st['test'] == {'k': {'sub': f'v{n-1}'}, 'k2': f'w{n-1}'}
 
 def test_getset(st):
-    st.updateDoc('test', {'k': 'v', 'k2': 'v2'})
+    st['test'] = {'k': 'v', 'k2': 'v2'}
     st.update('k', 'k', 'v0')
     t = threading.Thread(target=_thread, args=(st, n))
     t.start()
     for i in range(n):
-        v = st.getset('k', f'v{i}')
+        v = st.getset(['k'], f'v{i}')
         if i == 0:
             assert v == 'v0'
         else:
