@@ -160,7 +160,7 @@ class MongoStore(AbstractStore):
                 "\n Try setting a dict rather than a value. Ex. store['id_key', 'key', 'field'] = {'subfield': 'value'}")
         if result.raw_result['nModified'] == 0:
             if not 'upserted' in result.raw_result:
-                logger.warning(f'Field not modified, old value likely the same as new. Key:{key}, Fields:{dots}, Value{value}')
+                logger.debug(f'Field not modified, old value likely the same as new. Key: {key}, Fields: {dots}, Value: {value}')
 
     def __delitem__(self, fields):
         """
@@ -172,13 +172,13 @@ class MongoStore(AbstractStore):
         if not subscripts:
             result = self._db.delete_one({'_id': key})
             if result.raw_result['n'] == 0:
-                logger.warning(f"No document with '_id' found. Key:{key}, Fields:{dots}")
+                logger.debug(f"No document with '_id' found. Key:{key}, Fields:{dots}")
         else:
             result = self._db.update_one(
                 filter={'_id': key},
                 update={'$unset': {f'{dots}': ''}})
             if result.raw_result['nModified'] == 0:
-                logger.warning(f"Doc with specified fields not found. Key:{key}, Fields:{dots}")
+                logger.debug(f"Doc with specified fields not found. Key:{key}, Fields:{dots}")
 
     def __iter__(self):
         for cursor in self._db.find():

@@ -56,7 +56,6 @@ services:
             server: dev
             api: metrics
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 

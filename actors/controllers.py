@@ -802,7 +802,10 @@ class ActorResource(Resource):
             actor.set_status(id, SHUTTING_DOWN)
             # delete all logs associated with executions -
             try:
-                executions = actor.get('executions') or {}
+                try:
+                    executions = executions_store[id]
+                except KeyError:
+                    executions = {}
                 for ex_id, val in executions.items():
                     del logs_store[ex_id]
             except KeyError as e:
@@ -848,7 +851,7 @@ class ActorResource(Resource):
         del permissions_store[id]
         logger.info("actor {} permissions deleted from store.".format(id))
         del nonce_store[id]
-        logger.info("actor {} nonnces delete from nonce store.".format(id))
+        logger.info("actor {} nonces delete from nonce store.".format(id))
         msg = 'Actor deleted successfully.'
         if not workers == {}:
             msg = "Actor deleted successfully, though Abaco is still cleaning up some of the actor's resources."

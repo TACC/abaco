@@ -475,7 +475,7 @@ class Actor(AbacoDAO):
 
     @classmethod
     def get_dbid(cls, tenant, id):
-        """Return the key used in redis from the "display_id" and tenant. """
+        """Return the key used in mongo from the "display_id" and tenant. """
         return str('{}_{}'.format(tenant, id))
 
     @classmethod
@@ -1405,7 +1405,8 @@ class Worker(AbacoDAO):
                 # Checks if nothing was modified (1 if yes, 0 if no)
                 if not res.raw_result['nModified']:
                     prev_status = workers_store[actor_id, worker_id, 'status']
-                    raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
+                    if not (prev_status == "READY" and status == "READY"):
+                        raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:
             logger.error("Got exception trying to update worker {} subfield status to {}; "
                          "e: {}; type(e): {}".format(worker_id, status, e, type(e)))

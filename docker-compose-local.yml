@@ -25,7 +25,6 @@ services:
             api: reg
             server: gunicorn
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -40,7 +39,6 @@ services:
             server: gunicorn
             api: mes
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -55,7 +53,6 @@ services:
             server: gunicorn
             api: admin
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -70,7 +67,6 @@ services:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
             queue: default
@@ -86,7 +82,6 @@ services:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -107,7 +102,6 @@ services:
             server: dev
             api: metrics
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -122,6 +116,5 @@ services:
         environment:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
