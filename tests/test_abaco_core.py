@@ -2050,3 +2050,6 @@ def test_limited_remove_final_actors(headers):
         url = '{}/actors/{}'.format(base_url, act.get('id'))
         rsp = requests.delete(url, headers=headers)
         result = basic_response_checks(rsp)
+
+def test_clean_up_ipc_dirs():
+    health.clean_up_ipc_dirs()

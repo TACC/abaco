@@ -40,12 +40,12 @@ MAX_EXECUTIONS_PER_MONGO_DOC = 25000
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
-    return [actor.db_id for actor in actors_store.items()]
+    return [aid for aid in actors_store]
 
 def check_workers_store(ttl):
     logger.debug("Top of check_workers_store.")
     """Run through all workers in workers_store and ensure there is no data integrity issue."""
-    for workers_by_actor in workers_store.items({}, proj_inp=None):
+    for workers_by_actor in workers_store:
         if len(workers_by_actor) > 1:
             aid = workers_by_actor['_id']
             del workers_by_actor['_id']
@@ -57,16 +57,13 @@ def get_worker(wid):
     Check to see if a string `wid` is the id of a worker in the worker store.
     If so, return it; if not, return None.
     """
-    for workers_by_actor in workers_store.items({}, proj_inp=None):
-        if len(workers_by_actor) > 1:
-            aid = workers_by_actor['_id']
-            del workers_by_actor['_id']
-            for worker in workers_by_actor.values():
-                try:
-                    if worker['id'] == wid:
-                        return worker
-                except KeyError:
-                    pass
+    for workers_by_actor in workers_store.items():
+        for worker in workers_by_actor.values():
+            try:
+                if worker['id'] == wid:
+                    return worker
+            except KeyError:
+                pass
     return None
 
 def clean_up_socket_dirs():
@@ -220,6 +217,9 @@ def batch_executions(aid):
     if len(d) <= MAX_EXECUTIONS_PER_MONGO_DOC:
         return
     # split executions into two dicts -
+    # d2: all complete executions below MAX_EXECUTIONS_PER_MONGO_DOC
+    # d3: all incomplete executions below MAX_EXECUTIONS_PER_MONGO_DOC
+    # and anything above MAX_EXECUTIONS_PER_MONGO_DOC
     d2 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if d[k].get('status') == 'COMPLETE'}
     d3 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if not d[k].get('status') == 'COMPLETE'}
     d3.update({k: d[k] for k in ld[MAX_EXECUTIONS_PER_MONGO_DOC: ]})
@@ -243,7 +243,7 @@ def check_worker_health(actor_id, worker, ttl):
     if not worker_id:
         logger.error("Corrupt data in the workers_store. Worker object without an id attribute. {}".format(worker))
         try:
-            workers_store.pop(actor_id)
+            del workers_store[actor_id]
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
@@ -257,7 +257,7 @@ def check_worker_health(actor_id, worker, ttl):
         try:
             # todo - removing worker objects from db can be problematic if other aspects of the worker are not cleaned
             # up properly. this code should be reviewed.
-            workers_store.pop(actor_id)
+            del workers_store[actor_id]
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
@@ -271,9 +271,8 @@ def zero_out_workers_db():
       3) run clean_up_clients_store().
     :return:
     """
-    for actor in workers_store.find({}, proj_inp=False):
-        key = actor['_id']
-        workers_store.replace_one({'_id': key}, {'_id': key})
+    for aid in workers_store:
+        workers_store[aid] = {}
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
@@ -471,9 +470,8 @@ def shutdown_all_workers():
     """
     # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
     logger.debug("Top of shutdown_all_workers.")
-    for workers_by_actor in workers_store.items({}, proj_inp=None):
-        if len(workers_by_actor) > 1:
-            check_workers(workers_by_actor['_id'], 0)
+    for actor_id in workers_store:
+        check_workers(actor_id, 0)
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
