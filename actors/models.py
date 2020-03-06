@@ -821,61 +821,7 @@ class Nonce(AbacoDAO):
             logger.debug("nonce did not have a remaining_uses attribute.")
             raise errors.PermissionsException("No remaining uses left for this nonce.")
 
-
-    ###OLD
-    @classmethod
-    def check_and_redeem_nonce_OLD(cls, actor_id, alias, nonce_id, level):
-        """
-        Atomically, check for the existence of a nonce for a given actor_id and redeem it if it
-        has not expired. Otherwise, raises PermissionsError. 
-        """
-        def _transaction(nonces):
-            """
-            This function can be passed to nonce_store.within_transaction() to atomically check 
-            whether a nonce is expired and, if not, redeem a use. The parameter, nonces, should
-            be the value under the key `nonce_key` associated with the nonce.
-            """
-            # first pull the nonce from the nonces parameter
-            try:
-                nonce = nonces[nonce_id]
-            except KeyError:
-                raise errors.PermissionsException("Nonce does not exist.")
-            # check if the nonce level is sufficient
-            try:
-                if PermissionLevel(nonce['level']) < level:
-                    raise errors.PermissionsException("Nonce does not have sufficient permissions level.")
-            except KeyError:
-                raise errors.PermissionsException("Nonce did not have an associated level.")
-
-            # check if there are remaining uses
-            try:
-                if nonce['remaining_uses'] == -1:
-                    logger.debug("nonce has infinite uses. updating nonce.")
-                    nonce['current_uses'] += 1
-                    nonce['last_use_time'] = get_current_utc_time()
-                    nonce_store[nonce_key, nonce_id] = nonce
-                elif nonce['remaining_uses'] > 0:
-                    logger.debug("nonce still has uses remaining. updating nonce.")
-                    nonce['current_uses'] += 1
-                    nonce['remaining_uses'] -= 1
-                    nonce_store[nonce_key, nonce_id] = nonce
-                else:
-                    logger.debug("nonce did not have at least 1 use remaining.")
-                    raise errors.PermissionsException("No remaining uses left for this nonce.")
-            except KeyError:
-                logger.debug("nonce did not have a remaining_uses attribute.")
-                raise errors.PermissionsException("No remaining uses left for this nonce.")
-
-        # first, make sure the nonce exists for the nonce_key:
-        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
-        try:
-            nonce_store[nonce_key][nonce_id]
-        except KeyError:
-            raise errors.PermissionsException("Nonce does not exist.")
-        # atomically, check if the nonce is still valid and add a use if so:
-        nonce_store.within_transaction(_transaction, nonce_key)
-
-
+      
 class Execution(AbacoDAO):
     """Basic data access object for working with actor executions."""
 
@@ -1048,7 +994,7 @@ class Execution(AbacoDAO):
 
 
     @classmethod
-    def set_logs(cls, exc_id, logs):
+    def set_logs(cls, exc_id, logs, actor_id, tenant, worker_id):
         """
         Set the logs for an execution.
         :param exc_id: the id of the execution (str)
@@ -1073,7 +1019,9 @@ class Execution(AbacoDAO):
             logs_store.set_with_expiry([exc_id, 'logs'], logs)
         else:
             logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
-            logs_store[exc_id] = logs
+            logs_store[exc_id, logs] = logs
+        logs_store[exc_id, 'actor_id'] = actor_id
+        logs_store[exc_id, 'tenant'] = tenant
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:

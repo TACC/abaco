@@ -70,13 +70,10 @@ class MetricsResource(Resource):
 
     def get_metrics(self):
         logger.debug("top of get in MetricResource")
-
-        actor_ids = [
-            actor.db_id
-            for actor in actors_store.items() if actor.get('stateless')
-                        and not actor.get('status') == 'ERROR'
-                        and not actor.get('status') == SHUTTING_DOWN
-        ]
+        actor_ids = [actor['db_id'] for actor in actors_store.items()
+            if actor.get('stateless')
+            and not actor.get('status') == 'ERROR'
+            and not actor.get('status') == SHUTTING_DOWN]
 
         try:
             if actor_ids:
@@ -231,7 +228,6 @@ class AdminWorkersResource(Resource):
 
 
 class AdminExecutionsResource(Resource):
-
     def get(self):
         logger.debug("top of GET /admin/workers")
         result = {'summary': {'total_actors_all': 0,
