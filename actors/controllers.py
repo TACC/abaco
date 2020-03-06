@@ -55,6 +55,22 @@ except:
     num_init_workers = 1
 
 
+class SearchResource(Resource):
+    def get(self, search_type):
+        args = request.args
+        return ok(result=f"{args} and {search_type}", msg="ARRRRRRGS.")
+
+        #logger.debug("top of GET /actors/{}".format(actor_id))
+        #try:
+        #    actor = Actor.from_db(actors_store[g.db_id])
+        #except KeyError:
+        #    logger.debug("did not find actor with id: {}".format(actor_id))
+        #    raise ResourceError(
+        #        "No actor found with identifier: {}.".format(actor_id), 404)
+        #logger.debug("found actor {}".format(actor_id))
+        #return ok(result=actor.display(), msg="Actor retrieved successfully.")
+
+
 class MetricsResource(Resource):
     def get(self):
         enable_autoscaling = Config.get('workers', 'autoscaling')
