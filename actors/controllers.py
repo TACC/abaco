@@ -318,7 +318,6 @@ class AliasesResource(Resource):
         return args
 
     def post(self):
-        # Not threadsafe. Checks actor, and then updates based on assumption actor exists.
         logger.info("top of POST to register a new alias.")
         args = self.validate_post()
         actor_id = args.get('actor_id')
@@ -787,7 +786,6 @@ class ActorResource(Resource):
         return ok(result=actor.display(), msg="Actor retrieved successfully.")
 
     def delete(self, actor_id):
-        # Not threadsafe, checks for actor, then does work.
         logger.debug("top of DELETE /actors/{}".format(actor_id))
         id = g.db_id
         try:
@@ -856,7 +854,6 @@ class ActorResource(Resource):
         return ok(result=None, msg=msg)
 
     def put(self, actor_id):
-        # Not threadsafe, can be improved
         logger.debug("top of PUT /actors/{}".format(actor_id))
         dbid = g.db_id
         try:
@@ -987,7 +984,6 @@ class ActorStateResource(Resource):
         return ok(result={'state': actor.get('state') }, msg="Actor state retrieved successfully.")
 
     def post(self, actor_id):
-        # Not threadsafe, checks for actor then does work based on existence assumption
         logger.debug("top of POST /actors/{}/state".format(actor_id))
         dbid = g.db_id
         try:
@@ -1015,7 +1011,6 @@ class ActorStateResource(Resource):
 
 class ActorExecutionsResource(Resource):
     def get(self, actor_id):
-        # Not threadsafe, checks for actor then does work
         logger.debug("top of GET /actors/{}/executions".format(actor_id))
         dbid = g.db_id
         try:
@@ -1033,7 +1028,6 @@ class ActorExecutionsResource(Resource):
         return ok(result=summary.display(), msg="Actor executions retrieved successfully.")
 
     def post(self, actor_id):
-        # Not threadsafe, checks for actor then does work
         logger.debug("top of POST /actors/{}/executions".format(actor_id))
         id = g.db_id
         try:
@@ -1232,7 +1226,6 @@ class ActorExecutionResultsResource(Resource):
 
 
 class ActorExecutionLogsResource(Resource):
-    # Not threadsafe, checks for actor then does work
     def get(self, actor_id, execution_id):
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}/logs'.format(actor.api_server, actor.id, exc.id),
@@ -1275,7 +1268,6 @@ def get_messages_hypermedia(actor):
 
 
 class MessagesResource(Resource):
-    # Not threadsafe, checks for actor then does work
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/messages".format(actor_id))
         # check that actor exists
@@ -1294,7 +1286,6 @@ class MessagesResource(Resource):
         return ok(result)
 
     def delete(self, actor_id):
-        # Not threadsafe, checks for actor then does work
         logger.debug("top of DELETE /actors/{}/messages".format(actor_id))
         # check that actor exists
         id = g.db_id
@@ -1358,7 +1349,6 @@ class MessagesResource(Resource):
 
     def post(self, actor_id):
         start_timer = timeit.default_timer()
-        # Not threadsafe, checks for actor then does work
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc),
                                'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
@@ -1561,7 +1551,6 @@ class WorkersResource(Resource):
         return args
 
     def post(self, actor_id):
-        # Not threadsafe, checks for actor then does work
         """Ensure a certain number of workers are running for an actor"""
         logger.debug("top of POST /actors/{}/workers.".format(actor_id))
         dbid = g.db_id

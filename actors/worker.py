@@ -279,7 +279,6 @@ def subscribe(tenant,
         # the msg object is a dictionary with an entry called message and an arbitrary
         # set of k:v pairs coming in from the query parameters.
         message = msg.pop('message', '')
-        # Not threadsafe, checks for actor then does work
         try:
             actor = Actor.from_db(actors_store[actor_id])
             execution_id = msg['_abaco_execution_id']

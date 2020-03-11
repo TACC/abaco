@@ -27,7 +27,6 @@ command_gauge = Gauge(
     ['name'])
 
 def create_gauges(actor_ids):
-    # Not threadsafe, checks for actor then does work
     logger.debug("METRICS: Made it to create_gauges; actor_ids: {}".format(actor_ids))
     inbox_lengths = {}
     for actor_id in actor_ids:

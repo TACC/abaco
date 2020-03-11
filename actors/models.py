@@ -867,7 +867,6 @@ class Execution(AbacoDAO):
         :param ex: dict describing the execution.
         :return:
         """
-        # Not threadsafe, checks for actor then does work
         logger.debug("top of add_execution for actor: {} and execution: {}.".format(actor_id, ex))
         actor = Actor.from_db(actors_store[actor_id])
         ex.update({'actor_id': actor_id,

@@ -249,7 +249,6 @@ def check_worker_health(actor_id, worker, ttl):
             pass
         return None
     # make sure the actor id still exists:
-    # Not threadsafe, checks for actor then does work
     try:
         actors_store[actor_id]
     except KeyError:
@@ -447,7 +446,6 @@ def check_spawners():
 
 
 def manage_workers(actor_id):
-    # Not threadsafe, checks for actor then does work
     """Scale workers for an actor if based on message queue size and policy."""
     logger.info("Entering manage_workers for {}".format(actor_id))
     try:
