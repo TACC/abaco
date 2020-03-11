@@ -167,7 +167,7 @@ def clean_up_clients_store():
     if not secret:
         logger.error("health.py not configured with _abaco_secret. exiting clean_up_clients_store.")
         return None
-    for k, client in clients_store.items():
+    for client in clients_store.items():
         wid = client.get('worker_id')
         if not wid:
             logger.error("client object in clients_store without worker_id. client: {}".format(client))
@@ -187,7 +187,7 @@ def clean_up_clients_store():
         # check to see if the wid is the id of an actual worker:
         worker = get_worker(wid)
         if not worker:
-            logger.info("worker {} is gone. deleting client {}.".format(wid, client))
+            logger.info(f"worker {wid} is gone. deleting client {client}.")
             clients_ch = ClientsChannel()
             msg = clients_ch.request_delete_client(tenant=tenant,
                                                    actor_id=actor_id,
@@ -195,14 +195,14 @@ def clean_up_clients_store():
                                                    client_id=client_key,
                                                    secret=secret)
             if msg['status'] == 'ok':
-                logger.info("Client delete request completed successfully for "
-                            "worker_id: {}, client_id: {}.".format(wid, client_key))
+                logger.info(f"Client delete request completed successfully for "
+                            "worker_id: {wid}, client_id: {client_key}.".format(wid, client_key))
             else:
-                logger.error("Error deleting client for "
-                             "worker_id: {}, client_id: {}. Message: {}".format(wid, msg['message'], client_key, msg))
+                logger.error(f"Error deleting client for "
+                             "worker_id: {wid}, client_id: {client_key}. Message: {msg}")
 
         else:
-            logger.info("worker {} still here. ignoring client {}.".format(wid, client))
+            logger.info(f"worker {wid} still here. ignoring client {client}.")
 
 def batch_executions(aid):
     """
@@ -243,7 +243,7 @@ def check_worker_health(actor_id, worker, ttl):
     if not worker_id:
         logger.error("Corrupt data in the workers_store. Worker object without an id attribute. {}".format(worker))
         try:
-            del workers_store[actor_id]
+            workers_store.pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
@@ -257,7 +257,7 @@ def check_worker_health(actor_id, worker, ttl):
         try:
             # todo - removing worker objects from db can be problematic if other aspects of the worker are not cleaned
             # up properly. this code should be reviewed.
-            del workers_store[actor_id]
+            workers_store.pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass

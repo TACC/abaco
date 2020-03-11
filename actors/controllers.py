@@ -184,9 +184,11 @@ class AdminWorkersResource(Resource):
                    'busy_workers': 0,
                    'actors_no_workers': 0}
         case = Config.get('web', 'case')
-        # the workers_store objects have a kev:value structure where the key is the actor_id and
+        # the workers_store objects have a key:value structure where the key is the actor_id and
         # the value it the worker object (iself, a dictionary).
-        for actor_id, workers in workers_store.items():
+        for workers in workers_store.items(proj_inp=None):
+            actor_id = workers['_id']
+            del workers['_id']
             # we keep entries in the store for actors that have no workers, so need to skip those:
             if not workers:
                 summary['actors_no_workers'] += 1
@@ -415,7 +417,6 @@ class AliasResource(Resource):
         logger.debug("Alias object instantiated; updating alias in alias_store. "
                      "alias: {}".format(new_alias_obj))
         alias_store[alias_id] = new_alias_obj
-        #alias_store[alias_id] = new_alias_obj
         logger.info("alias updated for actor: {}.".format(dbid))
         set_permission(g.user, new_alias_obj.alias_id, UPDATE)
         return ok(result=new_alias_obj.display(), msg="Actor alias updated successfully.")
@@ -655,11 +656,12 @@ class AbacoUtilizationResource(Resource):
         num_current_actors = len(actors_store)
         num_actors = len(workers_store)
         num_workers = 0
-        for k,v in workers_store.items():
-            num_workers += len(v.items())
+        for workers in workers_store.items():
+            del workers['_id']
+            num_workers += len(workers)
 
         ch = CommandChannel()
-        result = {'currentActors':num_current_actors,
+        result = {'currentActors': num_current_actors,
                   'totalActors': num_actors,
                   'workers': num_workers,
                   'commandQueue': len(ch._queue._queue)
@@ -917,9 +919,8 @@ class ActorResource(Resource):
         logger.debug("update args: {}".format(args))
         actor = Actor(**args)
 
-        actors_store[actor.db_id] = actor
+        actors_store[actor.db_id] = actor.to_db()
 
-        #actors_store[actor.db_id] = actor.to_db()
         logger.info("updated actor {} stored in db.".format(actor_id))
         if update_image:
             worker_id = Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)
