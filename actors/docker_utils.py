@@ -354,7 +354,8 @@ def execute_actor(actor_id,
                   fifo_host_path=None,
                   socket_host_path=None,
                   mem_limit=None,
-                  max_cpus=None):
+                  max_cpus=None,
+                  tenant=None):
     """
     Creates and runs an actor container and supervises the execution, collecting statistics about resource consumption
     from the Docker daemon.
@@ -619,7 +620,7 @@ def execute_actor(actor_id,
         # grab the logs every 5th iteration --
         if loop_idx % 5 == 0:
             logs = cli.logs(container.get('Id'))
-            Execution.set_logs(execution_id, logs)
+            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id)
             logs = None
 
         # checking the container status to see if it is still running ----

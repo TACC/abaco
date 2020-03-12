@@ -475,7 +475,7 @@ class Actor(AbacoDAO):
 
     @classmethod
     def get_dbid(cls, tenant, id):
-        """Return the key used in redis from the "display_id" and tenant. """
+        """Return the key used in mongo from the "display_id" and tenant. """
         return str('{}_{}'.format(tenant, id))
 
     @classmethod
@@ -492,7 +492,7 @@ class Actor(AbacoDAO):
         actor_id (str) should be the actor db_id.
         """
         logger.debug("top of set_status for status: {}".format(status))
-        actors_store.update(actor_id, 'status', status)
+        actors_store[actor_id, 'status'] = status
         # we currently publish status change events for actors when the status is changing to ERROR or READY:
         if status == ERROR or status == READY:
             try:
@@ -503,7 +503,7 @@ class Actor(AbacoDAO):
                 logger.error("Got exception trying to publish an actor status event. "
                              "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
         if status_message:
-            actors_store.update(actor_id, 'status_message', status_message)
+            actors_store[actor_id, 'status_message'] = status_message
 
 
 class Alias(AbacoDAO):
@@ -559,7 +559,7 @@ class Alias(AbacoDAO):
         # second, make sure alias is not using a forbidden char:
         self.check_forbidden_char()
         # attempt to create the alias within a transaction
-        obj = alias_store.add_key_val_if_empty(self.alias_id, self)
+        obj = alias_store.add_if_empty([self.alias_id], self)
         if not obj:
             raise errors.DAOError("Alias {} already exists.".format(self.alias))
         return obj
@@ -763,17 +763,17 @@ class Nonce(AbacoDAO):
         """
         nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce_store.update(nonce_key, nonce.id, nonce)
+            nonce_store[nonce_key, nonce.id] = nonce
             logger.debug("nonce {} appended to nonces for actor/alias {}".format(nonce.id, nonce_key))
         except KeyError:
-            nonce_store[nonce_key] = {nonce.id: nonce}
+            nonce_store.add_if_empty([nonce_key, nonce.id], nonce)
             logger.debug("nonce {} added for actor/alias {}".format(nonce.id, nonce_key))
 
     @classmethod
     def delete_nonce(cls, actor_id, alias, nonce_id):
         """Delete a nonce from the nonce_store."""
         nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
-        nonce_store.pop_field(nonce_key, nonce_id)
+        nonce_store.pop_field([nonce_key, nonce_id])
 
     @classmethod
     def check_and_redeem_nonce(cls, actor_id, alias, nonce_id, level):
@@ -781,53 +781,47 @@ class Nonce(AbacoDAO):
         Atomically, check for the existence of a nonce for a given actor_id and redeem it if it
         has not expired. Otherwise, raises PermissionsError. 
         """
-        def _transaction(nonces):
-            """
-            This function can be passed to nonce_store.within_transaction() to atomically check 
-            whether a nonce is expired and, if not, redeem a use. The parameter, nonces, should
-            be the value under the key `nonce_key` associated with the nonce.
-            """
-            # first pull the nonce from the nonces parameter
-            try:
-                nonce = nonces[nonce_id]
-            except KeyError:
-                raise errors.PermissionsException("Nonce does not exist.")
-            # check if the nonce level is sufficient
-            try:
-                if PermissionLevel(nonce['level']) < level:
-                    raise errors.PermissionsException("Nonce does not have sufficient permissions level.")
-            except KeyError:
-                raise errors.PermissionsException("Nonce did not have an associated level.")
-
-            # check if there are remaining uses
-            try:
-                if nonce['remaining_uses'] == -1:
-                    logger.debug("nonce has infinite uses. updating nonce.")
-                    nonce['current_uses'] += 1
-                    nonce['last_use_time'] = get_current_utc_time()
-                    nonce_store.update(nonce_key, nonce_id, nonce)
-                elif nonce['remaining_uses'] > 0:
-                    logger.debug("nonce still has uses remaining. updating nonce.")
-                    nonce['current_uses'] += 1
-                    nonce['remaining_uses'] -= 1
-                    nonce_store.update(nonce_key, nonce_id, nonce)
-                else:
-                    logger.debug("nonce did not have at least 1 use remaining.")
-                    raise errors.PermissionsException("No remaining uses left for this nonce.")
-            except KeyError:
-                logger.debug("nonce did not have a remaining_uses attribute.")
-                raise errors.PermissionsException("No remaining uses left for this nonce.")
-
         # first, make sure the nonce exists for the nonce_key:
         nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce_store[nonce_key][nonce_id]
+            nonce = nonce_store[nonce_key][nonce_id]
         except KeyError:
             raise errors.PermissionsException("Nonce does not exist.")
-        # atomically, check if the nonce is still valid and add a use if so:
-        nonce_store.within_transaction(_transaction, nonce_key)
 
+        # check if the nonce level is sufficient
+        try:
+            if PermissionLevel(nonce['level']) < level:
+                raise errors.PermissionsException("Nonce does not have sufficient permissions level.")
+        except KeyError:
+            raise errors.PermissionsException("Nonce did not have an associated level.")
+        
+        try:
+            # Check for remaining uses equal to -1
+            res = nonce_store.full_update(
+                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$eq': -1}},
+                {'$inc': {nonce_id + '.current_uses': 1},
+                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+            if res.raw_result['updatedExisting'] == True:
+                logger.debug("nonce has infinite uses. updating nonce.")
+                return
 
+            # Check for remaining uses greater than 0
+            res = nonce_store.full_update(
+                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$gt': 0}},
+                {'$inc': {nonce_id + '.current_uses': 1,
+                        nonce_id + '.remaining_uses': -1},
+                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+            if res.raw_result['updatedExisting'] == True:
+                logger.debug("nonce still has uses remaining. updating nonce.")
+                return
+            
+            logger.debug("nonce did not have at least 1 use remaining.")
+            raise errors.PermissionsException("No remaining uses left for this nonce.")
+        except KeyError:
+            logger.debug("nonce did not have a remaining_uses attribute.")
+            raise errors.PermissionsException("No remaining uses left for this nonce.")
+
+      
 class Execution(AbacoDAO):
     """Basic data access object for working with actor executions."""
 
@@ -881,11 +875,9 @@ class Execution(AbacoDAO):
                    })
         execution = Execution(**ex)
         start_timer = timeit.default_timer()
-        try:
-            executions_store.update(actor_id, execution.id, execution)
-        except KeyError:
-            # if actor has no executions, a KeyError will be thrown
-            executions_store[actor_id] = {execution.id: execution}
+        
+        executions_store[actor_id, execution.id] = execution
+
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -905,7 +897,7 @@ class Execution(AbacoDAO):
             actor_id, execution_id, worker_id))
         start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'worker_id', worker_id)
+            executions_store[actor_id, execution_id, 'worker_id'] = worker_id
             logger.debug("worker added to execution: {} actor: {} worker: {}".format(
             execution_id, actor_id, worker_id))
         except KeyError as e:
@@ -930,7 +922,7 @@ class Execution(AbacoDAO):
             actor_id, execution_id, status))
         start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'status', status)
+            executions_store[actor_id, execution_id, 'status'] = status
             logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
             execution_id, actor_id, status))
         except KeyError as e:
@@ -969,13 +961,13 @@ class Execution(AbacoDAO):
             raise errors.ExecutionException("'runtime' parameter required to finalize execution.")
         start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'status', status)
-            executions_store.update_subfield(actor_id, execution_id, 'io', stats['io'])
-            executions_store.update_subfield(actor_id, execution_id, 'cpu', stats['cpu'])
-            executions_store.update_subfield(actor_id, execution_id, 'runtime', stats['runtime'])
-            executions_store.update_subfield(actor_id, execution_id, 'final_state', final_state)
-            executions_store.update_subfield(actor_id, execution_id, 'exit_code', exit_code)
-            executions_store.update_subfield(actor_id, execution_id, 'start_time', start_time)
+            executions_store[actor_id, execution_id, 'status'] = status
+            executions_store[actor_id, execution_id, 'io'] = stats['io']
+            executions_store[actor_id, execution_id, 'cpu'] = stats['cpu']
+            executions_store[actor_id, execution_id, 'runtime'] = stats['runtime']
+            executions_store[actor_id, execution_id, 'final_state'] = final_state
+            executions_store[actor_id, execution_id, 'exit_code'] = exit_code
+            executions_store[actor_id, execution_id, 'start_time'] = start_time
         except KeyError:
             logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
@@ -1001,7 +993,7 @@ class Execution(AbacoDAO):
 
 
     @classmethod
-    def set_logs(cls, exc_id, logs):
+    def set_logs(cls, exc_id, logs, actor_id, tenant, worker_id):
         """
         Set the logs for an execution.
         :param exc_id: the id of the execution (str)
@@ -1023,10 +1015,12 @@ class Execution(AbacoDAO):
         start_timer = timeit.default_timer()
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
-            logs_store.set_with_expiry(exc_id, logs)
+            logs_store.set_with_expiry([exc_id, 'logs'], logs)
         else:
             logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
-            logs_store[exc_id] = logs
+            logs_store[exc_id, logs] = logs
+        logs_store[exc_id, 'actor_id'] = actor_id
+        logs_store[exc_id, 'tenant'] = tenant
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1230,7 +1224,7 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of delete_worker(). actor_id: {}; worker_id: {}".format(actor_id, worker_id))
         try:
-            wk = workers_store.pop_field(actor_id, worker_id)
+            wk = workers_store.pop_field([actor_id, worker_id])
             logger.info("worker deleted. actor: {}. worker: {}.".format(actor_id, worker_id))
         except KeyError as e:
             logger.info("KeyError deleting worker. actor: {}. worker: {}. exception: {}".format(actor_id, worker_id, e))
@@ -1246,7 +1240,7 @@ class Worker(AbacoDAO):
         logger.debug("top of ensure_one_worker.")
         worker_id = Worker.get_uuid()
         worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant}
-        val = workers_store.add_if_empty(actor_id, worker_id, worker)
+        val = workers_store.add_if_empty([actor_id, worker_id], worker)
         if val:
             logger.info("got worker: {} from add_if_empty.".format(val))
             return worker_id
@@ -1268,10 +1262,10 @@ class Worker(AbacoDAO):
         try:
             # we know this worker_id is new since we just generated it, so we don't need to use the update
             # method.
-            workers_store.update(actor_id, worker_id, worker)
+            workers_store[actor_id, worker_id] = worker
             logger.info("added additional worker with id: {} to workers_store.".format(worker_id))
         except KeyError:
-            workers_store[actor_id] = {worker_id: worker}
+            workers_store.add_if_empty([actor_id, worker_id], worker)
             logger.info("added first worker with id: {} to workers_store.".format(worker_id))
         return worker_id
 
@@ -1284,7 +1278,7 @@ class Worker(AbacoDAO):
         returned.
         """
         logger.debug("top of add_worker().")
-        workers_store.update(actor_id, worker['id'], worker)
+        workers_store[actor_id, worker['id']] = worker
         logger.info("worker {} added to actor: {}".format(worker, actor_id))
 
     @classmethod
@@ -1294,7 +1288,7 @@ class Worker(AbacoDAO):
         now = get_current_utc_time()
         start_timer = timeit.default_timer()
         try:
-            workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
+            workers_store[actor_id, worker_id, 'last_execution_time'] = now
         except KeyError as e:
             logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
             raise e
@@ -1309,7 +1303,7 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_health_time().")
         now = get_current_utc_time()
-        workers_store.update_subfield(actor_id, worker_id, 'last_health_check_time', now)
+        workers_store[actor_id, worker_id, 'last_health_check_time'] = now
         logger.info("worker last_health_check_time updated. worker_id: {}".format(worker_id))
 
     @classmethod
@@ -1323,44 +1317,52 @@ class Worker(AbacoDAO):
         # CREATING_CONTAINER -> UPDATING_STORE
         # UPDATING_STORE -> READY
         # READY -> BUSY -> READY ... etc
+        
+        valid_transitions = {
+            SPAWNER_SETUP: [REQUESTED],
+            PULLING_IMAGE: [SPAWNER_SETUP],
+            CREATING_CONTAINER: [PULLING_IMAGE],
+            UPDATING_STORE: [CREATING_CONTAINER],
+            READY: [UPDATING_STORE, BUSY],
+            BUSY: [READY]}
 
-        prev_status = workers_store[actor_id][worker_id]['status']
-
-        # workers can transition to SHUTTING_DOWN from any status
-        if status == SHUTTING_DOWN or status == SHUTDOWN_REQUESTED:
-            pass
-        # workers can always transition to an ERROR status from any status and from an ERROR status to
-        # any status.
-        elif status != ERROR and ERROR not in prev_status:
-            if prev_status == REQUESTED and status != SPAWNER_SETUP:
-                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
-            elif prev_status == SPAWNER_SETUP and status != PULLING_IMAGE:
-                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
-            elif prev_status == PULLING_IMAGE and status != CREATING_CONTAINER:
-                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
-            elif prev_status == CREATING_CONTAINER and status != UPDATING_STORE:
-                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
-            elif prev_status == UPDATING_STORE and status != READY:
-                raise Exception(f"Invalid State Transition f{prev_status} -> f{status}")
-
-        if status == ERROR:
-            status = ERROR + f" (PREVIOUS {prev_status})"
-
-        logger.info(f"worker status will be changed from {prev_status} to {status}")
-
-        # get worker's current status and then do V this separately
-        # this is not threadsafe
         start_timer = timeit.default_timer()
         try:
-            workers_store.update_subfield(actor_id, worker_id, 'status', status)
+            # workers can transition to SHUTTING_DOWN from any status
+            if status == SHUTTING_DOWN or status == SHUTDOWN_REQUESTED:
+                workers_store[actor_id, worker_id, 'status'] = status
+                
+            elif status == ERROR:
+                res = workers_store.full_update(
+                    {'_id': actor_id},
+                    [{'$set': {worker_id + '.status': {"$concat": [ERROR, " (PREVIOUS ", f"${worker_id}.status", ")"]}}}])
+            # workers can always transition to an ERROR status from any status and from an ERROR status to
+            # any status.
+            else:
+                try:
+                    valid_status_1, valid_status_2 = valid_transitions[status]
+                except ValueError:
+                    valid_status_1 = valid_transitions[status][0]
+                    valid_status_2 = None
+                res = workers_store.full_update(
+                    {'_id': actor_id,
+                    '$or': [{worker_id + '.status': valid_status_1},
+                            {worker_id + '.status': valid_status_2}]},
+                    {'$set': {worker_id + '.status': status}})
+                # Checks if nothing was modified (1 if yes, 0 if no)
+                if not res.raw_result['nModified']:
+                    prev_status = workers_store[actor_id, worker_id, 'status']
+                    if not (prev_status == "READY" and status == "READY"):
+                        raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:
             logger.error("Got exception trying to update worker {} subfield status to {}; "
                          "e: {}; type(e): {}".format(worker_id, status, e, type(e)))
+
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
             logger.critical(f"update_worker_status took {ms} to run for actor {actor_id}, worker: {worker_id}")
-        logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
+        logger.info(f"worker status updated to: {status}. worker_id: {worker_id}")
 
     def get_uuid_code(self):
         """ Return the Agave code for this object.
@@ -1443,9 +1445,7 @@ def set_permission(user, actor_id, level):
     logger.debug("top of set_permission().")
     if not isinstance(level, PermissionLevel):
         raise errors.DAOError("level must be a PermissionLevel object.")
-    try:
-        permissions_store.update(actor_id, user, level.name)
-    except KeyError:
-        # if actor has no permissions, a KeyError will be thrown
-        permissions_store[actor_id] = {user: level.name}
+    new = permissions_store.add_if_empty([actor_id, user], str(level))
+    if not new:
+        permissions_store[actor_id, user] = str(level)
     logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))

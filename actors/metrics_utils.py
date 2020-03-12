@@ -42,8 +42,8 @@ def create_gauges(actor_ids):
         if actor_id not in message_gauges.keys():
             try:
                 g = Gauge(
-                    'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                    'Number of messages for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                    'message_count_for_actor_{}'.format(actor_id.replace('-', '_')),
+                    'Number of messages for actor {}'.format(actor_id.replace('-', '_'))
                 )
                 message_gauges.update({actor_id: g})
                 logger.debug('Created gauge {}'.format(g))
@@ -69,12 +69,12 @@ def create_gauges(actor_ids):
 
         # Update this actor's gauge to its current # of messages
         try:
-            ch = ActorMsgChannel(actor_id=actor_id.decode("utf-8"))
+            ch = ActorMsgChannel(actor_id=actor_id)
         except Exception as e:
             logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
             raise e
         result = {'messages': len(ch._queue._queue)}
-        inbox_lengths[actor_id.decode("utf-8")] = len(ch._queue._queue)
+        inbox_lengths[actor_id] = len(ch._queue._queue)
         ch.close()
         g.set(result['messages'])
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
@@ -83,8 +83,8 @@ def create_gauges(actor_ids):
         if actor_id not in worker_gaueges.keys():
             try:
                 g = Gauge(
-                    'worker_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
-                    'Number of workers for actor {}'.format(actor_id.decode("utf-8").replace('-', '_'))
+                    'worker_count_for_actor_{}'.format(actor_id.replace('-', '_')),
+                    'Number of workers for actor {}'.format(actor_id.replace('-', '_'))
                 )
                 worker_gaueges.update({actor_id: g})
                 logger.debug('Created worker gauge {}'.format(g))
@@ -98,6 +98,7 @@ def create_gauges(actor_ids):
         workers = Worker.get_workers(actor_id)
         result = {'workers': len(workers)}
         g.set(result['workers'])
+        logger.debug("METRICS: {} workers found for actor: {}.".format(result['workers'], actor_id))
 
     ch = CommandChannel(name=channel_name)
     cmd_length = len(ch._queue._queue)
@@ -142,7 +143,7 @@ def allow_autoscaling(max_workers, num_workers, cmd_length):
     return True
 
 def scale_up(actor_id):
-    tenant, aid = actor_id.decode('utf8').split('_')
+    tenant, aid = actor_id.split('_')
     logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
     try:
         # create a worker & add to this actor

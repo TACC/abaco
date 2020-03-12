@@ -379,7 +379,7 @@ def get_db_id():
     try:
         actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
     except KeyError:
-        logger.info("Unrecoginzed actor_identifier: {}. Actor not found".format(actor_identifier))
+        logger.info("Unrecognized actor_identifier: {}. Actor not found".format(actor_identifier))
         raise ResourceError("Actor with identifier '{}' not found".format(actor_identifier), 404)
     except Exception as e:
         msg = "Unrecognized exception trying to resolve actor identifier: {}; " \

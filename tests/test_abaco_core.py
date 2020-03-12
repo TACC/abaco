@@ -859,7 +859,6 @@ def test_update_actor_other_user(headers):
 CH_NAME_1 = 'special'
 CH_NAME_2 = 'default'
 
-
 @pytest.mark.queuetest
 def test_create_actor_with_custom_queue_name(headers):
     url = '{}/actors'.format(base_url)
@@ -2020,6 +2019,7 @@ def test_cant_update_link_with_cycle(headers):
 ##############
 
 def test_remove_final_actors(headers):
+    time.sleep(60)
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -2030,6 +2030,17 @@ def test_remove_final_actors(headers):
 
 def test_tenant_remove_final_actors(headers):
     headers = switch_tenant_in_header(headers)
+    url = '{}/actors'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    for act in result:
+        url = '{}/actors/{}'.format(base_url, act.get('id'))
+        rsp = requests.delete(url, headers=headers)
+        result = basic_response_checks(rsp)
+
+def test_limited_remove_final_actors(headers):
+    headers = limited_headers()
+    #headers = switch_tenant_in_header(headers)
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)

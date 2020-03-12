@@ -409,7 +409,8 @@ def subscribe(tenant,
                                                                             fifo_host_path,
                                                                             socket_host_path,
                                                                             mem_limit,
-                                                                            max_cpus)
+                                                                            max_cpus,
+                                                                            tenant)
         except DockerStartContainerError as e:
             logger.error("Worker {} got DockerStartContainerError: {} trying to start actor for execution {}."
                          "Placing message back on queue.".format(worker_id, e, execution_id))
@@ -465,7 +466,7 @@ def subscribe(tenant,
 
         # Add the logs to the execution
         try:
-            Execution.set_logs(execution_id, logs)
+            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id)
             logger.debug("Successfully added execution logs.")
         except Exception as e:
             msg = "Got exception trying to set logs for exception {}; " \

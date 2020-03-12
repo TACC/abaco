@@ -70,13 +70,10 @@ class MetricsResource(Resource):
 
     def get_metrics(self):
         logger.debug("top of get in MetricResource")
-
-        actor_ids = [
-            db_id
-            for db_id, actor
-            in actors_store.items() if actor.get('stateless') and not actor.get('status') == 'ERROR'
-                                       and not actor.get('status') == SHUTTING_DOWN
-        ]
+        actor_ids = [actor['db_id'] for actor in actors_store.items()
+            if actor.get('stateless')
+            and not actor.get('status') == 'ERROR'
+            and not actor.get('status') == SHUTTING_DOWN]
 
         try:
             if actor_ids:
@@ -157,8 +154,8 @@ class AdminActorsResource(Resource):
         logger.debug("top of GET /admin/actors")
         case = Config.get('web', 'case')
         actors = []
-        for k, v in actors_store.items():
-            actor = Actor.from_db(v)
+        for actor_info in actors_store.items():
+            actor = Actor.from_db(actor_info)
             actor.workers = []
             for id, worker in Worker.get_workers(actor.db_id).items():
                 if case == 'camel':
@@ -187,9 +184,11 @@ class AdminWorkersResource(Resource):
                    'busy_workers': 0,
                    'actors_no_workers': 0}
         case = Config.get('web', 'case')
-        # the workers_store objects have a kev:value structure where the key is the actor_id and
+        # the workers_store objects have a key:value structure where the key is the actor_id and
         # the value it the worker object (iself, a dictionary).
-        for actor_id, workers in workers_store.items():
+        for workers in workers_store.items(proj_inp=None):
+            actor_id = workers['_id']
+            del workers['_id']
             # we keep entries in the store for actors that have no workers, so need to skip those:
             if not workers:
                 summary['actors_no_workers'] += 1
@@ -231,7 +230,6 @@ class AdminWorkersResource(Resource):
 
 
 class AdminExecutionsResource(Resource):
-
     def get(self):
         logger.debug("top of GET /admin/workers")
         result = {'summary': {'total_actors_all': 0,
@@ -248,11 +246,11 @@ class AdminExecutionsResource(Resource):
                   'actors': []
         }
         case = Config.get('web', 'case')
-        for actor_dbid, executions in executions_store.items():
+        for executions_by_actor in executions_store.items():
             # determine if actor still exists:
             actor = None
             try:
-                actor = Actor.from_db(actors_store[actor_dbid])
+                actor = Actor.from_db(actors_store[executions_by_actor['_id']])
             except KeyError:
                 pass
             # iterate over executions for this actor:
@@ -260,7 +258,7 @@ class AdminExecutionsResource(Resource):
             actor_runtime = 0
             actor_io = 0
             actor_cpu = 0
-            for ex_id, execution in executions.items():
+            for execution in executions_by_actor:
                 actor_exs += 1
                 actor_runtime += execution.get('runtime', 0)
                 actor_io += execution.get('io', 0)
@@ -300,9 +298,9 @@ class AliasesResource(Resource):
         logger.debug("top of GET /aliases")
 
         aliases = []
-        for k, v in alias_store.items():
-            if v['tenant'] == g.tenant:
-                aliases.append(Alias.from_db(v).display())
+        for alias in alias_store.items():
+            if alias['tenant'] == g.tenant:
+                aliases.append(Alias.from_db(alias).display())
         logger.info("aliases retrieved.")
         return ok(result=aliases, msg="Aliases retrieved successfully.")
 
@@ -571,7 +569,7 @@ def check_for_link_cycles(db_id, link_dbid):
     # create the links graph, resolving each link attribute to a db_id along the way:
     # start with the passed in link, this is the "proposed" link -
     links = {db_id: link_dbid}
-    for _, actor in actors_store.items():
+    for actor in actors_store.items():
         if actor.get('link'):
             try:
                 link_id = Actor.get_actor_id(actor.get('tenant'), actor.get('link'))
@@ -657,11 +655,12 @@ class AbacoUtilizationResource(Resource):
         num_current_actors = len(actors_store)
         num_actors = len(workers_store)
         num_workers = 0
-        for k,v in workers_store.items():
-            num_workers += len(v.items())
+        for workers in workers_store.items():
+            del workers['_id']
+            num_workers += len(workers)
 
         ch = CommandChannel()
-        result = {'currentActors':num_current_actors,
+        result = {'currentActors': num_current_actors,
                   'totalActors': num_actors,
                   'workers': num_workers,
                   'commandQueue': len(ch._queue._queue)
@@ -674,9 +673,9 @@ class ActorsResource(Resource):
         logger.debug("top of GET /actors")
 
         actors = []
-        for k, v in actors_store.items():
-            if v['tenant'] == g.tenant:
-                actor = Actor.from_db(v)
+        for actor_info in actors_store.items():
+            if actor_info['tenant'] == g.tenant:
+                actor = Actor.from_db(actor_info)
                 if check_permissions(g.user, actor.db_id, READ):
                     actors.append(actor.display())
         logger.info("actors retrieved.")
@@ -759,9 +758,10 @@ class ActorsResource(Resource):
         args['mounts'] = get_all_mounts(args)
         logger.debug("create args: {}".format(args))
         actor = Actor(**args)
-        actors_store[actor.db_id] = actor.to_db()
+        # Change function
+        actors_store.add_if_empty([actor.db_id], actor)
         # initialize the actor's executions to the empty dictionary
-        executions_store[actor.db_id] = {}
+        executions_store.add_if_empty([actor.db_id], {'_id': actor.db_id})
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))
@@ -798,7 +798,10 @@ class ActorResource(Resource):
             actor.set_status(id, SHUTTING_DOWN)
             # delete all logs associated with executions -
             try:
-                executions = actor.get('executions') or {}
+                try:
+                    executions = executions_store[id]
+                except KeyError:
+                    executions = {}
                 for ex_id, val in executions.items():
                     del logs_store[ex_id]
             except KeyError as e:
@@ -844,7 +847,7 @@ class ActorResource(Resource):
         del permissions_store[id]
         logger.info("actor {} permissions deleted from store.".format(id))
         del nonce_store[id]
-        logger.info("actor {} nonnces delete from nonce store.".format(id))
+        logger.info("actor {} nonces delete from nonce store.".format(id))
         msg = 'Actor deleted successfully.'
         if not workers == {}:
             msg = "Actor deleted successfully, though Abaco is still cleaning up some of the actor's resources."
@@ -912,7 +915,9 @@ class ActorResource(Resource):
         args['last_update_time'] = get_current_utc_time()
         logger.debug("update args: {}".format(args))
         actor = Actor(**args)
+
         actors_store[actor.db_id] = actor.to_db()
+
         logger.info("updated actor {} stored in db.".format(actor_id))
         if update_image:
             worker_id = Worker.request_worker(tenant=g.tenant, actor_id=actor.db_id)
@@ -992,7 +997,7 @@ class ActorStateResource(Resource):
             raise ResourceError("actor is stateless.", 404)
         state = self.validate_post()
         logger.debug("state post params validated: {}".format(actor_id))
-        actors_store.update(dbid, 'state', state)
+        actors_store[dbid, 'state'] = state
         logger.info("state updated: {}".format(actor_id))
         actor = Actor.from_db(actors_store[dbid])
         return ok(result=actor.display(), msg="State updated successfully.")
@@ -1246,7 +1251,7 @@ class ActorExecutionLogsResource(Resource):
             logger.debug("did not find execution: {}. actor: {}.".format(execution_id, actor_id))
             raise ResourceError("Execution {} not found.".format(execution_id))
         try:
-            logs = logs_store[execution_id]
+            logs = logs_store[execution_id]['logs']
         except KeyError:
             logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
             logs = ""
@@ -1263,7 +1268,6 @@ def get_messages_hypermedia(actor):
 
 
 class MessagesResource(Resource):
-
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/messages".format(actor_id))
         # check that actor exists
@@ -1345,7 +1349,6 @@ class MessagesResource(Resource):
 
     def post(self, actor_id):
         start_timer = timeit.default_timer()
-
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc),
                                'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
@@ -1502,7 +1505,7 @@ class MessagesResource(Resource):
                     # if we still have no result, get the logs -
                     if not result:
                         try:
-                            result = logs_store[execution_id]
+                            result = logs_store[execution_id]['logs']
                         except KeyError:
                             logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
                             result = ""

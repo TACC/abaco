@@ -24,20 +24,17 @@ def get_actors_executions_for_report():
               'actors': []
               }
 
-    final = len(executions_store)
     current = 0
-
-    for actor_dbid, executions in executions_store.items():
-        current = current + 1
-        print("processing {}/{} executions".format(current, final))
+    for actor in executions_store.items(proj_inp= None):
+        dbid = actor['_id']
+        del actor['_id']
         # determine if actor still exists:
         actor = None
         # there are "history" records which batch large numbers of executions for
         # very active actors. the key for these records is of the form:
         #  <actor_dbid>_HIST_<hist_id>
-        dbid = actor_dbid
-        if '_HIST_' in actor_dbid:
-            dbid = actor_dbid.split('_HIST_')[0]
+        if '_HIST_' in dbid:
+            dbid = dbid.split('_HIST_')[0]
 
         try:
             actor = Actor.from_db(actors_store[dbid])
@@ -48,7 +45,9 @@ def get_actors_executions_for_report():
         actor_runtime = 0
         actor_io = 0
         actor_cpu = 0
-        for ex_id, execution in executions.items():
+        for _, execution in actor.items():
+            current += 1
+            print(f"processing execution {current}")
             actor_exs += 1
             actor_runtime += execution.get('runtime', 0)
             actor_io += execution.get('io', 0)
