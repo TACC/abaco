@@ -11,14 +11,14 @@ TEST="$1"
 
 # if nothing passed, run the full suite
 if [ -z $TEST ]; then
-  pytest --maxfail $maxErrors /tests/test_abaco_core.py
+  pytest /tests/test_abaco_core.py
 elif [ "$#" -eq 2 ]; then
   TEST="$1 $2"
   echo $TEST
-  pytest --maxfail $maxErrors $TEST
+  pytest $TEST
 elif [ "$#" -eq 3 ]; then
   TEST="$1 $2 $3"
-  pytest --maxfail $maxErrors $TEST
+  pytest $TEST
 else
-  pytest --maxfail $maxErrors $TEST
+  pytest $TEST
 fi
