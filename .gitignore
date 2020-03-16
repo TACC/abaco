@@ -66,6 +66,5 @@ passwords.yml
 *.key
 *.log
 abaco.log
-docker-compose.yml
 tests/.DS_Store
 .DS_Store

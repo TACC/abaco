@@ -5,6 +5,7 @@
 
 -e git://github.com/TACC/channelpy.git#egg=channelpy
 
+werkzeug==0.14.1
 flask==0.12.2
 Flask-RESTful==0.3.6
 

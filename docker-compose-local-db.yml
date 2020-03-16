@@ -1,18 +1,40 @@
 ---
 
-version: "2"
+version: "3.3"
+
+networks:
+    abaco:
+        driver: bridge
+        
 services:
     mongo:
         image: mongo
         ports:
             - "27017:27017"
-    #    uncomment to add auth
-    #    command: --auth
+        #    uncomment to add auth
+        #    command: --auth
+        networks:
+            - abaco
+        ulimits:
+          nproc: 65535
+          nofile:
+            soft: 65535
+            hard: 65535
 
     rabbit:
-        image: rabbitmq:3.5.3-management
+        image: rabbitmq:3.6.12-management
         ports:
             - "5672:5672"
             - "15672:15672"
         environment:
-           RABBITMQ_NODENAME: abaco-rabbit
+            RABBITMQ_NODENAME: abaco-rabbit
+            RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+A 128"
+        ulimits:
+          nproc: 65535
+          nofile:
+            soft: 65535
+            hard: 65535
+        networks:
+            - abaco
+        depends_on:
+            - mongo

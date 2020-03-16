@@ -22,7 +22,7 @@ services:
             hard: 65535
 
     rabbit:
-        image: rabbitmq:3.5.3-management
+        image: rabbitmq:3.6.12-management
         ports:
             - "5672:5672"
             - "15672:15672"
