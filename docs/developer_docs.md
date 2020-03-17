@@ -45,7 +45,7 @@ All core modules live in the actors package. The modules ending in _api.py defin
 The store.py module defines high-level interfaces for interacting with databases, and stores.py provides specific
 definitions of Abaco stores used in the models.py module.
 
-The backend processes (e.g. spawners, workers, health checks and clientg) are defined in their own modules with a
+The backend processes (e.g. spawners, workers, health checks, and clientg) are defined in their own modules with a
  corresponding main method used for start up.
 
 Channels used for communication between Abaco processes are implemented in the channels.py module.
@@ -89,14 +89,13 @@ $ touch abaco.log
 ```
 The abaco_path variable needs to contain the path to a directory with an abaco.conf file. It is used by Abaco containers to
 know where to find the config file. Note that the abaco.conf contains the default IP address of the Docker0 gateway for
-Mongo and Redis. If your Docker0 gateway IP is different, you will need to updte the abaco.conf file.
+Mongo. If your Docker0 gateway IP is different, you will need to updte the abaco.conf file.
 
 Several optional aspects of the Abaco development stack require additional configuration. By default, the databases
-(Redis, Mongo and RabbitMQ) do not use authentication. To test with authentication, uncomment the relevant stanzas from
+(Mongo and RabbitMQ) do not use authentication. To test with authentication, uncomment the relevant stanzas from
 the docker-comppose-local-db.yml file and export the following variables:
 ```shell
 $ export mongo_password=password
-$ export redi_password=password
 ```
 
 In order to run containers with UIDs generated from TAS, put
@@ -179,12 +178,11 @@ We divide up the state persisted in the Abaco system into "stores" defined in th
 these stores represent an independent collection of data (though there are relations) and thus can be
 stored in different databases.
 
-We currently use both Redis and MongoDB for different stores. We use Redis for current application state
-(e.g. actors_store and workers_store) where transaction semantics are needed and the size of the
-dataset will be relatively small. We use Mongo for the permissions, accounting and logging data (permissions_store,
-executions_store and logs_store). Naturally, the log data (actual raw logs from the container executions) presents a
-challenge in space, and was one of the primary reasons for adding support for Mongo. We already use a set_with_expiry
-method to store the logs for a fixed period of time.
+Previously Redis and MongoDB shared different stores. We now use MongoDB for all stores. The DB is used to store current application state
+(e.g. actors_store and workers_store) and information about the permissions, accounting, nonces, clients, pre-gen clients, and logging data
+(permissions_store, executions_store, nonce_store, clients_store, pregen_clients, and logs_store). Naturally, the log data (actual raw logs
+from the container executions) presented a challenge in space and meant MongoDB would be a suitable DB. We use a set_with_expiry method
+to store the logs for a fixed period of time.
 
 
 Spawners Starting Workers and Client Generation
@@ -352,3 +350,53 @@ Prometheus works by doing a GET request to the `/metrics` endpoint of Abaco, whi
 
 Prometheus has some configuration files, found in the prometheus directory. Here, there is also a Dockerfile. The autoscaling feature uses a separate docker-compose file, `docker-compose-prom`.
 
+Mongo Conversion
+----------------
+Version 1.6 of Abaco restructures data storage by removing Redis and storing all data in MongoDB. This conversion to solely
+MongoDB was done for simplicity, atomicity, and the ability to implement search with more ease. The conversion required updating
+the data structure of saved documents to match between stores that were previously part of Redis. An example for each store is below:
+
+logs_store:
+```
+{"_id": <execution_id>,
+ "exp": <datetime>,
+ "logs": <container logs>,
+ "actor_id": <actor_id>,
+ "tenant": <tenant>}
+```
+
+permissions_store:
+```
+{"_id": <actor_id>,
+ <user name>: <permissions level for actor_id>}
+ ```
+
+executions_store:
+```
+{"_id": "DEV-DEVELOP_4RL0j08Jlylr3",
+ "Alxkor1JXLROL": {"tenant" : "DEV-DEVELOP",
+                   "api_server" : "https://dev.tenants.develop.tacc.cloud",
+                   "actor_id" : "DEV-DEVELOP_4RL0j08Jlylr3",
+                   "executor" : "testuser",
+                   "worker_id" : "XyQ0zQ1KqpZ4v",
+                   "id" : "Alxkor1JXLROL",
+                   "message_received_time" : "1584041880.596872",
+                   "start_time" : "1584041880.88901",
+                   "runtime" : 2,
+                   "cpu" : 86970884,
+                   "io" : 626,
+                   "status" : "COMPLETE",
+                   "exit_code" : 0,
+                   "final_state": {"Status" : "exited",
+                                   "Running" : false,
+                                   "Paused" : false,
+                                   "Restarting" : false,
+                                   "OOMKilled" : false,
+                                   "Dead" : false,
+                                   "Pid" : 0,
+                                   "ExitCode" : 0,
+                                   "Error" : "",
+                                   "StartedAt" : "2020-03-12T19:38:01.180270359Z",
+                                   "FinishedAt" : "2020-03-12T19:38:03.190703518Z"},
+  ...
+```
