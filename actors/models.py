@@ -876,7 +876,7 @@ class Execution(AbacoDAO):
         execution = Execution(**ex)
         start_timer = timeit.default_timer()
         
-        executions_store[actor_id, execution.id] = execution
+        executions_store[f'{actor_id}_{execution.id}'] = execution
 
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
@@ -897,7 +897,7 @@ class Execution(AbacoDAO):
             actor_id, execution_id, worker_id))
         start_timer = timeit.default_timer()
         try:
-            executions_store[actor_id, execution_id, 'worker_id'] = worker_id
+            executions_store[f'{actor_id}_{execution_id}', 'worker_id'] = worker_id
             logger.debug("worker added to execution: {} actor: {} worker: {}".format(
             execution_id, actor_id, worker_id))
         except KeyError as e:
@@ -922,7 +922,7 @@ class Execution(AbacoDAO):
             actor_id, execution_id, status))
         start_timer = timeit.default_timer()
         try:
-            executions_store[actor_id, execution_id, 'status'] = status
+            executions_store[f'{actor_id}_{execution_id}', 'status'] = status
             logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
             execution_id, actor_id, status))
         except KeyError as e:
@@ -961,13 +961,13 @@ class Execution(AbacoDAO):
             raise errors.ExecutionException("'runtime' parameter required to finalize execution.")
         start_timer = timeit.default_timer()
         try:
-            executions_store[actor_id, execution_id, 'status'] = status
-            executions_store[actor_id, execution_id, 'io'] = stats['io']
-            executions_store[actor_id, execution_id, 'cpu'] = stats['cpu']
-            executions_store[actor_id, execution_id, 'runtime'] = stats['runtime']
-            executions_store[actor_id, execution_id, 'final_state'] = final_state
-            executions_store[actor_id, execution_id, 'exit_code'] = exit_code
-            executions_store[actor_id, execution_id, 'start_time'] = start_time
+            executions_store[f'{actor_id}_{execution_id}', 'status'] = status
+            executions_store[f'{actor_id}_{execution_id}', 'io'] = stats['io']
+            executions_store[f'{actor_id}_{execution_id}', 'cpu'] = stats['cpu']
+            executions_store[f'{actor_id}_{execution_id}', 'runtime'] = stats['runtime']
+            executions_store[f'{actor_id}_{execution_id}', 'final_state'] = final_state
+            executions_store[f'{actor_id}_{execution_id}', 'exit_code'] = exit_code
+            executions_store[f'{actor_id}_{execution_id}', 'start_time'] = start_time
         except KeyError:
             logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
             raise errors.ExecutionException("Execution {} not found.".format(execution_id))
@@ -1083,12 +1083,9 @@ class ExecutionsSummary(AbacoDAO):
                'total_io': 0,
                'total_runtime': 0,
                'executions': []}
-        try:
-            executions = executions_store[dbid]
-        except KeyError:
-            executions = {}
-        for id, val in executions.items():
-            execution = {'id': id,
+        executions = executions_store.items({'actor_id': dbid})
+        for val in executions:
+            execution = {'id': val.get('id'),
                          'status': val.get('status'),
                          'start_time': val.get('start_time'),
                          'message_received_time': val.get('message_received_time')}
@@ -1192,10 +1189,7 @@ class Worker(AbacoDAO):
     def get_workers(cls, actor_id):
         """Retrieve all workers for an actor. Pass db_id as `actor_id` parameter."""
         start_timer = timeit.default_timer()
-        try:
-            result = workers_store[actor_id]
-        except KeyError:
-            result = {}
+        result = workers_store.items({'actor_id': actor_id})
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1207,7 +1201,7 @@ class Worker(AbacoDAO):
         """Retrieve a worker from the workers store. Pass db_id as `actor_id` parameter."""
         start_timer = timeit.default_timer()
         try:
-            result = workers_store[actor_id][worker_id]
+            result = workers_store[f'{actor_id}_{worker_id}']
         except KeyError:
             raise errors.WorkerException("Worker not found.")
         stop_timer = timeit.default_timer()
@@ -1224,10 +1218,10 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of delete_worker(). actor_id: {}; worker_id: {}".format(actor_id, worker_id))
         try:
-            wk = workers_store.pop_field([actor_id, worker_id])
-            logger.info("worker deleted. actor: {}. worker: {}.".format(actor_id, worker_id))
+            wk = workers_store.pop_field([f'{actor_id}_{worker_id}'])
+            logger.info(f"worker deleted. actor: {actor_id}. worker: {worker_id}.")
         except KeyError as e:
-            logger.info("KeyError deleting worker. actor: {}. worker: {}. exception: {}".format(actor_id, worker_id, e))
+            logger.info(f"KeyError deleting worker. actor: {actor_id}. worker: {actor_id}. exception: {e}")
             raise errors.WorkerException("Worker not found.")
 
     @classmethod
@@ -1239,8 +1233,8 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of ensure_one_worker.")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant}
-        val = workers_store.add_if_empty([actor_id, worker_id], worker)
+        worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant, 'actor_id': actor_id}
+        val = workers_store.add_if_empty([f'{actor_id}_{worker_id}'], worker)
         if val:
             logger.info("got worker: {} from add_if_empty.".format(val))
             return worker_id
@@ -1256,16 +1250,16 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of request_worker().")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id}
+        worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id, 'actor_id': actor_id}
         # it's possible the actor_id is not in the workers_store yet (i.e., new actor with no workers)
         # In that case we need to catch a KeyError:
         try:
             # we know this worker_id is new since we just generated it, so we don't need to use the update
             # method.
-            workers_store[actor_id, worker_id] = worker
+            workers_store[f'{actor_id}_{worker_id}'] = worker
             logger.info("added additional worker with id: {} to workers_store.".format(worker_id))
         except KeyError:
-            workers_store.add_if_empty([actor_id, worker_id], worker)
+            workers_store.add_if_empty([f'{actor_id}_{worker_id}'], worker)
             logger.info("added first worker with id: {} to workers_store.".format(worker_id))
         return worker_id
 
@@ -1278,7 +1272,7 @@ class Worker(AbacoDAO):
         returned.
         """
         logger.debug("top of add_worker().")
-        workers_store[actor_id, worker['id']] = worker
+        workers_store[f'{actor_id}_{worker["id"]}'] = worker
         logger.info("worker {} added to actor: {}".format(worker, actor_id))
 
     @classmethod
@@ -1288,7 +1282,7 @@ class Worker(AbacoDAO):
         now = get_current_utc_time()
         start_timer = timeit.default_timer()
         try:
-            workers_store[actor_id, worker_id, 'last_execution_time'] = now
+            workers_store[f'{actor_id}_{worker_id}', 'last_execution_time'] = now
         except KeyError as e:
             logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
             raise e
@@ -1303,7 +1297,7 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_health_time().")
         now = get_current_utc_time()
-        workers_store[actor_id, worker_id, 'last_health_check_time'] = now
+        workers_store[f'{actor_id}_{worker_id}', 'last_health_check_time'] = now
         logger.info("worker last_health_check_time updated. worker_id: {}".format(worker_id))
 
     @classmethod
@@ -1330,12 +1324,12 @@ class Worker(AbacoDAO):
         try:
             # workers can transition to SHUTTING_DOWN from any status
             if status == SHUTTING_DOWN or status == SHUTDOWN_REQUESTED:
-                workers_store[actor_id, worker_id, 'status'] = status
+                workers_store[f'{actor_id}_{worker_id}', 'status'] = status
                 
             elif status == ERROR:
                 res = workers_store.full_update(
-                    {'_id': actor_id},
-                    [{'$set': {worker_id + '.status': {"$concat": [ERROR, " (PREVIOUS ", f"${worker_id}.status", ")"]}}}])
+                    {'_id': f'{actor_id}_{worker_id}'},
+                    [{'$set': {'status': {"$concat": [ERROR, " (PREVIOUS ", f"${worker_id}.status", ")"]}}}])
             # workers can always transition to an ERROR status from any status and from an ERROR status to
             # any status.
             else:
@@ -1345,13 +1339,13 @@ class Worker(AbacoDAO):
                     valid_status_1 = valid_transitions[status][0]
                     valid_status_2 = None
                 res = workers_store.full_update(
-                    {'_id': actor_id,
-                    '$or': [{worker_id + '.status': valid_status_1},
-                            {worker_id + '.status': valid_status_2}]},
-                    {'$set': {worker_id + '.status': status}})
+                    {'_id': f'{actor_id}_{worker_id}',
+                    '$or': [{'status': valid_status_1},
+                            {'status': valid_status_2}]},
+                    {'$set': {'status': status}})
                 # Checks if nothing was modified (1 if yes, 0 if no)
                 if not res.raw_result['nModified']:
-                    prev_status = workers_store[actor_id, worker_id, 'status']
+                    prev_status = workers_store[f'{actor_id}_{worker_id}', 'status']
                     if not (prev_status == "READY" and status == "READY"):
                         raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:

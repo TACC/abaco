@@ -250,7 +250,7 @@ class AdminExecutionsResource(Resource):
             # determine if actor still exists:
             actor = None
             try:
-                actor = Actor.from_db(actors_store[executions_by_actor['_id']])
+                actor = Actor.from_db(actors_store[executions_by_actor['actor_id']])
             except KeyError:
                 pass
             # iterate over executions for this actor:
@@ -760,8 +760,6 @@ class ActorsResource(Resource):
         actor = Actor(**args)
         # Change function
         actors_store.add_if_empty([actor.db_id], actor)
-        # initialize the actor's executions to the empty dictionary
-        executions_store.add_if_empty([actor.db_id], {'_id': actor.db_id})
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))
@@ -798,12 +796,9 @@ class ActorResource(Resource):
             actor.set_status(id, SHUTTING_DOWN)
             # delete all logs associated with executions -
             try:
-                try:
-                    executions = executions_store[id]
-                except KeyError:
-                    executions = {}
-                for ex_id, val in executions.items():
-                    del logs_store[ex_id]
+                executions_by_actor = executions_store.items({'actor_id': id})
+                for execution in executions_by_actor:
+                    del logs_store[execution['id']]
             except KeyError as e:
                 logger.info("got KeyError {} trying to retrieve actor or executions with id {}".format(
                     e, id))
@@ -1151,35 +1146,23 @@ class ActorNonceResource(Resource):
 
 class ActorExecutionResource(Resource):
     def get(self, actor_id, execution_id):
-        logger.debug("top of GET /actors/{}/executions/{}.".format(actor_id, execution_id))
+        logger.debug(f"top of GET /actors/{actor_id}/executions/{execution_id}.")
         dbid = g.db_id
         try:
-            excs = executions_store[dbid]
+            exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
         except KeyError:
-            logger.debug("did not find executions: {}.".format(actor_id))
-            raise ResourceError("No executions found for actor {}.".format(actor_id))
-        try:
-            exc = Execution.from_db(excs[execution_id])
-        except KeyError:
-            logger.debug("did not find execution: {}. actor: {}.".format(execution_id,
-                                                                         actor_id))
-            raise ResourceError("Execution not found {}.".format(execution_id))
+            logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
+            raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
         return ok(result=exc.display(), msg="Actor execution retrieved successfully.")
 
     def delete(self, actor_id, execution_id):
         logger.debug("top of DELETE /actors/{}/executions/{}.".format(actor_id, execution_id))
         dbid = g.db_id
         try:
-            excs = executions_store[dbid]
+            exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
         except KeyError:
-            logger.debug("did not find executions: {}.".format(actor_id))
-            raise ResourceError("No executions found for actor {}.".format(actor_id))
-        try:
-            exc = Execution.from_db(excs[execution_id])
-        except KeyError:
-            logger.debug("did not find execution: {}. actor: {}.".format(execution_id,
-                                                                         actor_id))
-            raise ResourceError("Execution not found {}.".format(execution_id))
+            logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
+            raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
         # check status of execution:
         if not exc.status == codes.RUNNING:
             logger.debug("execution not in {} status: {}".format(codes.RUNNING, exc.status))
@@ -1241,15 +1224,10 @@ class ActorExecutionLogsResource(Resource):
             raise ResourceError(
                 "No actor found with id: {}.".format(actor_id), 404)
         try:
-            excs = executions_store[dbid]
+            exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
         except KeyError:
-            logger.debug("did not find executions. actor: {}.".format(actor_id))
-            raise ResourceError("No executions found for actor {}.".format(actor_id))
-        try:
-            exc = Execution.from_db(excs[execution_id])
-        except KeyError:
-            logger.debug("did not find execution: {}. actor: {}.".format(execution_id, actor_id))
-            raise ResourceError("Execution {} not found.".format(execution_id))
+            logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
+            raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
         try:
             logs = logs_store[execution_id]['logs']
         except KeyError:
@@ -1487,8 +1465,7 @@ class MessagesResource(Resource):
             # check to see if execution has completed:
             if not complete:
                 try:
-                    excs = executions_store[dbid]
-                    exc = Execution.from_db(excs[execution_id])
+                    exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
                     complete = exc.status == COMPLETE
                 except Exception as e:
                     logger.info("got exception trying to check execution status: {}".format(e))

@@ -338,7 +338,7 @@ def subscribe(tenant,
 
         # the execution object was created by the controller, but we need to add the worker id to it now that we
         # know which worker will be working on the execution.
-        logger.debug("Adding worker_id to execution. woker_id: {}".format(worker_id))
+        logger.debug("Adding worker_id to execution. worker_id: {}".format(worker_id))
         try:
             Execution.add_worker_id(actor_id, execution_id, worker_id)
         except Exception as e:
@@ -497,7 +497,7 @@ def get_container_user(actor):
         return None
     uid = actor.get('uid')
     gid = actor.get('gid')
-    logger.debug("The uid: {} and gid:{} from the actor.".format(uid, gid))
+    logger.debug("The uid: {} and gid: {} from the actor.".format(uid, gid))
     if not uid:
         if Config.get('workers', 'use_tas_uid') and not actor.get('use_container_uid'):
             logger.warn('Warning - legacy actor running as image UID without use_container_uid!')

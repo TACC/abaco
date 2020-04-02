@@ -204,37 +204,6 @@ def clean_up_clients_store():
         else:
             logger.info(f"worker {wid} still here. ignoring client {client}.")
 
-def batch_executions(aid):
-    """
-    Batch the executions for a specific actor id, `aid`. Should be the database id.
-    :param aid:
-    :return:
-    """
-    # make a local copy of the executions -
-    d = executions_store[aid]
-    # fix an ordering of keys -
-    ld = list(d)
-    if len(d) <= MAX_EXECUTIONS_PER_MONGO_DOC:
-        return
-    # split executions into two dicts -
-    # d2: all complete executions below MAX_EXECUTIONS_PER_MONGO_DOC
-    # d3: all incomplete executions below MAX_EXECUTIONS_PER_MONGO_DOC
-    # and anything above MAX_EXECUTIONS_PER_MONGO_DOC
-    d2 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if d[k].get('status') == 'COMPLETE'}
-    d3 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if not d[k].get('status') == 'COMPLETE'}
-    d3.update({k: d[k] for k in ld[MAX_EXECUTIONS_PER_MONGO_DOC: ]})
-    executions_store[aid] = d3
-    # get next index of historical docs -
-    i = 1
-    while True:
-        try:
-            executions_store['{}_HIST_{}'.format(aid, i)]
-            i = i + 1
-        except KeyError:
-            break
-    executions_store['{}_HIST_{}'.format(aid, i)] = d2
-
-
 def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
