@@ -380,17 +380,35 @@ def subscribe(tenant,
 
         # if we have an agave client, get a fresh set of tokens:
         if ag:
-            try:
-                ag.token.refresh()
-                token = ag.token.token_info['access_token']
-                environment['_abaco_access_token'] = token
-                logger.info("Refreshed the tokens. Passed {} to the environment.".format(token))
-            except Exception as e:
-                logger.error("Got an exception trying to get an access token. Stoping worker and nacking message. "
-                             "Exception: {}".format(e))
-                msg_obj.nack(requeue=True)
-                logger.info("worker exiting. worker_id: {}".format(worker_id))
-                raise e
+            need_to_refresh = True
+            refresh_attempts = 0
+            while need_to_refresh and refresh_attempts < 10:
+                refresh_attempts = refresh_attempts + 1
+                try:
+                    ag.token.refresh()
+                    token = ag.token.token_info['access_token']
+                    environment['_abaco_access_token'] = token
+                    logger.info("Refreshed the tokens. Passed {} to the environment.".format(token))
+                    need_to_refresh = False
+                except Exception as e:
+                    logger.error("Got an exception trying to get an access token. Stopping worker and nacking message. "
+                                 "Exception: {}; actor_id: {}; worker_id: {}; execution_id: {}; client_id: {}; "
+                                 "client_secret: {}".format(e, actor_id, worker_id, execution_id, client_id, client_secret))
+                    # try to log the raw response; it is possible the exception object, e, will not have a response object
+                    # on it, for instance if one of the other lines above caused the exception.
+                    try:
+                        logger.error("content from response: {}".format(e.response.content))
+                    except Exception as e2:
+                        logger.error("got exception trying to log response content: {}".format(e2))
+                    # we hit the limit; give up, nack the message and raise an exception (which will put the actor in
+                    # ERROR state).
+                    if refresh_attempts == 10:
+                        msg_obj.nack(requeue=True)
+                        logger.info("worker exiting. worker_id: {}".format(worker_id))
+                        raise e
+                    else:
+                        # otherwise, wait 2 seconds and then try again:
+                        time.sleep(2)
         else:
             logger.info("Agave client `ag` is None -- not passing access token; worker_id: {}".format(worker_id))
         logger.info("Passing update environment: {}".format(environment))
