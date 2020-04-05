@@ -700,7 +700,7 @@ def test_execute_and_delete_sleep_loop_actor(headers):
             worker_id = rsp.get('workerId')
         idx += 1
         time.sleep(1)
-        if idx > 10:
+        if idx > 15:
             print("worker never got sleep_loop execution. "
                   "actor: {}; execution: {}; idx:{}".format(actor_id, exc_id, idx))
             assert False
