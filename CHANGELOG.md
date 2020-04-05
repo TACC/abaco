@@ -1,6 +1,22 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
+## 1.5.1 - 2020-04-05
+### Added
+- No change.
+
+### Changed
+- Fixed a bug resulting in an exception and possibly setting an actor to ERROR state when truncating an execution log. 
+- Physically delete worker records from workers store in spawner when a previous or concurrent error prevents the spawner from ever creating/starting the worker containers.
+- Workers now try to refresh the access token up to 10 times (with a 2 second sleep between each attempt) before giving up and putting the actor into an ERROR state.
+- Fixed an exception (which previously was only logged and swallowed) in the metrics_utils module caused by trying to access a variable that had not been defined under a certain code path.
+- Added additional logging in spawner and worker modules.  
+
+### Removed
+- No change.
+
+
 ## 1.5.0 - 2019-10-29
 ### Added
 - Added an endpoint `PUT /actors/aliases/{alias}` for updating the 
