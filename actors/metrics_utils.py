@@ -58,14 +58,14 @@ def create_gauges(actor_ids):
                 logger.info("got exception trying to instantiate an existing gauge; "
                             "actor: {}: exception:{}".format(actor_id, e))
 
-            # Update this actor's command channel metric
-            channel_name = actor.get("queue")
+        # Update this actor's command channel metric
+        channel_name = actor.get("queue")
 
-            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
-            valid_queues = queues_list.split(',')
+        queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+        valid_queues = queues_list.split(',')
 
-            if not channel_name or channel_name not in valid_queues:
-                channel_name = 'default'
+        if not channel_name or channel_name not in valid_queues:
+            channel_name = 'default'
 
         # Update this actor's gauge to its current # of messages
         try:
