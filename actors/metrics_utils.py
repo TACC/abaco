@@ -32,6 +32,7 @@ def create_gauges(actor_ids):
     for actor_id in actor_ids:
         logger.debug("top of for loop for actor_id: {}".format(actor_id))
 
+        channel_name = None
         try:
             actor = actors_store[actor_id]
         except KeyError:
@@ -58,14 +59,14 @@ def create_gauges(actor_ids):
                 logger.info("got exception trying to instantiate an existing gauge; "
                             "actor: {}: exception:{}".format(actor_id, e))
 
-        # Update this actor's command channel metric
-        channel_name = actor.get("queue")
+            # Update this actor's command channel metric
+            channel_name = actor.get("queue")
 
-        queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
-        valid_queues = queues_list.split(',')
+            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+            valid_queues = queues_list.split(',')
 
-        if not channel_name or channel_name not in valid_queues:
-            channel_name = 'default'
+            if not channel_name or channel_name not in valid_queues:
+                channel_name = 'default'
 
         # Update this actor's gauge to its current # of messages
         try:
@@ -99,6 +100,8 @@ def create_gauges(actor_ids):
         result = {'workers': len(workers)}
         g.set(result['workers'])
 
+    if not channel_name:
+        return
     ch = CommandChannel(name=channel_name)
     cmd_length = len(ch._queue._queue)
     command_gauge.labels(channel_name).set(cmd_length)
