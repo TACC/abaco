@@ -16,11 +16,13 @@ from channels import ExecutionResultsChannel
 from config import Config
 from codes import BUSY, READY, RUNNING
 import globals
-from models import Execution, get_current_utc_time
+from models import Execution, get_current_utc_time, display_time
+from stores import workers_store
+
 
 TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
 if not TAG[0] == ':':
-    TAG = ':{}',format(TAG)
+    TAG = ':{}'.format(TAG)
 AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
 
 # timeout (in seconds) for the socket server
@@ -92,7 +94,50 @@ def pull_image(image):
 def list_all_containers():
     """Returns a list of all containers """
     cli = docker.APIClient(base_url=dd, version="auto")
-    # todo -- finish
+    return cli.containers()
+
+
+def get_current_worker_containers():
+    worker_containers = []
+    containers = list_all_containers()
+    for c in containers:
+        if 'worker' in c['Names'][0]:
+            container_name = c['Names'][0]
+            # worker container names have format "/worker_<tenant>_<actor-id>_<worker-id>
+            # so split on _ to get parts
+            try:
+                parts = container_name.split('_')
+                tenant_id = parts[1]
+                actor_id = parts[2]
+                worker_id = parts[3]
+                worker_containers.append({'container': c,
+                                          'tenant_id': tenant_id,
+                                          'actor_id': actor_id,
+                                          'worker_id': worker_id
+                                          })
+            except:
+                pass
+    return worker_containers
+
+def check_worker_containers_against_store():
+    """
+    cheks the existing worker containers on a host against the status of the worker in the workers_store.
+    """
+    worker_containers = get_current_worker_containers()
+    for idx, w in enumerate(worker_containers):
+        try:
+            # try to get the worker from the store:
+            store_key = '{}_{}'.format(w['tenant_id'], w['actor_id'])
+            worker = workers_store[store_key][w['worker_id']]
+        except KeyError:
+            worker = {}
+        status = worker.get('status')
+        try:
+            last_execution_time = display_time(worker.get('last_execution_time'))
+        except:
+            last_execution_time = None
+        print(idx, '). ', w['actor_id'], w['worker_id'], status, last_execution_time)
+
 
 def container_running(name=None):
     """Check if there is a running container whose name contains the string, `name`. Note that this function will
