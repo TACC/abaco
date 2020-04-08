@@ -50,7 +50,7 @@ pull:
 test:
 	sleep 5
 	docker build -t abaco/testsuite$$TAG -f Dockerfile-test .
-	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=1 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$$TAG $$test
+	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$$TAG $$test
 
 
 # Builds a few sample Docker images

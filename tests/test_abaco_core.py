@@ -1556,9 +1556,9 @@ def test_delete_worker(headers):
 
     # check the workers store:
     dbid = models.Actor.get_dbid(get_tenant(headers), actor_id)
-    workers = stores.workers_store.get(dbid)
-    for k,v in workers.items():
-        assert not k == id
+    workers = stores.workers_store.items({'actor_id': dbid})
+    for worker in workers:
+        assert not worker['id'] == id
 
 def test_list_permissions(headers):
     actor_id = get_actor_id(headers)

@@ -91,32 +91,32 @@ class Spawner(object):
         """Stop existing workers; used when updating an actor's image."""
         logger.debug("Top of stop_workers() for actor: {}.".format(actor_id))
         try:
-            workers_dict = workers_store[actor_id]
+            workers_list = workers_store.items({'actor_id': actor_id})
         except KeyError:
             logger.debug("workers_store had no workers for actor: {}".format(actor_id))
-            workers_dict = {}
+            workers_list = []
 
         # if there are existing workers, we need to close the actor message channel and
         # gracefully shutdown the existing worker processes.
-        if len(workers_dict.items()) > 0:
-            logger.info("Found {} workers to stop.".format(len(workers_dict.items())))
+        if len(workers_list) > 0:
+            logger.info(f"Found {len(workers_list)} workers to stop.")
             # first, close the actor msg channel to prevent any new messages from being pulled
             # by the old workers.
             actor_ch = ActorMsgChannel(actor_id)
             actor_ch.close()
             logger.info("Actor channel closed for actor: {}".format(actor_id))
             # now, send messages to workers for a graceful shutdown:
-            for _, worker in workers_dict.items():
+            for worker in workers_list:
                 # don't stop the new workers:
                 if worker['id'] not in worker_ids:
                     ch = WorkerChannel(worker_id=worker['id'])
                     # since this is an update, there are new workers being started, so
                     # don't delete the actor msg channel:
                     ch.put('stop-no-delete')
-                    logger.info("Sent 'stop-no-delete' message to worker_id: {}".format(worker['id']))
+                    logger.info(f"Sent 'stop-no-delete' message to worker_id: {worker['id']}")
                     ch.close()
                 else:
-                    logger.debug("skipping worker {} as it it not in worker_ids.".format(worker))
+                    logger.debug("skipping worker {worker} as it it not in worker_ids.")
         else:
             logger.info("No workers to stop.")
 
@@ -135,7 +135,7 @@ class Spawner(object):
         tenant = cmd['tenant']
         stop_existing = cmd.get('stop_existing', True)
         num_workers = 1
-        logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {}"
+        logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {} "
                     "stop_existing: {} num_workers: {}".format(actor_id, worker_id,
                                                                image, tenant, stop_existing, num_workers))
         # if the worker was sent a delete request before spawner received this message to create the worker,
