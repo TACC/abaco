@@ -8,7 +8,7 @@ from controllers import ActorResource, AliasesResource, AliasResource, AliasNonc
     ActorStateResource, ActorsResource, \
     ActorExecutionsResource, ActorExecutionResource, ActorExecutionResultsResource, \
     ActorExecutionLogsResource, ActorNoncesResource, ActorNonceResource, \
-    AbacoUtilizationResource
+    AbacoUtilizationResource, SearchResource
 from auth import authn_and_authz
 from errors import errors
 
@@ -43,6 +43,8 @@ api.add_resource(ActorExecutionResultsResource, '/actors/<string:actor_id>/execu
 api.add_resource(ActorNoncesResource, '/actors/<string:actor_id>/nonces')
 api.add_resource(ActorNonceResource, '/actors/<string:actor_id>/nonces/<string:nonce_id>')
 api.add_resource(ActorExecutionLogsResource, '/actors/<string:actor_id>/executions/<string:execution_id>/logs')
+
+api.add_resource(SearchResource, '/search/<string:search_type>')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)

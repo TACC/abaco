@@ -17,20 +17,24 @@ server {
         proxy_pass http://mes:5000/actors/$1/messages$is_args$args;
     }
 
-    location ~/actors/(.*)/workers(.*) {
+    location ~ /actors/(.*)/workers(.*) {
         proxy_pass http://admin:5000/actors/$1/workers$2$is_args$args;
     }
 
-    location ~/actors/aliases/(.*)/permissions {
+    location ~ /actors/aliases/(.*)/permissions {
         proxy_pass http://admin:5000/actors/aliases/$1/permissions$is_args$args;
     }
 
-    location ~/actors/(.*)/permissions {
+    location ~ /actors/(.*)/permissions {
         proxy_pass http://admin:5000/actors/$1/permissions$is_args$args;
     }
 
-    location ~/actors(.*) {
+    location ~ ^/actors(.*) {
         proxy_pass http://reg:5000/actors$1$is_args$args;
+    }
+
+    location ~ ^/search/(.*) {
+        proxy_pass http://reg:5000/search/$1$is_args$args;
     }
 
     # custom 400 errors:
