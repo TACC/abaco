@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file.
 
 
+## 1.5.2 - 2020-04-08
+### Added
+- No change.
+
+### Changed
+- Add second check of the globals.keep_running sentinel in the main worker thread (thread 1) to shrink the time 
+window between a worker receiving a shutdown signal (in thread 2) and relaying that to thread 1, particularl after a 
+new actor message was received (in thread 1). 
+The previous, larger time window resulted in a race condition that could cause an actor message to get 
+"partially" processed while the worker was being shut down. In particular, refreshing the token in thread 1 could fail if 
+thread 2 had already removed the oauth client.
+- Add retry logic to oauth client generation for a new worker; try up to 10 times before giving up and putting the actor 
+in an error state.
+
+
 ## 1.5.1 - 2020-04-05
 ### Added
 - No change.
