@@ -127,8 +127,8 @@ def check_worker_containers_against_store():
     for idx, w in enumerate(worker_containers):
         try:
             # try to get the worker from the store:
-            store_key = '{}_{}'.format(w['tenant_id'], w['actor_id'])
-            worker = workers_store[store_key][w['worker_id']]
+            store_key = '{}_{}_{}'.format(w['tenant_id'], w['actor_id'], w['worker_id'])
+            worker = workers_store[store_key]
         except KeyError:
             worker = {}
         status = worker.get('status')

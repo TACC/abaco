@@ -245,8 +245,8 @@ def zero_out_clients_db():
       4) run this function
     :return:
     """
-    for k, _ in clients_store.items():
-        clients_store[k] = {}
+    for client in clients_store.items():
+        clients_store[client['_id']] = {}
 
 
 def check_workers(actor_id, ttl):
