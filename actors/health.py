@@ -45,25 +45,18 @@ def get_actor_ids():
 def check_workers_store(ttl):
     logger.debug("Top of check_workers_store.")
     """Run through all workers in workers_store and ensure there is no data integrity issue."""
-    for workers_by_actor in workers_store:
-        if len(workers_by_actor) > 1:
-            aid = workers_by_actor['_id']
-            del workers_by_actor['_id']
-            for worker in workers_by_actor.values():
-                check_worker_health(aid, worker, ttl)
+    for worker in workers_store.items():
+        aid = worker['actor_id']
+        check_worker_health(aid, worker, ttl)
 
 def get_worker(wid):
     """
     Check to see if a string `wid` is the id of a worker in the worker store.
     If so, return it; if not, return None.
     """
-    for workers_by_actor in workers_store.items():
-        for worker in workers_by_actor.values():
-            try:
-                if worker['id'] == wid:
-                    return worker
-            except KeyError:
-                pass
+    worker = workers_store.items({'id': wid})
+    if worker:
+        return worker
     return None
 
 def clean_up_socket_dirs():
@@ -204,37 +197,6 @@ def clean_up_clients_store():
         else:
             logger.info(f"worker {wid} still here. ignoring client {client}.")
 
-def batch_executions(aid):
-    """
-    Batch the executions for a specific actor id, `aid`. Should be the database id.
-    :param aid:
-    :return:
-    """
-    # make a local copy of the executions -
-    d = executions_store[aid]
-    # fix an ordering of keys -
-    ld = list(d)
-    if len(d) <= MAX_EXECUTIONS_PER_MONGO_DOC:
-        return
-    # split executions into two dicts -
-    # d2: all complete executions below MAX_EXECUTIONS_PER_MONGO_DOC
-    # d3: all incomplete executions below MAX_EXECUTIONS_PER_MONGO_DOC
-    # and anything above MAX_EXECUTIONS_PER_MONGO_DOC
-    d2 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if d[k].get('status') == 'COMPLETE'}
-    d3 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if not d[k].get('status') == 'COMPLETE'}
-    d3.update({k: d[k] for k in ld[MAX_EXECUTIONS_PER_MONGO_DOC: ]})
-    executions_store[aid] = d3
-    # get next index of historical docs -
-    i = 1
-    while True:
-        try:
-            executions_store['{}_HIST_{}'.format(aid, i)]
-            i = i + 1
-        except KeyError:
-            break
-    executions_store['{}_HIST_{}'.format(aid, i)] = d2
-
-
 def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
@@ -270,8 +232,8 @@ def zero_out_workers_db():
       3) run clean_up_clients_store().
     :return:
     """
-    for aid in workers_store:
-        workers_store[aid] = {}
+    for worker in workers_store.items(proj_inp=None):
+        del workers_store[worker['_id']]
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
@@ -284,7 +246,7 @@ def check_workers(actor_id, ttl):
     logger.debug("workers: {}".format(workers))
     host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
     logger.debug("host_id: {}".format(host_id))
-    for _, worker in workers.items():
+    for worker in workers:
         # if the worker has only been requested, it will not have a host_id.
         if 'host_id' not in worker:
             # @todo- we will skip for now, but we need something more robust in case the worker is never claimed.
@@ -454,8 +416,7 @@ def manage_workers(actor_id):
         logger.info("Did not find actor; returning.")
         return
     workers = Worker.get_workers(actor_id)
-    for key in workers:
-        worker = get_worker(key)
+    for worker in workers:
         time_difference = time.time() - worker['create_time']
         if worker['status'] == 'PROCESSING' and time_difference > 1:
             logger.info("LOOK HERE - worker creation time {}".format(worker['create_time']))
@@ -468,7 +429,11 @@ def shutdown_all_workers():
     """
     # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
     logger.debug("Top of shutdown_all_workers.")
-    for actor_id in workers_store:
+    actors_with_workers = set()
+    for worker in workers_store.items():
+        actors_with_workers.add(worker['actor_id'])
+
+    for actor_id in actors_with_workers:
         check_workers(actor_id, 0)
 
 def main():

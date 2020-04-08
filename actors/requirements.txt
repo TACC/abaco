@@ -17,7 +17,7 @@ PyJWT==0.2.3
 gunicorn==19.9.0
 rabbitpy==1.0.0
 pyzmq==14.3.0
-pymongo==3.3.0
+pymongo==3.10.1
 hashids==1.2.0
 
 # we can migrate to a higher version of cloudpickle as soon as we upgrade the samples images (e.g. abacosamples/py3_func:dev)

@@ -185,7 +185,7 @@ def scale_down(actor_id, is_sync_actor=False):
                     logger.error(f"Got exception trying to read sync_max_idle_time from config; e:{e}")
                     sync_max_idle_time = DEFAULT_SYNC_MAX_IDLE_TIME
                 check_ttl = True
-            worker = workers.popitem()[1]
+            worker = workers.pop()
             if check_ttl:
                 try:
                     last_execution = int(float(worker.get('last_execution_time', 0)))

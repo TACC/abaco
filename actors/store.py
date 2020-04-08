@@ -267,8 +267,8 @@ class MongoStore(AbstractStore):
                 update={'$set': {'exp': datetime.utcnow(), dots: self._prepset(value)}},
                 upsert=True)
 
-    def full_update(self, key, value):
-        result = self._db.update_one(key, value)
+    def full_update(self, key, value, upsert=False):
+        result = self._db.update_one(key, value, upsert)
         return result
 
     def getset(self, fields, value):

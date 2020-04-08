@@ -23,7 +23,7 @@ from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Executi
 
 from mounts import get_all_mounts
 import codes
-from stores import actors_store, alias_store, clients_store, workers_store, executions_store, logs_store, nonce_store, permissions_store
+from stores import actors_store, alias_store, clients_store, workers_store, executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
 
@@ -151,26 +151,29 @@ class MetricsResource(Resource):
 
 class AdminActorsResource(Resource):
     def get(self):
-        logger.debug("top of GET /admin/actors")
+        logger.debug("top of GET /admin")
         case = Config.get('web', 'case')
         actors = []
-        for actor_info in actors_store.items():
-            actor = Actor.from_db(actor_info)
-            actor.workers = []
-            for id, worker in Worker.get_workers(actor.db_id).items():
+        try:
+            for actor in actors_store.items():
+                actor = Actor.from_db(actor)
+                actor.workers = []
+                for worker in Worker.get_workers(actor.db_id):
+                    if case == 'camel':
+                        worker = dict_to_camel(worker)
+                    actor.workers.append(worker)
+                ch = ActorMsgChannel(actor_id=actor.db_id)
+                actor.messages = len(ch._queue._queue)
+                ch.close()
+                summary = ExecutionsSummary(db_id=actor.db_id)
+                actor.executions = summary.total_executions
+                actor.runtime = summary.total_runtime
                 if case == 'camel':
-                    worker = dict_to_camel(worker)
-                actor.workers.append(worker)
-            ch = ActorMsgChannel(actor_id=actor.db_id)
-            actor.messages = len(ch._queue._queue)
-            ch.close()
-            summary = ExecutionsSummary(db_id=actor.db_id)
-            actor.executions = summary.total_executions
-            actor.runtime = summary.total_runtime
-            if case == 'camel':
-                actor = dict_to_camel(actor)
-            actors.append(actor)
-        logger.info("actors retrieved.")
+                    actor = dict_to_camel(actor)
+                actors.append(actor)
+            logger.info("actors retrieved.")
+        except Exception as e:
+            logger.critical(f'LOOK AT ME: {e}')
         return ok(result=actors, msg="Actors retrieved successfully.")
 
 class AdminWorkersResource(Resource):
@@ -185,59 +188,55 @@ class AdminWorkersResource(Resource):
                    'actors_no_workers': 0}
         case = Config.get('web', 'case')
         # the workers_store objects have a key:value structure where the key is the actor_id and
-        # the value it the worker object (iself, a dictionary).
-        for workers in workers_store.items(proj_inp=None):
-            actor_id = workers['_id']
-            del workers['_id']
-            # we keep entries in the store for actors that have no workers, so need to skip those:
-            if not workers:
-                summary['actors_no_workers'] += 1
-                continue
-            # otherwise, we have an actor with workers:
-            for worker_id, worker in workers.items():
-                worker.update({'id': worker_id})
-                w = Worker(**worker)
-                # add additional fields
-                actor_display_id = Actor.get_display_id(worker.get('tenant'), actor_id.decode("utf-8"))
-                w.update({'actor_id': actor_display_id})
-                w.update({'actor_dbid': actor_id.decode("utf-8")})
-                # convert additional fields to case, as needed
-                logger.debug("worker before case conversion: {}".format(w))
-                last_execution_time_str = w.pop('last_execution_time')
-                last_health_check_time_str = w.pop('last_health_check_time')
-                create_time_str = w.pop('create_time')
-                w['last_execution_time'] = display_time(last_execution_time_str)
-                w['last_health_check_time'] = display_time(last_health_check_time_str)
-                w['create_time'] = display_time(create_time_str)
-                if case == 'camel':
-                    w = dict_to_camel(w)
-                workers_result.append(w)
-                summary['total_workers'] += 1
-                if worker.get('status') == codes.REQUESTED:
-                    summary['requested_workers'] += 1
-                elif worker.get('status') == codes.READY:
-                    summary['ready_workers'] += 1
-                elif worker.get('status') == codes.ERROR:
-                    summary['error_workers'] += 1
-                elif worker.get('status') == codes.BUSY:
-                    summary['busy_workers'] += 1
+        # the value is the worker object (iself, a dictionary).
+        actors_with_workers = set()
+        for worker in workers_store.items(proj_inp=None):
+            actor_id = worker['actor_id']
+            actors_with_workers.add(actor_id)
+            w = Worker(**worker)
+            actor_display_id = Actor.get_display_id(worker.get('tenant'), actor_id)
+            w.update({'actor_id': actor_display_id})
+            w.update({'actor_dbid': actor_id})
+            # convert additional fields to case, as needed
+            logger.debug(f"worker before case conversion: {w}")
+            last_execution_time_str = w.pop('last_execution_time')
+            last_health_check_time_str = w.pop('last_health_check_time')
+            create_time_str = w.pop('create_time')
+            w['last_execution_time'] = display_time(last_execution_time_str)
+            w['last_health_check_time'] = display_time(last_health_check_time_str)
+            w['create_time'] = display_time(create_time_str)
+            if case == 'camel':
+                w = dict_to_camel(w)
+            workers_result.append(w)
+            summary['total_workers'] += 1
+            if worker.get('status') == codes.REQUESTED:
+                summary['requested_workers'] += 1
+            elif worker.get('status') == codes.READY:
+                summary['ready_workers'] += 1
+            elif worker.get('status') == codes.ERROR:
+                summary['error_workers'] += 1
+            elif worker.get('status') == codes.BUSY:
+                summary['busy_workers'] += 1
+        summary['actors_no_workers'] = len(actors_store) - len(actors_with_workers)
         logger.info("workers retrieved.")
         if case == 'camel':
             summary = dict_to_camel(summary)
         result = {'summary': summary,
-                  'workers': workers_result}
+                'workers': workers_result}
         return ok(result=result, msg="Workers retrieved successfully.")
 
 
 class AdminExecutionsResource(Resource):
     def get(self):
-        logger.debug("top of GET /admin/workers")
+        logger.debug("top of GET /admin/executions")
         result = {'summary': {'total_actors_all': 0,
+                              'total_actors_all_with_executions': 0,
                               'total_executions_all': 0,
                               'total_execution_runtime_all': 0,
                               'total_execution_cpu_all': 0,
                               'total_execution_io_all': 0,
                               'total_actors_existing': 0,
+                              'total_actors_existing_with_executions': 0,
                               'total_executions_existing': 0,
                               'total_execution_runtime_existing': 0,
                               'total_execution_cpu_existing': 0,
@@ -246,47 +245,57 @@ class AdminExecutionsResource(Resource):
                   'actors': []
         }
         case = Config.get('web', 'case')
-        for executions_by_actor in executions_store.items():
-            # determine if actor still exists:
-            actor = None
-            try:
-                actor = Actor.from_db(actors_store[executions_by_actor['_id']])
-            except KeyError:
+        actor_stats = {}
+        actor_does_not_exist = []
+        for execution in executions_store.items():
+            actor_id = execution['actor_id']
+            actor_cpu = execution['cpu']
+            actor_io = execution['io']
+            actor_runtime = execution['runtime']
+            if actor_id in actor_does_not_exist:
                 pass
-            # iterate over executions for this actor:
-            actor_exs = 0
-            actor_runtime = 0
-            actor_io = 0
-            actor_cpu = 0
-            for execution in executions_by_actor:
-                actor_exs += 1
-                actor_runtime += execution.get('runtime', 0)
-                actor_io += execution.get('io', 0)
-                actor_cpu += execution.get('cpu', 0)
+            else:
+                try:
+                    # checks if actor existance has already been tested
+                    if not actor_id in actor_stats:
+                        result['summary']['total_actors_all_with_executions'] += 1
+                        # determine if actor still exists:
+                        actor = Actor.from_db(actors_store[actor_id])
+                        # creates dict if actor does exist
+                        actor_stats[actor_id] = {'actor_id': actor.get('id'),
+                                                'owner': actor.get('owner'),
+                                                'image': actor.get('image'),
+                                                'total_executions': 0,
+                                                'total_execution_cpu': 0,
+                                                'total_execution_io': 0,
+                                                'total_execution_runtime': 0}
+                        result['summary']['total_actors_existing_with_executions'] += 1
+
+                    # write actor information if actor does exist
+                    actor_stats[actor_id]['total_executions'] += 1
+                    actor_stats[actor_id]['total_execution_runtime'] += actor_runtime
+                    actor_stats[actor_id]['total_execution_io'] += actor_io
+                    actor_stats[actor_id]['total_execution_cpu'] += actor_cpu
+                    # write result information if actor does exist
+                    result['summary']['total_executions_existing'] += 1
+                    result['summary']['total_execution_runtime_existing'] += actor_runtime
+                    result['summary']['total_execution_io_existing'] += actor_io
+                    result['summary']['total_execution_cpu_existing'] += actor_cpu
+                except KeyError:
+                    actor_does_not_exist.append(actor_id)
             # always add these to the totals:
-            result['summary']['total_actors_all'] += 1
-            result['summary']['total_executions_all'] += actor_exs
+            result['summary']['total_executions_all'] += 1
             result['summary']['total_execution_runtime_all'] += actor_runtime
             result['summary']['total_execution_io_all'] += actor_io
             result['summary']['total_execution_cpu_all'] += actor_cpu
 
-            if actor:
-                result['summary']['total_actors_existing'] += 1
-                result['summary']['total_executions_existing'] += actor_exs
-                result['summary']['total_execution_runtime_existing'] += actor_runtime
-                result['summary']['total_execution_io_existing'] += actor_io
-                result['summary']['total_execution_cpu_existing'] += actor_cpu
-                actor_stats = {'actor_id': actor.get('id'),
-                               'owner': actor.get('owner'),
-                               'image': actor.get('image'),
-                               'total_executions': actor_exs,
-                               'total_execution_cpu': actor_cpu,
-                               'total_execution_io': actor_io,
-                               'total_execution_runtime': actor_runtime,
-                               }
-                if case == 'camel':
-                    actor_stats = dict_to_camel(actor_stats)
-                result['actors'].append(actor_stats)
+        result['summary']['total_actors_all'] += abaco_metrics_store['stats', 'actor_total']
+        result['summary']['total_actors_existing'] += len(actors_store)
+
+        for actor_stat in actor_stats.values():
+            if case == 'camel':
+                actor_stat = dict_to_camel(actor_stat)
+            result['actors'].append(actor_stat)
 
         if case == 'camel':
             result['summary'] = dict_to_camel(result['summary'])
@@ -760,8 +769,12 @@ class ActorsResource(Resource):
         actor = Actor(**args)
         # Change function
         actors_store.add_if_empty([actor.db_id], actor)
-        # initialize the actor's executions to the empty dictionary
-        executions_store.add_if_empty([actor.db_id], {'_id': actor.db_id})
+        abaco_metrics_store.full_update(
+            {'_id': 'stats'},
+            {'$inc': {'actor_total': 1},
+             '$addToSet': {'actor_dbids': actor.db_id}},
+             upsert=True)
+
         logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
                                                                                    actor.image,
                                                                                    actor.tenant))
@@ -798,12 +811,9 @@ class ActorResource(Resource):
             actor.set_status(id, SHUTTING_DOWN)
             # delete all logs associated with executions -
             try:
-                try:
-                    executions = executions_store[id]
-                except KeyError:
-                    executions = {}
-                for ex_id, val in executions.items():
-                    del logs_store[ex_id]
+                executions_by_actor = executions_store.items({'actor_id': id})
+                for execution in executions_by_actor:
+                    del logs_store[execution['id']]
             except KeyError as e:
                 logger.info("got KeyError {} trying to retrieve actor or executions with id {}".format(
                     e, id))
@@ -824,7 +834,7 @@ class ActorResource(Resource):
                 logger.debug("did not find workers for actor: {}; escaping.".format(actor_id))
                 shutdown = True
                 break
-            if workers == {}:
+            if not workers:
                 logger.debug(f"all workers gone, escaping. idx: {idx}")
                 shutdown = True
             else:
@@ -849,7 +859,7 @@ class ActorResource(Resource):
         del nonce_store[id]
         logger.info("actor {} nonces delete from nonce store.".format(id))
         msg = 'Actor deleted successfully.'
-        if not workers == {}:
+        if workers:
             msg = "Actor deleted successfully, though Abaco is still cleaning up some of the actor's resources."
         return ok(result=None, msg=msg)
 
@@ -1151,35 +1161,23 @@ class ActorNonceResource(Resource):
 
 class ActorExecutionResource(Resource):
     def get(self, actor_id, execution_id):
-        logger.debug("top of GET /actors/{}/executions/{}.".format(actor_id, execution_id))
+        logger.debug(f"top of GET /actors/{actor_id}/executions/{execution_id}.")
         dbid = g.db_id
         try:
-            excs = executions_store[dbid]
+            exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
         except KeyError:
-            logger.debug("did not find executions: {}.".format(actor_id))
-            raise ResourceError("No executions found for actor {}.".format(actor_id))
-        try:
-            exc = Execution.from_db(excs[execution_id])
-        except KeyError:
-            logger.debug("did not find execution: {}. actor: {}.".format(execution_id,
-                                                                         actor_id))
-            raise ResourceError("Execution not found {}.".format(execution_id))
+            logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
+            raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
         return ok(result=exc.display(), msg="Actor execution retrieved successfully.")
 
     def delete(self, actor_id, execution_id):
         logger.debug("top of DELETE /actors/{}/executions/{}.".format(actor_id, execution_id))
         dbid = g.db_id
         try:
-            excs = executions_store[dbid]
+            exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
         except KeyError:
-            logger.debug("did not find executions: {}.".format(actor_id))
-            raise ResourceError("No executions found for actor {}.".format(actor_id))
-        try:
-            exc = Execution.from_db(excs[execution_id])
-        except KeyError:
-            logger.debug("did not find execution: {}. actor: {}.".format(execution_id,
-                                                                         actor_id))
-            raise ResourceError("Execution not found {}.".format(execution_id))
+            logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
+            raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
         # check status of execution:
         if not exc.status == codes.RUNNING:
             logger.debug("execution not in {} status: {}".format(codes.RUNNING, exc.status))
@@ -1241,15 +1239,10 @@ class ActorExecutionLogsResource(Resource):
             raise ResourceError(
                 "No actor found with id: {}.".format(actor_id), 404)
         try:
-            excs = executions_store[dbid]
+            exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
         except KeyError:
-            logger.debug("did not find executions. actor: {}.".format(actor_id))
-            raise ResourceError("No executions found for actor {}.".format(actor_id))
-        try:
-            exc = Execution.from_db(excs[execution_id])
-        except KeyError:
-            logger.debug("did not find execution: {}. actor: {}.".format(execution_id, actor_id))
-            raise ResourceError("Execution {} not found.".format(execution_id))
+            logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
+            raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
         try:
             logs = logs_store[execution_id]['logs']
         except KeyError:
@@ -1487,8 +1480,7 @@ class MessagesResource(Resource):
             # check to see if execution has completed:
             if not complete:
                 try:
-                    excs = executions_store[dbid]
-                    exc = Execution.from_db(excs[execution_id])
+                    exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
                     complete = exc.status == COMPLETE
                 except Exception as e:
                     logger.info("got exception trying to check execution status: {}".format(e))
@@ -1529,8 +1521,7 @@ class WorkersResource(Resource):
             logger.debug("did not find workers for actor: {}.".format(actor_id))
             raise ResourceError(e.msg, 404)
         result = []
-        for id, worker in workers.items():
-            worker.update({'id': id})
+        for worker in workers:
             try:
                 w = Worker(**worker)
                 result.append(w.display())
@@ -1571,11 +1562,11 @@ class WorkersResource(Resource):
         except WorkerException as e:
             logger.debug("did not find workers for actor: {}.".format(actor_id))
             raise ResourceError(e.msg, 404)
-        current_number_workers = len(workers.items())
+        current_number_workers = len(workers)
         if current_number_workers < num:
             logger.debug("There were only {} workers for actor: {} so we're adding more.".format(current_number_workers,
                                                                                                  actor_id))
-            num_to_add = int(num) - len(workers.items())
+            num_to_add = int(num) - len(workers)
             logger.info("adding {} more workers for actor {}".format(num_to_add, actor_id))
             for idx in range(num_to_add):
                 # send num_to_add messages to add 1 worker so that messages are spread across multiple
