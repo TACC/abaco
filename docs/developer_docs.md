@@ -293,8 +293,20 @@ Deployment checklist:
 
 ```shell
 $ export abaco_path=$(pwd)
-$ export TAG=0.5.1
+$ export TAG=1.5.1
 ```
+1) shutdown the web front-end containers except for prom and metrics. This will make it so that
+no new messages can be received, but the prom and metrics services will continue to start/shutdown workers.
+2) shutdown spawners - at this point, no new workers will get created.
+3) wait for actor containers to stop running on compute node.
+4) remove prom and metrics from web host; remove all but health container from compute hosts.
+5) run the following functions from the health python shell:
+```
+>>> health.zero_out_workers_db()
+>>> health.clean_up_apim_clients(tenant='SD2E")
+>>> health.zero_out_clients_db()
+``` 
+
 
 1) shutdown all abaco containers
 2) shutdown and restart rabbitmq
