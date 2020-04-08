@@ -284,6 +284,8 @@ Deployment checklist:
     docker tag abaco/testsuite:dev abaco/testsuite:$TAG
   - docker tag abaco/nginx:dev abaco/nginx:$TAG
     docker tag abaco/nginx:dev abaco/nginx
+  - docker tag abaco/prom:dev abaco/prom:$TAG
+    docker tag abaco/prom:dev abaco/prom
 
 - change the tag in the compose and abaco.conf files on each production host
 - pull the image (abaco/core:$TAG)
