@@ -229,11 +229,25 @@ def zero_out_workers_db():
     Set all workers collections in the db to empty. Run this as part of a maintenance; steps:
       1) remove all docker containers
       2) run this function
-      3) run clean_up_clients_store().
+      3) run clean_up_apim_clients().
+      4) run zero_out_clients_db()
     :return:
     """
     for worker in workers_store.items(proj_inp=None):
         del workers_store[worker['_id']]
+
+def zero_out_clients_db():
+    """
+    Set all clients collections in the db to empty. Run this as part of a maintenance; steps:
+      1) remove all docker containers
+      2) run zero_out_workers_db()
+      3) run clean_up_apim_clients().
+      4) run this function
+    :return:
+    """
+    for k, _ in clients_store.items():
+        clients_store[k] = {}
+
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""

@@ -231,8 +231,6 @@ services:
         env_file:
             - ./prometheus/grafana/config.monitoring
         networks:
-#            - back-tier
-#            - front-tier
             - abaco
         restart: always
 

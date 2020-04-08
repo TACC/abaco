@@ -1016,6 +1016,13 @@ class Execution(AbacoDAO):
             max_log_length = DEFAULT_MAX_LOG_LENGTH
         if len(logs) > DEFAULT_MAX_LOG_LENGTH:
             logger.info("truncating log for execution: {}".format(exc_id))
+            # in some environments, perhaps depending on OS or docker version, the logs object is of type bytes.
+            # in that case we need to convert to be able to concatenate.
+            if type(logs) == bytes:
+                logs = logs.decode('utf-8')
+            if not type(logs) == str:
+                logger.info(f"Got unexpected type for logs object- could not convert to type str; type: {type(logs)}")
+                logs = ''
             logs = logs[:max_log_length] + " LOG LIMIT EXCEEDED; this execution log was TRUNCATED!"
         start_timer = timeit.default_timer()
         if log_ex > 0:

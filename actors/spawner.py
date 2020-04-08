@@ -6,7 +6,7 @@ import rabbitpy
 
 from channelpy.exceptions import ChannelTimeoutException
 
-from codes import ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
+from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
 from config import Config
 from docker_utils import DockerError, run_worker, pull_image
@@ -156,8 +156,8 @@ class Spawner(object):
             if status == SHUTDOWN_REQUESTED or status == SHUTTING_DOWN or status == ERROR:
                 logger.debug(f"worker status was {status}; spawner deleting worker and returning..")
                 try:
-                    Worker.delete_worker(actor_id, worker_id)
-                    logger.debug("spawner deleted worker because it was SHUTDOWN_REQUESTED.")
+                    Worker.kill_worker(actor_id, worker_id)
+                    logger.debug(f"spawner called kill_worker because its status was: {status}. {actor_id}_{worker_id}")
                     return
                 except Exception as e:
                     logger.error(f"spawner got exception trying to delete a worker in SHUTDOWN_REQUESTED status."
@@ -166,6 +166,20 @@ class Spawner(object):
             else:
                 logger.error(f"spawner found worker in unexpected status: {status}. Not processing command and returning.")
                 return
+
+        # before starting up a new worker, check to see if the actor is in ERROR state; it is possible the actor was put
+        # into ERROR state after the autoscaler put the worker request message on the sapwner command channel.
+        if actor.status == ERROR:
+            logger.debug(f"actor {actor_id} was in ERROR status while spawner was starting worker {worker_id} . "
+                         f"Aborting creation of worker.")
+            try:
+                Worker.delete_worker(actor_id, worker_id)
+                logger.debug("spawner deleted worker because actor was in ERROR status.")
+            except Exception as e:
+                logger.error(f"spawner got exception trying to delete a worker was in ERROR status."
+                             f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
+            # either way, return from processing this worker message:
+            return
 
         # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
         Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
@@ -235,44 +249,57 @@ class Spawner(object):
 
 
     def client_generation(self, actor_id, worker_id, tenant):
-        client_ch = ClientsChannel()
-        try:
-            client_msg = client_ch.request_client(
-                tenant=tenant,
-                actor_id=actor_id,
-                worker_id=worker_id,
-                secret=self.secret
-            )
-        except Exception as e:
-            logger.error("Got a ChannelTimeoutException trying to generate a client for "
-                         "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
-            # put worker in an error state and return
-            self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
-                                                      "worker for this actor. System administrators have been notified.")
+        need_a_client = True
+        client_attempts = 0
+        while need_a_client and client_attempts < 10:
+            client_attempts = client_attempts + 1
+            # take a break between each subsequent attempt after the first one:
+            if client_attempts > 1:
+                time.sleep(2)
+            client_ch = ClientsChannel()
+            logger.debug(f"trying to generate a client for worker {worker_id}; attempt: {client_attempts}.")
+            try:
+                client_msg = client_ch.request_client(
+                    tenant=tenant,
+                    actor_id=actor_id,
+                    worker_id=worker_id,
+                    secret=self.secret
+                )
+            except Exception as e:
+                logger.error("Got a ChannelTimeoutException trying to generate a client for "
+                             "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+                if client_attempts == 10:
+                    # put worker in an error state and return
+                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
+                                                              "worker {} for this actor. System administrators have been "
+                                                              "notified. Actor will be put in error state and "
+                                                              "must be updated before it will process".format(worker_id))
+                    client_ch.close()
+                    Worker.update_worker_status(actor_id, worker_id, ERROR)
+                    logger.critical("Client generation FAILED.")
+                    raise e
             client_ch.close()
-            Worker.update_worker_status(actor_id, worker_id, ERROR)
-            logger.critical("Client generation FAILED.")
-            raise e
 
-        client_ch.close()
-
-
-        if client_msg.get('status') == 'error':
-            logger.error("Error generating client: {}".format(client_msg.get('message')))
-            self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
-                                                      "worker for this actor. System administrators have been notified.")
-            Worker.update_worker_status(actor_id, worker_id, ERROR)
-            raise SpawnerException("Error generating client") #TODO - clean up error message
-        # else, client was generated successfully:
-        else:
-            logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],
-                                                          client_msg['access_token'],
-                                                          client_msg['refresh_token']))
-            return client_msg['client_id'], \
-                   client_msg['access_token'],  \
-                   client_msg['refresh_token'], \
-                   client_msg['api_server'], \
-                   client_msg['client_secret']
+            if client_msg.get('status') == 'error':
+                logger.error("Error generating client; worker_id: {}; message: {}".format(worker_id, client_msg.get('message')))
+                if client_attempts == 10:
+                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
+                                                              "worker {} for this actor. System administrators "
+                                                              "have been notified. Actor will be put in error state and "
+                                                              "must be updated before it will process "
+                                                              "messages.".format(worker_id))
+                    Worker.update_worker_status(actor_id, worker_id, ERROR)
+                    raise SpawnerException("Error generating client") #TODO - clean up error message
+            # else, client was generated successfully:
+            else:
+                logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],
+                                                              client_msg['access_token'],
+                                                              client_msg['refresh_token']))
+                return client_msg['client_id'], \
+                       client_msg['access_token'],  \
+                       client_msg['refresh_token'], \
+                       client_msg['api_server'], \
+                       client_msg['client_secret']
 
     def delete_client(self, tenant, actor_id, worker_id, client_id, secret):
         clients_ch = ClientsChannel()
@@ -310,7 +337,7 @@ class Spawner(object):
             logger.debug("Worker pulling image {}...".format(image))
             pull_image(image)
         except DockerError as e:
-            # return a message to the spawner that there was an error pulling image and abort
+            # return a message to the spawner that there was an error pulling image and abort.
             # this is not necessarily an error state: the user simply could have provided an
             # image name that does not exist in the registry. This is the first time we would
             # find that out.
@@ -365,9 +392,14 @@ class Spawner(object):
         # if the actor is not already in READY status, set actor status to READY before worker status has been
         # set to READY.
         # it is possible the actor status is already READY because this request is the autoscaler starting a new worker
-        # for an existing actor.
+        # for an existing actor. It is also possible that another worker put the actor into state ERROR during the
+        # time this spawner was setting up the worker; we check for that here.
         actor = Actor.from_db(actors_store[actor_id])
         if not actor.status == READY:
+            # for now, we will allow a newly created, healthy worker to change an actor from status ERROR to READY,
+            # but this policy is subject to review.
+            if actor.status == ERROR:
+                logger.info(f"actor {actor_id} was in ERROR status; new worker {worker_id} overriding it to READY...")
             try:
                 Actor.set_status(actor_id, READY, status_message=" ")
             except KeyError:
@@ -387,23 +419,45 @@ class Spawner(object):
         """In case of an error, put the actor in error state and kill all workers"""
         logger.debug("top of error_out_actor for worker: {}_{}".format(actor_id, worker_id))
         Actor.set_status(actor_id, ERROR, status_message=message)
-        # first we try to stop workers using the "graceful" approach -
+        # check to see how far the spawner got setting up the worker:
         try:
-            self.stop_workers(actor_id, worker_ids=[])
-            logger.info("Spawner just stopped worker {}_{} in error_out_actor".format(actor_id, worker_id))
-            return
+            worker = Worker.get_worker(actor_id, worker_id)
+            worker_status = worker.get('status')
+            logger.debug(f"got worker status for {actor_id}_{worker_id}; status: {worker_status}")
         except Exception as e:
-            logger.error("spawner got exception trying to run stop_workers. Exception: {}".format(e))
-        try:
-            self.kill_worker(actor_id, worker_id)
-            logger.info("Spawner just killed worker {}_{} in error_out_actor".format(actor_id, worker_id))
-        except DockerError as e:
-            logger.info("Received DockerError trying to kill worker: {}. Exception: {}".format(worker_id, e))
-            logger.info("Spawner will continue on since this is exception processing.")
+            logger.debug(f"got exception in error_out_actor trying to determine worker status for {actor_id}_{worker_id}; "
+                         f"e:{e};")
+            # skip all worker processing is skipped.
+            return
+
+        if worker_status == UPDATING_STORE or worker_status == READY or worker_status == BUSY:
+            logger.debug(f"worker status was: {worker_status}; trying to stop_worker")
+            # for workers whose containers are running, we first try to stop workers using the "graceful" approach -
+            try:
+                self.stop_workers(actor_id, worker_ids=[])
+                logger.info("Spawner just stopped worker {}_{} in error_out_actor".format(actor_id, worker_id))
+                return
+            except Exception as e:
+                logger.error("spawner got exception trying to run stop_workers. Exception: {}".format(e))
+                logger.info("setting worker_status to ERROR so that kill_worker will run.")
+                worker_status = ERROR
+
+        # if the spawner was never able to start the worker container, we need to simply delete the worker record
+        if worker_status == REQUESTED or worker_status == SPAWNER_SETUP or worker_status == PULLING_IMAGE or \
+            worker_status == ERROR:
+            logger.debug(f"worker status was: {worker_status}; trying to kill_worker")
+            try:
+                self.kill_worker(actor_id, worker_id)
+                logger.info("Spawner just killed worker {}_{} in error_out_actor".format(actor_id, worker_id))
+            except DockerError as e:
+                logger.info("Received DockerError trying to kill worker: {}. Exception: {}".format(worker_id, e))
+                logger.info("Spawner will continue on since this is exception processing.")
 
     def kill_worker(self, actor_id, worker_id):
+        logger.debug(f"top of kill_worker: {actor_id}_{worker_id}")
         try:
             Worker.delete_worker(actor_id, worker_id)
+            logger.debug(f"worker deleted; {actor_id}_{worker_id}")
         except WorkerException as e:
             logger.info("Got WorkerException from delete_worker(). "
                         "worker_id: {}"

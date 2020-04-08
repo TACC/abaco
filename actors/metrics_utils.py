@@ -32,6 +32,7 @@ def create_gauges(actor_ids):
     for actor_id in actor_ids:
         logger.debug("top of for loop for actor_id: {}".format(actor_id))
 
+        channel_name = None
         try:
             actor = actors_store[actor_id]
         except KeyError:
@@ -100,6 +101,8 @@ def create_gauges(actor_ids):
         g.set(result['workers'])
         logger.debug("METRICS: {} workers found for actor: {}.".format(result['workers'], actor_id))
 
+    if not channel_name:
+        return
     ch = CommandChannel(name=channel_name)
     cmd_length = len(ch._queue._queue)
     command_gauge.labels(channel_name).set(cmd_length)

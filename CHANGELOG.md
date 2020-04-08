@@ -1,6 +1,37 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
+## 1.5.2 - 2020-04-08
+### Added
+- No change.
+
+### Changed
+- Add second check of the globals.keep_running sentinel in the main worker thread (thread 1) to shrink the time 
+window between a worker receiving a shutdown signal (in thread 2) and relaying that to thread 1, particularl after a 
+new actor message was received (in thread 1). 
+The previous, larger time window resulted in a race condition that could cause an actor message to get 
+"partially" processed while the worker was being shut down. In particular, refreshing the token in thread 1 could fail if 
+thread 2 had already removed the oauth client.
+- Add retry logic to oauth client generation for a new worker; try up to 10 times before giving up and putting the actor 
+in an error state.
+
+
+## 1.5.1 - 2020-04-05
+### Added
+- No change.
+
+### Changed
+- Fixed a bug resulting in an exception and possibly setting an actor to ERROR state when truncating an execution log. 
+- Physically delete worker records from workers store in spawner when a previous or concurrent error prevents the spawner from ever creating/starting the worker containers.
+- Workers now try to refresh the access token up to 10 times (with a 2 second sleep between each attempt) before giving up and putting the actor into an ERROR state.
+- Fixed an exception (which previously was only logged and swallowed) in the metrics_utils module caused by trying to access a variable that had not been defined under a certain code path.
+- Added additional logging in spawner and worker modules.  
+
+### Removed
+- No change.
+
+
 ## 1.5.0 - 2019-10-29
 ### Added
 - Added an endpoint `PUT /actors/aliases/{alias}` for updating the 
