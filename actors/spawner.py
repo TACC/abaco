@@ -247,43 +247,57 @@ class Spawner(object):
 
 
     def client_generation(self, actor_id, worker_id, tenant):
-        client_ch = ClientsChannel()
-        try:
-            client_msg = client_ch.request_client(
-                tenant=tenant,
-                actor_id=actor_id,
-                worker_id=worker_id,
-                secret=self.secret
-            )
-        except Exception as e:
-            logger.error("Got a ChannelTimeoutException trying to generate a client for "
-                         "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
-            # put worker in an error state and return
-            self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
-                                                      "worker for this actor. System administrators have been notified.")
+        need_a_client = True
+        client_attempts = 0
+        while need_a_client and client_attempts < 10:
+            client_attempts = client_attempts + 1
+            # take a break between each subsequent attempt after the first one:
+            if client_attempts > 1:
+                time.sleep(2)
+            client_ch = ClientsChannel()
+            logger.debug(f"trying to generate a client for worker {worker_id}; attempt: {client_attempts}.")
+            try:
+                client_msg = client_ch.request_client(
+                    tenant=tenant,
+                    actor_id=actor_id,
+                    worker_id=worker_id,
+                    secret=self.secret
+                )
+            except Exception as e:
+                logger.error("Got a ChannelTimeoutException trying to generate a client for "
+                             "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+                if client_attempts == 10:
+                    # put worker in an error state and return
+                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
+                                                              "worker {} for this actor. System administrators have been "
+                                                              "notified. Actor will be put in error state and "
+                                                              "must be updated before it will process".format(worker_id))
+                    client_ch.close()
+                    Worker.update_worker_status(actor_id, worker_id, ERROR)
+                    logger.critical("Client generation FAILED.")
+                    raise e
             client_ch.close()
-            Worker.update_worker_status(actor_id, worker_id, ERROR)
-            logger.critical("Client generation FAILED.")
-            raise e
 
-        client_ch.close()
-
-        if client_msg.get('status') == 'error':
-            logger.error("Error generating client: {}".format(client_msg.get('message')))
-            self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for a new "
-                                                      "worker for this actor. System administrators have been notified.")
-            Worker.update_worker_status(actor_id, worker_id, ERROR)
-            raise SpawnerException("Error generating client") #TODO - clean up error message
-        # else, client was generated successfully:
-        else:
-            logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],
-                                                          client_msg['access_token'],
-                                                          client_msg['refresh_token']))
-            return client_msg['client_id'], \
-                   client_msg['access_token'],  \
-                   client_msg['refresh_token'], \
-                   client_msg['api_server'], \
-                   client_msg['client_secret']
+            if client_msg.get('status') == 'error':
+                logger.error("Error generating client; worker_id: {}; message: {}".format(worker_id, client_msg.get('message')))
+                if client_attempts == 10:
+                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
+                                                              "worker {} for this actor. System administrators "
+                                                              "have been notified. Actor will be put in error state and "
+                                                              "must be updated before it will process "
+                                                              "messages.".format(worker_id))
+                    Worker.update_worker_status(actor_id, worker_id, ERROR)
+                    raise SpawnerException("Error generating client") #TODO - clean up error message
+            # else, client was generated successfully:
+            else:
+                logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],
+                                                              client_msg['access_token'],
+                                                              client_msg['refresh_token']))
+                return client_msg['client_id'], \
+                       client_msg['access_token'],  \
+                       client_msg['refresh_token'], \
+                       client_msg['api_server'], \
+                       client_msg['client_secret']
 
     def delete_client(self, tenant, actor_id, worker_id, client_id, secret):
         clients_ch = ClientsChannel()
