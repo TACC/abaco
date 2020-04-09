@@ -57,18 +57,195 @@ except:
 
 class SearchResource(Resource):
     def get(self, search_type):
+        """
+        Placeholder
+        """
         args = request.args
-        return ok(result=f"{args} and {search_type}", msg="ARRRRRRGS.")
+        search_type = search_type.lower()
 
-        #logger.debug("top of GET /actors/{}".format(actor_id))
-        #try:
-        #    actor = Actor.from_db(actors_store[g.db_id])
-        #except KeyError:
-        #    logger.debug("did not find actor with id: {}".format(actor_id))
-        #    raise ResourceError(
-        #        "No actor found with identifier: {}.".format(actor_id), 404)
-        #logger.debug("found actor {}".format(actor_id))
-        #return ok(result=actor.display(), msg="Actor retrieved successfully.")
+        queried_store, security = self.get_db_specific_sections(search_type)
+        search, query, skip, limit = self.arg_parser(args)
+        # Pipeline initially made use of 'project', I've opted to instead
+        # do all post processing in 'post_processing()' for simplicity.
+        pipeline = search + query + security
+        full_search_res = list(queried_store.aggregate(pipeline))
+        adjusted_search_res = full_search_res[skip: skip + limit]
+        adjusted_search_res = self.post_processing(search_type, adjusted_search_res)
+        result = {"_metadata": {"total_count": len(full_search_res),
+                                "records_skipped": skip,
+                                "record_limit": limit,
+                                "count_returned": len(adjusted_search_res)},
+                  "search": adjusted_search_res}
+        return ok(result=result, msg="Search completed successfully.")
+    
+    def get_db_specific_sections(self, search_type):
+        """
+        Placeholder
+        """
+        store_dict = {'executions': executions_store,
+                      'workers': workers_store,
+                      'actors': actors_store,
+                      'logs': logs_store}
+        try:
+            queried_store = store_dict[search_type]
+        except KeyError:
+            raise KeyError(f'Inputted search_type is invalid, must be one of {list(store_dict.keys())}.')
+        
+        localField = 'actor_id'
+        if search_type =='actors':
+            localField = '_id'
+        security = [{'$match': {'tenant': g.tenant}},
+                    {'$lookup':
+                        {'from' : '2',
+                        'localField' : localField,
+                        'foreignField' : '_id',
+                        'as' : 'permissions'}},
+                    {'$unwind': '$permissions'},
+                    {'$match': {'permissions.' + g.user: {'$exists': True}}}]
+
+        return queried_store, security
+
+    def arg_parser(self, args):
+        """
+        Placeholder
+        """
+        query = []
+        search = f'"{g.tenant}"'
+        skip_amo = 0
+        limit_amo = 10
+        
+        for key, val in args.items():
+            if key == "search":
+                if isinstance(val, list):
+                    joined_val = ' '.join(val)
+                    search = search + f' {joined_val}'
+                else:
+                    search = search + f' {val}'
+            elif key == "exactsearch":
+                if isinstance(val, list):
+                    joined_val = '" "'.join(val)
+                    search = search + f' "{joined_val}"'
+                else:
+                    search = search + f' "{val}"'
+            elif key == "skip" or key == "limit":
+                try:
+                    val = int(val)
+                except ValueError:
+                    raise ValueError(f'Inputted "{key}" paramater must be an int. Received: {val}')
+                if val < 0:
+                    raise ValueError(f'Inputted "{key}" must be positive. Received: {val}')
+                if key == "skip":
+                    skip_amo = val
+                if key == "limit":
+                    limit_amo = val
+            else:
+                used_oper = False
+                for oper in ['.$eq', '.$gt', '.$gte', '.$lt', '.$lte', '.$ne']:
+                    if oper in key:
+                        key = key.split(oper)[0]
+                        oper = oper[1:]
+                        query += [{'$match': {key: {oper: val}}}]
+                        used_oper = True
+                        break
+                if not used_oper:
+                    query += [{'$match': {key: val}}]
+        search = [{'$match': {'$text': {'$search': search}}},
+                  {'$sort': {'score': {'$meta': 'textScore'}}}]
+        return search, query, skip_amo, limit_amo
+
+    def post_processing(self, search_type, search_list):
+        """
+        Doing post processing on results, such as fixing times
+        to display_times, changing case, etc, based on database type.
+        """
+        case = Config.get('web', 'case')
+        if search_type == 'executions':
+            for i, result in enumerate(search_list):
+                aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                try:
+                    api_server = result['api_server']
+                    id = result['id']
+                    executor = result['executor']
+                    search_list[i]['_links'] = {
+                        'self': f'{api_server}/actors/v2/{aid}/executions/{id}',
+                        'owner': f'{api_server}/profiles/v2/{executor}',
+                        'logs': f'{api_server}/actors/v2/{aid}/logs'}
+                    search_list[i].pop('api_server')
+                except KeyError:
+                    pass
+                if 'create_time' in result:
+                    search_list[i]['start_time'] = display_time(result['start_time'])
+                if 'message_received_time' in result:
+                    search_list[i]['message_received_time'] = display_time(result['message_received_time'])
+                search_list[i]['actor_id'] = aid
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('tenant', None)
+
+        elif search_type == 'workers':
+            for i, result in enumerate(search_list):
+                aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                if 'last_execution_time' in result:
+                    search_list[i]['last_execution_time'] = display_time(result['last_execution_time'])
+                if 'last_health_check_time' in result:
+                    search_list[i]['last_health_check_time'] = display_time(result['last_health_check_time'])
+                if 'create_time' in result:
+                    search_list[i]['create_time'] = display_time(result['create_time'])
+                search_list[i]['actor_id'] = aid
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('tenant', None)
+
+
+        elif search_type == 'actors':
+            for i, result in enumerate(search_list):
+                try:
+                    api_server = result['api_server']
+                    owner = result['owner']
+                    id = result['id']
+                    search_list[i]['_links'] = {
+                        'self': f'{api_server}/actors/v2/{id}',
+                        'owner': f'{api_server}/profiles/v2/{owner}',
+                        'executions': f'{api_server}/actors/v2/{id}/executions'}
+                    search_list[i].pop('api_server')
+                except KeyError:
+                    pass
+                if 'create_time' in result:
+                    search_list[i]['create_time'] = display_time(result['create_time'])
+                if 'last_update_time' in result:
+                    search_list[i]['last_update_time'] = display_time(result['last_update_time'])
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('api_server', None)
+                search_list[i].pop('executions', None)
+                search_list[i].pop('tenant', None)
+                search_list[i].pop('db_id', None)
+
+        elif search_type == 'logs':
+            for i, result in enumerate(search_list):
+                try:
+                    actor_id = result['actor_id']
+                    exec_id = result['_id']
+                    actor = Actor.from_db(actors_store[actor_id])
+                    search_list[i]['_links'] = {
+                        'self': f'{actor.api_server}/actors/v2/{actor.id}/executions/{exec_id}/logs',
+                        'owner': f'{actor.api_server}/profiles/v2/{actor.owner}',
+                        'execution': f'{actor.api_server}/actors/v2/{actor.id}/executions/{exec_id}'}
+                except KeyError:
+                    pass
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('exp', None)
+                search_list[i].pop('actor_id', None)
+                search_list[i].pop('tenant', None)
+
+        case_corrected_list = []
+        for dictionary in search_list:
+            if case == 'camel':
+                case_corrected_list.append(dict_to_camel(dictionary))
+            else:
+                case_corrected_list = search_list
+        return case_corrected_list
 
 
 class MetricsResource(Resource):

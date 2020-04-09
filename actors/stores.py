@@ -2,7 +2,7 @@ from functools import partial
 import os
 
 import configparser
-from pymongo import errors
+from pymongo import errors, TEXT
 
 from store import MongoStore
 from config import Config
@@ -52,3 +52,9 @@ nonce_store = mongo_config_store(db='7')
 alias_store = mongo_config_store(db='8')
 pregen_clients = mongo_config_store(db='9')
 abaco_metrics_store = mongo_config_store(db='10')
+
+# Indexing
+logs_store.create_index([('$**', TEXT)])
+executions_store.create_index([('$**', TEXT)])
+actors_store.create_index([('$**', TEXT)])
+workers_store.create_index([('$**', TEXT)])

@@ -335,3 +335,9 @@ class MongoStore(AbstractStore):
             return None
         except DuplicateKeyError:
             return None
+    
+    def aggregate(self, pipeline, options = None):
+        return self._db.aggregate(pipeline, options)
+
+    def create_index(self, index_list):
+        return self._db.create_index(index_list)
