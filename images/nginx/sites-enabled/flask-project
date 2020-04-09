@@ -17,6 +17,10 @@ server {
         proxy_pass http://mes:5000/actors/$1/messages$is_args$args;
     }
 
+    location ~ ^/actors/search/(.*) {
+        proxy_pass http://reg:5000/actors/search/$1$is_args$args;
+    }
+
     location ~ /actors/(.*)/workers(.*) {
         proxy_pass http://admin:5000/actors/$1/workers$2$is_args$args;
     }
@@ -31,10 +35,6 @@ server {
 
     location ~ ^/actors(.*) {
         proxy_pass http://reg:5000/actors$1$is_args$args;
-    }
-
-    location ~ ^/search/(.*) {
-        proxy_pass http://reg:5000/search/$1$is_args$args;
     }
 
     # custom 400 errors:

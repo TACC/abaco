@@ -156,7 +156,7 @@ def authorization():
         or '/actors/admin' in request.url_rule.rule \
         or '/actors/aliases' in request.url_rule.rule \
         or '/actors/utilization' in request.url_rule.rule \
-        or '/search/' in request.url_rule.rule:
+        or '/actors/search/' in request.url_rule.rule:
         db_id = None
         logger.debug("setting db_id to None; rule: {}".format(request.url_rule.rule))
     else:
@@ -207,7 +207,7 @@ def authorization():
     if '/actors/utilization' == request.url_rule.rule or '/actors/utilization/' == request.url_rule.rule:
         return True
 
-    if '/search/<string:search_type>' == request.url_rule.rule:
+    if '/actors/search/<string:search_type>' == request.url_rule.rule:
         return True
 
     # there are special rules on the actors root collection:

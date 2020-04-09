@@ -58,17 +58,25 @@ except:
 class SearchResource(Resource):
     def get(self, search_type):
         """
-        Placeholder
+        Does a search on one of four selected Mongo databases. Workers,
+        executions, actors, and logs. Uses the Mongo aggregation function
+        to first perform a full-text search. Following that permissions are
+        checked, variable matching is attempted, logical operators are attempted,
+        and truncation is performed.
         """
+        logger.info(f'Received a request to search. Search type: {search_type}')
         args = request.args
         search_type = search_type.lower()
 
         queried_store, security = self.get_db_specific_sections(search_type)
         search, query, skip, limit = self.arg_parser(args)
+
         # Pipeline initially made use of 'project', I've opted to instead
         # do all post processing in 'post_processing()' for simplicity.
         pipeline = search + query + security
+        start = time.time()
         full_search_res = list(queried_store.aggregate(pipeline))
+        logger.info(f'Got search response in {start - time.time()} seconds. First two results: {full_search_res[0:1]}')
         adjusted_search_res = full_search_res[skip: skip + limit]
         adjusted_search_res = self.post_processing(search_type, adjusted_search_res)
         result = {"_metadata": {"total_count": len(full_search_res),
@@ -80,7 +88,12 @@ class SearchResource(Resource):
     
     def get_db_specific_sections(self, search_type):
         """
-        Placeholder
+        Takes in the search_type and gives the correct store to query.
+        Also figures out the permission pipeline sections for the specified
+        search_type. The actors_store is the only store that require a
+        different permission type. Permissions are done by matching tenant,
+        but also joining the permissions store based on actor dbid and matching
+        user to allow for shared permissions.
         """
         store_dict = {'executions': executions_store,
                       'workers': workers_store,
@@ -89,7 +102,8 @@ class SearchResource(Resource):
         try:
             queried_store = store_dict[search_type]
         except KeyError:
-            raise KeyError(f'Inputted search_type is invalid, must be one of {list(store_dict.keys())}.')
+            raise KeyError(f'Inputted search_type is invalid, must\
+                             be one of {list(store_dict.keys())}.')
         
         localField = 'actor_id'
         if search_type =='actors':
@@ -107,7 +121,12 @@ class SearchResource(Resource):
 
     def arg_parser(self, args):
         """
-        Placeholder
+        Arg parser parses the query parameters of the url. Allows for specified
+        Mongo logical operators, also for fuzzy or exact full-text search.
+        Skip and limit parameters are defined here. If the given parameter
+        matches none of the above, the function attempts to match a key to
+        a value. When trying to reach a nested value, the exact key must be
+        specified. For example, '_links.owner'.
         """
         query = []
         search = f'"{g.tenant}"'
@@ -155,9 +174,12 @@ class SearchResource(Resource):
 
     def post_processing(self, search_type, search_list):
         """
-        Doing post processing on results, such as fixing times
-        to display_times, changing case, etc, based on database type.
+        This function performs post processing on the results. Post processing
+        entails fixing times to display_times, changing case, eliminated
+        variables, adding '_links', and fixing specific fields. Processing type
+        is dependent on the search_type performed.
         """
+        logger.info(f'Starting post_processing for search with search_type: {search_type}')
         case = Config.get('web', 'case')
         if search_type == 'executions':
             for i, result in enumerate(search_list):
@@ -195,7 +217,6 @@ class SearchResource(Resource):
                 search_list[i].pop('_id', None)
                 search_list[i].pop('permissions', None)
                 search_list[i].pop('tenant', None)
-
 
         elif search_type == 'actors':
             for i, result in enumerate(search_list):
@@ -239,6 +260,7 @@ class SearchResource(Resource):
                 search_list[i].pop('actor_id', None)
                 search_list[i].pop('tenant', None)
 
+        logger.info(f'Adjusting search response case')
         case_corrected_list = []
         for dictionary in search_list:
             if case == 'camel':
