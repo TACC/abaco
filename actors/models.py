@@ -4,6 +4,7 @@ import json
 import timeit
 import uuid
 import re
+import time
 
 from flask_restful import inputs
 from hashids import Hashids
@@ -92,6 +93,276 @@ def display_time(t):
         raise DAOError("Error retrieving time data.")
     return str(dt)
 
+
+class Search():
+    def __init__(self, args, search_type, tenant, user):
+        self.args = args
+        self.search_type = search_type.lower()
+        self.tenant = tenant
+        self.user = user
+
+    def search(self):
+        """
+        Does a search on one of four selected Mongo databases. Workers,
+        executions, actors, and logs. Uses the Mongo aggregation function
+        to first perform a full-text search. Following that permissions are
+        checked, variable matching is attempted, logical operators are attempted,
+        and truncation is performed.
+        """
+        logger.info(f'Received a request to search. Search type: {self.search_type}')
+
+        queried_store, security = self.get_db_specific_sections()
+        search, query, skip, limit = self.arg_parser()
+
+        # Pipeline initially made use of 'project', I've opted to instead
+        # do all post processing in 'post_processing()' for simplicity.
+        pipeline = search + query + security
+        start = time.time()
+        full_search_res = list(queried_store.aggregate(pipeline))
+        logger.info(f'Got search response in {time.time() - start} seconds. Pipeline: {pipeline} First two results: {full_search_res[0:1]}')
+        final_result = self.post_processing(full_search_res, skip, limit)
+        return final_result
+
+    def get_db_specific_sections(self):
+        """
+        Takes in the search_type and gives the correct store to query.
+        Also figures out the permission pipeline sections for the specified
+        search_type. The actors_store is the only store that require a
+        different permission type. Permissions are done by matching tenant,
+        but also joining the permissions store based on actor dbid and matching
+        user to allow for shared permissions.
+        """
+        store_dict = {'executions': executions_store,
+                      'workers': workers_store,
+                      'actors': actors_store,
+                      'logs': logs_store}
+        try:
+            queried_store = store_dict[self.search_type]
+        except KeyError:
+            raise KeyError(f'Inputted search_type is invalid, must\
+                             be one of {list(store_dict.keys())}.')
+        
+        localField = 'actor_id'
+        if self.search_type =='actors':
+            localField = '_id'
+        security = [{'$match': {'tenant': self.tenant}},
+                    {'$lookup':
+                        {'from' : '2',
+                        'localField' : localField,
+                        'foreignField' : '_id',
+                        'as' : 'permissions'}},
+                    {'$unwind': '$permissions'},
+                    {'$match': {'permissions.' + self.user: {'$exists': True}}}]
+
+        return queried_store, security
+
+    def arg_parser(self):
+        """
+        Arg parser parses the query parameters of the url. Allows for specified
+        Mongo logical operators, also for fuzzy or exact full-text search.
+        Skip and limit parameters are defined here. If the given parameter
+        matches none of the above, the function attempts to match a key to
+        a value. When trying to reach a nested value, the exact key must be
+        specified. For example, '_links.owner'.
+        """
+        query = []
+        search = f'"{self.tenant}"'
+        skip_amo = 0
+        limit_amo = 10
+        
+        case = Config.get('web', 'case')
+        if case == 'camel':
+            self.args = dict_to_under(self.args)
+
+        for key, val in self.args.items():
+            if key == "search":
+                if isinstance(val, list):
+                    joined_val = ' '.join(val)
+                    search = search + f' {joined_val}'
+                else:
+                    search = search + f' {val}'
+            elif key == "exactsearch":
+                if isinstance(val, list):
+                    joined_val = '" "'.join(val)
+                    search = search + f' "{joined_val}"'
+                else:
+                    search = search + f' "{val}"'
+            elif key == "skip" or key == "limit":
+                try:
+                    val = int(val)
+                except ValueError:
+                    raise ValueError(f'Inputted "{key}" paramater must be an int. Received: {val}')
+                if val < 0:
+                    raise ValueError(f'Inputted "{key}" must be positive. Received: {val}')
+                if key == "skip":
+                    skip_amo = val
+                if key == "limit":
+                    limit_amo = val
+            else:
+                if val.lower() == 'false':
+                    val = False
+                elif val.lower() == 'true':
+                    val = True
+                elif val.lower() == 'none':
+                    val = None
+                else:
+                    try:
+                        val = float(val)
+                    except ValueError:
+                        pass
+                    except TypeError:
+                        pass
+                used_oper = False
+
+                oper_aliases = {'.neq': '$ne', '.eq': '$eq', '.lte': '$lte', '.lt': '$lt',
+                                '.gte': '$gte', '.gt': '$gt', '.nin': '$nin', '.in': '$in'}
+                for oper_alias, mongo_oper in oper_aliases.items():
+                    if oper_alias in key:
+                        key = key.split(oper_alias)[0]
+                        query += [{'$match': {key: {mongo_oper: val}}}]
+                        used_oper = True
+                        break
+
+                if not used_oper:
+                    if '.between' in key:
+                        if not ',' in val:
+                            raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                        key = key.split('.between')[0]
+                        val1, val2 = val.split(',')
+                        try:
+                            val1 = float(val1)
+                            val2 = float(val2)
+                        except ValueError:
+                            raise('The values given to between should be numbers.')
+                        query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
+                        
+                    elif '.nlike' in key:
+                        key = key.split('.nlike')[0]
+                        query += [{'$match': {key: {'$not': {'$regex': f"{val}"}}}}]
+
+                    elif '.like' in key:
+                        key = key.split('.like')[0]
+                        query += [{'$match': {key: {'$regex': f"{val}"}}}]
+
+                    else:
+                        query += [{'$match': {key: val}}]
+
+        search = [{'$match': {'$text': {'$search': search}}},
+                  {'$sort': {'score': {'$meta': 'textScore'}}}]
+        return search, query, skip_amo, limit_amo
+
+    def post_processing(self, search_list, skip, limit):
+        """
+        This function performs post processing on the results. Post processing
+        entails fixing times to display_times, changing case, eliminated
+        variables, adding '_links', and fixing specific fields. Processing type
+        is dependent on the search_type performed.
+        """
+        logger.info(f'Starting post_processing for search with search_type: {self.search_type}')
+
+        total_count = len(search_list)
+        search_list = search_list[skip: skip + limit]
+
+        case = Config.get('web', 'case')
+        if self.search_type == 'executions':
+            for i, result in enumerate(search_list):
+                aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                try:
+                    api_server = result['api_server']
+                    id = result['id']
+                    executor = result['executor']
+                    search_list[i]['_links'] = {
+                        'self': f'{api_server}/actors/v2/{aid}/executions/{id}',
+                        'owner': f'{api_server}/profiles/v2/{executor}',
+                        'logs': f'{api_server}/actors/v2/{aid}/logs'}
+                    search_list[i].pop('api_server')
+                except KeyError:
+                    pass
+                if 'create_time' in result:
+                    search_list[i]['start_time'] = display_time(result['start_time'])
+                if 'message_received_time' in result:
+                    search_list[i]['message_received_time'] = display_time(result['message_received_time'])
+                search_list[i]['actor_id'] = aid
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('tenant', None)
+
+        elif self.search_type == 'workers':
+            for i, result in enumerate(search_list):
+                aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                if 'last_execution_time' in result:
+                    search_list[i]['last_execution_time'] = display_time(result['last_execution_time'])
+                if 'last_health_check_time' in result:
+                    search_list[i]['last_health_check_time'] = display_time(result['last_health_check_time'])
+                if 'create_time' in result:
+                    search_list[i]['create_time'] = display_time(result['create_time'])
+                search_list[i]['actor_id'] = aid
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('tenant', None)
+
+        elif self.search_type == 'actors':
+            for i, result in enumerate(search_list):
+                try:
+                    api_server = result['api_server']
+                    owner = result['owner']
+                    id = result['id']
+                    search_list[i]['_links'] = {
+                        'self': f'{api_server}/actors/v2/{id}',
+                        'owner': f'{api_server}/profiles/v2/{owner}',
+                        'executions': f'{api_server}/actors/v2/{id}/executions'}
+                    search_list[i].pop('api_server')
+                except KeyError:
+                    pass
+                if 'create_time' in result:
+                    search_list[i]['create_time'] = display_time(result['create_time'])
+                if 'last_update_time' in result:
+                    search_list[i]['last_update_time'] = display_time(result['last_update_time'])
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('api_server', None)
+                search_list[i].pop('executions', None)
+                search_list[i].pop('tenant', None)
+                search_list[i].pop('db_id', None)
+
+        elif self.search_type == 'logs':
+            for i, result in enumerate(search_list):
+                try:
+                    actor_id = result['actor_id']
+                    exec_id = result['_id']
+                    actor = Actor.from_db(actors_store[actor_id])
+                    search_list[i]['_links'] = {
+                        'self': f'{actor.api_server}/actors/v2/{actor.id}/executions/{exec_id}/logs',
+                        'owner': f'{actor.api_server}/profiles/v2/{actor.owner}',
+                        'execution': f'{actor.api_server}/actors/v2/{actor.id}/executions/{exec_id}'}
+                except KeyError:
+                    pass
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('exp', None)
+                search_list[i].pop('actor_id', None)
+                search_list[i].pop('tenant', None)
+
+        logger.info(f'Adjusting search response case')
+        case_corrected_list = []
+        for dictionary in search_list:
+            if case == 'camel':
+                case_corrected_list.append(dict_to_camel(dictionary))
+            else:
+                case_corrected_list = search_list
+
+        metadata = {"total_count": total_count,
+                    "records_skipped": skip,
+                    "record_limit": limit,
+                    "count_returned": len(search_list)}
+        if case == 'camel':
+            case_corrected_metadata = dict_to_camel(metadata)
+        else:
+            case_corrected_metadata = metadata
+
+        final_result = {"_metadata": case_corrected_metadata,
+                        "search": case_corrected_list}
+        return final_result
 
 class Event(object):
     """
