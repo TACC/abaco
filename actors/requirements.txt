@@ -1,13 +1,14 @@
 # comment/uncomment the following line(s) when using a local checkout of git repos:
 
-#-e git+file:///home/jstubbs/bitbucket-repos/agaveflask#egg=agaveflask
+#-e git+file:///agaveflask#egg=agaveflask
 -e git+https://jstubbs@bitbucket.org/tacc-cic/agaveflask.git#egg=agaveflask
 
 -e git://github.com/TACC/channelpy.git#egg=channelpy
 
-werkzeug==0.14.1
+Werkzeug==0.16.1
 flask==0.12.2
 Flask-RESTful==0.3.6
+
 
 flask-cors
 pika==0.9.13

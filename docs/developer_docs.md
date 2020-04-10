@@ -303,7 +303,7 @@ no new messages can be received, but the prom and metrics services will continue
 5) run the following functions from the health python shell:
 ```
 >>> health.zero_out_workers_db()
->>> health.clean_up_apim_clients(tenant='SD2E")
+>>> health.clean_up_apim_clients(tenant='SD2E')
 >>> health.zero_out_clients_db()
 ``` 
 

@@ -37,6 +37,17 @@ to allow for atomic queries/sets without needing to implement transactions like 
 - Batching executions. Previously meant to fix execution document from going over Mongo document size limits. No
 longer needed with the flattening of the executions_store.
 
+## 1.5.3 - 2020-04-08
+### Added
+- No change.
+
+### Changed
+- Compiled with an update to agaveflask core lib which adds support for the portals-api and 3dem tenants. 
+
+### Removed
+- No change.
+
+
 ## 1.5.2 - 2020-04-08
 ### Added
 - No change.
@@ -50,6 +61,9 @@ The previous, larger time window resulted in a race condition that could cause a
 thread 2 had already removed the oauth client.
 - Add retry logic to oauth client generation for a new worker; try up to 10 times before giving up and putting the actor 
 in an error state.
+
+### Removed
+- No change.
 
 
 ## 1.5.1 - 2020-04-05

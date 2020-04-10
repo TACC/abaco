@@ -105,7 +105,7 @@ def check_nonce():
     # the nonce encodes the tenant in its id:
     g.tenant = Nonce.get_tenant_from_nonce_id(nonce_id)
     g.api_server = get_api_server(g.tenant)
-    logger.debug("tenant associated with nonce: {}".format(g.tenant))
+    logger.debug("tenant associated with nonce: {}; api_server assoicated with nonce: {}".format(g.tenant, g.api_server))
     # get the actor_id base on the request path
     actor_id, actor_identifier = get_db_id()
     logger.debug("db_id: {}; actor_identifier: {}".format(actor_id, actor_identifier))
