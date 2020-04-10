@@ -392,35 +392,34 @@ permissions_store (db=2):
 executions_store (db=3):
 ```
 {
-    "_id" : "DEV-DEVELOP_AKeo3XGAGyRr",
-    "jN6gDD0y8Lmg" : {
-        "tenant" : "DEV-DEVELOP",
-        "api_server" : "https://dev.tenants.develop.tacc.cloud",
-        "actor_id" : "DEV-DEVELOP_AKeo3XGAGyRr",
-        "executor" : "Abaco Event",
-        "worker_id" : "BoN4DR6WZvWG",
-        "id" : "jN6gDD0y8Lmg",
-        "message_received_time" : "1584723940.696552",
-        "start_time" : "1584723940.982222",
-        "runtime" : 2,
-        "cpu" : 0,
-        "io" : 0,
-        "status" : "COMPLETE",
-        "exit_code" : 0,
-        "final_state" : {
-            "Status" : "exited",
-            "Running" : false,
-            "Paused" : false,
-            "Restarting" : false,
-            "OOMKilled" : false,
-            "Dead" : false,
-            "Pid" : 0,
-            "ExitCode" : 0,
-            "Error" : "",
-            "StartedAt" : "2020-03-20T17:05:41.467527Z",
-            "FinishedAt" : "2020-03-20T17:05:43.4702601Z"
-        }
-    },
+    "_id" : "DEV-DEVELOP_AKeo3XGAGyRr_jN6gDD0y8Lmg",
+    "tenant" : "DEV-DEVELOP",
+    "api_server" : "https://dev.tenants.develop.tacc.cloud",
+    "actor_id" : "DEV-DEVELOP_AKeo3XGAGyRr",
+    "executor" : "Abaco Event",
+    "worker_id" : "BoN4DR6WZvWG",
+    "id" : "jN6gDD0y8Lmg",
+    "message_received_time" : "1584723940.696552",
+    "start_time" : "1584723940.982222",
+    "runtime" : 2,
+    "cpu" : 0,
+    "io" : 0,
+    "status" : "COMPLETE",
+    "exit_code" : 0,
+    "final_state" : {
+        "Status" : "exited",
+        "Running" : false,
+        "Paused" : false,
+        "Restarting" : false,
+        "OOMKilled" : false,
+        "Dead" : false,
+        "Pid" : 0,
+        "ExitCode" : 0,
+        "Error" : "",
+        "StartedAt" : "2020-03-20T17:05:41.467527Z",
+        "FinishedAt" : "2020-03-20T17:05:43.4702601Z"
+},
+{
     ...
 }
 ```
@@ -477,21 +476,21 @@ actors_store (db=5):
 workers_store (db=6):
 ```
 {
-    "_id" : "DEV-DEVELOP_AKeo3XGAGyRr",
-    "BoN4DR6WZvWG" : {
-        "tenant" : "DEV-DEVELOP",
-        "id" : "BoN4DR6WZvWG",
-        "status" : "READY",
-        "ch_name" : "worker_BoN4DR6WZvWG",
-        "image" : "jstubbs/abaco_test",
-        "location" : "unix://var/run/docker.sock",
-        "cid" : "91fd463de7ed72fa2f8f3e32e2377c897f874ad895cc5b4fbba89c504a656301",
-        "host_id" : "0",
-        "host_ip" : "172.17.0.1",
-        "create_time" : "1584723938.432633",
-        "last_execution_time" : "1584723950.874809",
-        "last_health_check_time" : "1584724483.159131"
-    },
+    "_id" : "DEV-DEVELOP_AKeo3XGAGyRr_BoN4DR6WZvWG",
+    "tenant" : "DEV-DEVELOP",
+    "id" : "BoN4DR6WZvWG",
+    "status" : "READY",
+    "ch_name" : "worker_BoN4DR6WZvWG",
+    "image" : "jstubbs/abaco_test",
+    "location" : "unix://var/run/docker.sock",
+    "cid" : "91fd463de7ed72fa2f8f3e32e2377c897f874ad895cc5b4fbba89c504a656301",
+    "host_id" : "0",
+    "host_ip" : "172.17.0.1",
+    "create_time" : "1584723938.432633",
+    "last_execution_time" : "1584723950.874809",
+    "last_health_check_time" : "1584724483.159131"
+},
+{
     ...
 }
 ```
@@ -572,43 +571,79 @@ Additionally one new function was created and is named `full_update()`. This fun
 
 ```
 try:
-            # Check for remaining uses equal to -1
-            res = nonce_store.full_update(
-                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$eq': -1}},
-                {'$inc': {nonce_id + '.current_uses': 1},
-                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
-            if res.raw_result['updatedExisting'] == True:
-                logger.debug("nonce has infinite uses. updating nonce.")
-                return
+    # Check for remaining uses equal to -1
+    res = nonce_store.full_update(
+        {'_id': nonce_key, nonce_id + '.remaining_uses': {'$eq': -1}},
+        {'$inc': {nonce_id + '.current_uses': 1},
+        '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+    if res.raw_result['updatedExisting'] == True:
+        logger.debug("nonce has infinite uses. updating nonce.")
+        return
 
-            # Check for remaining uses greater than 0
-            res = nonce_store.full_update(
-                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$gt': 0}},
-                {'$inc': {nonce_id + '.current_uses': 1,
-                        nonce_id + '.remaining_uses': -1},
-                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
-            if res.raw_result['updatedExisting'] == True:
-                logger.debug("nonce still has uses remaining. updating nonce.")
-                return
-            
-            logger.debug("nonce did not have at least 1 use remaining.")
-            raise errors.PermissionsException("No remaining uses left for this nonce.")
-        except KeyError:
-            logger.debug("nonce did not have a remaining_uses attribute.")
-            raise errors.PermissionsException("No remaining uses left for this nonce.")
+    # Check for remaining uses greater than 0
+    res = nonce_store.full_update(
+        {'_id': nonce_key, nonce_id + '.remaining_uses': {'$gt': 0}},
+        {'$inc': {nonce_id + '.current_uses': 1,
+                nonce_id + '.remaining_uses': -1},
+        '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+    if res.raw_result['updatedExisting'] == True:
+        logger.debug("nonce still has uses remaining. updating nonce.")
+        return
+    
+    logger.debug("nonce did not have at least 1 use remaining.")
+    raise errors.PermissionsException("No remaining uses left for this nonce.")
+except KeyError:
+    logger.debug("nonce did not have a remaining_uses attribute.")
+    raise errors.PermissionsException("No remaining uses left for this nonce.")
 ```
 
 Here you can see `full_update()` implemented to either increment or decrement a field, all in one function call. Doing this allows for a truly atomic procedure. For example, the first case of full_update checks for a particular `nonce_key`, if that key exists and the `remaining_uses` field for that key is equal to -1, the `current_uses` field is incremented by one and the `last_use_time` field is set to the current UTC time.
 
 A more advanced example comes on line 1335 of `actors/models.py`
 ```
-          elif status == ERROR:
-              res = workers_store.full_update(
-                  {'_id': actor_id},
-                  [{'$set': {worker_id + '.status': {"$concat": [ERROR, " (PREVIOUS ", f"${worker_id}.status", ")"]}}}])
+elif status == ERROR:
+    res = workers_store.full_update(
+        {'_id': actor_id},
+        [{'$set': {worker_id + '.status': {"$concat": [ERROR, " (PREVIOUS ", f"${worker_id}.status", ")"]}}}])
 ```
 
 Here, if the status to be set is `ERROR` then we use the recently introduced, aggregation pipeline inside of a MongoDB `update_one()` function. This allows us to update a field in the database with information in the about to be written over field. In this case it results in us being able to set a field equal to "ERROR (PREVIOUS READY)". Where ready is what that field was set to. This is done all in one completely atomic function call instead of a previous two.
 
 There were talks to do even more with full_update, such as a, "check if actor exists and then do work if True" query. While possible, this would usually require a large join between collections which is inadvisable by Mongo. So if a query is completely in one collection or not too many steps are required during a join, then `full_update()` can give you atomicity. Several calls to check actor existance are done in Abaco, but they usually consists of several steps before being able to actually update a field.
 
+Abaco Search
+------------
+Version of 1.6, while coming with the Mongo conversion that converted all Redis stores to Mongo stores and removed any use of Redis, also comes with search. This search implementation takes use of Mongo's aggregation pipeline and indexing to allow for generic large queries, but also a fuzzy or strict full-text search on four Mongo stores: workers, actors, executions, and logs. As mentioned this search is implemented with Mongo aggregation pipelines that allow for multiple commands to run in one atomic (this needs checking) block. The general layout of these pipelines is 'search', 'query', and 'security' as well as post-processing in application code.
+
+The search is comprised of two lines, first the full-text search being made. This full-text search must always be first in an aggregation pipeline, so it is. Following that search is also made of a line that determines sort order, currently it is sorting by textScore, which is an output of the full-text search query. The better the search matches, the higher the score. Following that is the query, the query is where generic matching and logical operators take place. They use Mongo's matching command to do just that. There are no limits on number of matches, so they can be added in as wanted by the user. Search and query are both processed by the `arg_parser()` function which takes user query parameters and bins them properly. `arg_parser()` also returns skip and limit amounts for later use.
+
+The second function used is `get_db_specific_sections()`. This function does as says and generates pipeline sections based on `search_type`. This includes getting the `queried_store` and the security section. `queried_store` is simply the store which is to be used for the search, parsing based on `search_type` inputted by the user. The security section however ensures proper permissions for viewing results. This is done by first matching `tenant`. If that succeeds this section then joins the result with the permissions associated with the actor the result is attached to. After joining the user is checked to be in the permissions store.
+
+These three sections are then combined for the pipeline and the aggregation function returns all results.
+
+```
+search   = [{'$match': {'$text': {'$search': search}}},
+            {'$sort': {'score': {'$meta': 'textScore'}}}]
+
+query    = [{'$match': {'runtime': {'$gt': 200}},
+            {'$match': {'host_id': {'$lt': 2}},
+            {'$match': {'status': 'COMPLETE'}}]
+
+security = [{'$match': {'tenant': tenant}},
+            {'$lookup':
+                {'from' : '2',
+                 'localField' : 'actor_id',
+                 'foreignField' : '_id',
+                 'as' : 'permissions'}},
+            {'$unwind': '$permissions'},
+            {'$match': {'permissions.' + curr_user: {'$exists': True}}}]
+
+pipeline = search + query + security
+full_search_res = list(queried_store.aggregate(pipeline))
+```
+
+After getting the result there is some post-processing to do in the `post-processing()` function. First we manually truncate the results with the skip and limit amounts given by the user. If none are specified then skip default to 0 and limit defaults to 10. This is possible to be done in the pipeline, it is not done there though so we can get a total_count later on. Otherwise we couldn't tell the amount of results possible. The pipeline limit however would speed up search by stopping the search after receiving the set amount of results. So there are trade-offs. The `post-processing()` function then pops and modifies fields for display like the usual actor, worker, execution, and log endpoints. Along with that case is also taken care of here. Finally we add one last bit to the result, a `_metadata` field that includes information about the search such as skip, limit, total_count, and count_returned.
+
+```
+final_result = self.post_processing(search_type, full_search_res, skip, limit)
+```

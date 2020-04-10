@@ -76,15 +76,9 @@ class SearchResource(Resource):
         pipeline = search + query + security
         start = time.time()
         full_search_res = list(queried_store.aggregate(pipeline))
-        logger.info(f'Got search response in {start - time.time()} seconds. First two results: {full_search_res[0:1]}')
-        adjusted_search_res = full_search_res[skip: skip + limit]
-        adjusted_search_res = self.post_processing(search_type, adjusted_search_res)
-        result = {"_metadata": {"total_count": len(full_search_res),
-                                "records_skipped": skip,
-                                "record_limit": limit,
-                                "count_returned": len(adjusted_search_res)},
-                  "search": adjusted_search_res}
-        return ok(result=result, msg="Search completed successfully.")
+        logger.info(f'Got search response in {time.time() - start} seconds. Pipeline: {pipeline} First two results: {full_search_res[0:1]}')
+        final_result = self.post_processing(search_type, full_search_res, skip, limit)
+        return ok(result=final_result, msg="Search completed successfully.")
     
     def get_db_specific_sections(self, search_type):
         """
@@ -158,6 +152,10 @@ class SearchResource(Resource):
                 if key == "limit":
                     limit_amo = val
             else:
+                try:
+                    val = int(val)
+                except ValueError:
+                    pass
                 used_oper = False
                 for oper in ['.$eq', '.$gt', '.$gte', '.$lt', '.$lte', '.$ne']:
                     if oper in key:
@@ -172,7 +170,7 @@ class SearchResource(Resource):
                   {'$sort': {'score': {'$meta': 'textScore'}}}]
         return search, query, skip_amo, limit_amo
 
-    def post_processing(self, search_type, search_list):
+    def post_processing(self, search_type, search_list, skip, limit):
         """
         This function performs post processing on the results. Post processing
         entails fixing times to display_times, changing case, eliminated
@@ -180,6 +178,10 @@ class SearchResource(Resource):
         is dependent on the search_type performed.
         """
         logger.info(f'Starting post_processing for search with search_type: {search_type}')
+
+        total_count = len(search_list)
+        search_list = search_list[skip: skip + limit]
+
         case = Config.get('web', 'case')
         if search_type == 'executions':
             for i, result in enumerate(search_list):
@@ -267,7 +269,19 @@ class SearchResource(Resource):
                 case_corrected_list.append(dict_to_camel(dictionary))
             else:
                 case_corrected_list = search_list
-        return case_corrected_list
+
+        metadata = {"total_count": total_count,
+                    "records_skipped": skip,
+                    "record_limit": limit,
+                    "count_returned": len(search_list)}
+        if case == 'camel':
+            case_corrected_metadata = dict_to_camel(metadata)
+        else:
+            case_corrected_metadata = metadata
+
+        final_result = {"_metadata": case_corrected_metadata,
+                        "search": case_corrected_list}
+        return final_result
 
 
 class MetricsResource(Resource):
