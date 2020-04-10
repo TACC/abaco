@@ -15,7 +15,7 @@ RUN apk add --update openssl-dev && rm -f /var/cache/apk/*
 
 ADD actors/requirements.txt /requirements.txt
 RUN pip3 install -r /requirements.txt
-RUN pip3 install pytest ipython locustio==0.9.0
+RUN pip3 install pytest ipython locustio
 
 # todo -- add/remove to toggle between local channelpy and github instance
 # ADD channelpy /channelpy
