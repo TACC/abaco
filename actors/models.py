@@ -3,6 +3,7 @@ import datetime
 import json
 import timeit
 import uuid
+import re
 
 from flask_restful import inputs
 from hashids import Hashids
@@ -55,6 +56,16 @@ def under_to_camel(value):
 
 
 def dict_to_camel(d):
+    """Convert all keys in a dictionary to camel case."""
+    d2 = {}
+    for k,v in d.items():
+        d2[under_to_camel(k)] = v
+    return d2
+
+def camel_to_under(value):
+    return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
+
+def dict_to_under(d):
     """Convert all keys in a dictionary to camel case."""
     d2 = {}
     for k,v in d.items():

@@ -18,7 +18,7 @@ from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, W
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
-from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
+from models import dict_to_camel, dict_to_under, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
@@ -127,6 +127,10 @@ class SearchResource(Resource):
         skip_amo = 0
         limit_amo = 10
         
+        case = Config.get('web', 'case')
+        if case == 'camel':
+            args = dict_to_under(args)
+
         for key, val in args.items():
             if key == "search":
                 if isinstance(val, list):
@@ -152,20 +156,54 @@ class SearchResource(Resource):
                 if key == "limit":
                     limit_amo = val
             else:
-                try:
-                    val = int(val)
-                except ValueError:
-                    pass
+                if val.lower() == 'false':
+                    val = False
+                elif val.lower() == 'true':
+                    val = True
+                elif val.lower() == 'none':
+                    val = None
+                else:
+                    try:
+                        val = float(val)
+                    except ValueError:
+                        pass
+                    except TypeError:
+                        pass
                 used_oper = False
-                for oper in ['.$eq', '.$gt', '.$gte', '.$lt', '.$lte', '.$ne']:
-                    if oper in key:
-                        key = key.split(oper)[0]
-                        oper = oper[1:]
-                        query += [{'$match': {key: {oper: val}}}]
+
+                oper_aliases = {'.neq': '$ne', '.eq': '$eq', '.lte': '$lte', '.lt': '$lt',
+                                '.gte': '$gte', '.gt': '$gt', '.nin': '$nin', '.in': '$in'}
+                for oper_alias, mongo_oper in oper_aliases.items():
+                    if oper_alias in key:
+                        key = key.split(oper_alias)[0]
+                        query += [{'$match': {key: {mongo_oper: val}}}]
                         used_oper = True
                         break
+
                 if not used_oper:
-                    query += [{'$match': {key: val}}]
+                    if '.between' in key:
+                        if not ',' in val:
+                            raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                        key = key.split('.between')[0]
+                        val1, val2 = val.split(',')
+                        try:
+                            val1 = float(val1)
+                            val2 = float(val2)
+                        except ValueError:
+                            raise('The values given to between should be numbers.')
+                        query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
+                        
+                    elif '.nlike' in key:
+                        key = key.split('.nlike')[0]
+                        query += [{'$match': {key: {'$not': {'$regex': f"{val}"}}}}]
+
+                    elif '.like' in key:
+                        key = key.split('.like')[0]
+                        query += [{'$match': {key: {'$regex': f"{val}"}}}]
+
+                    else:
+                        query += [{'$match': {key: val}}]
+
         search = [{'$match': {'$text': {'$search': search}}},
                   {'$sort': {'score': {'$meta': 'textScore'}}}]
         return search, query, skip_amo, limit_amo
