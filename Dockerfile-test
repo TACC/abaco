@@ -9,6 +9,10 @@ RUN apk add --update git && rm -f /var/cache/apk/*
 RUN apk add --update g++ && rm -f /var/cache/apk/*
 RUN apk add --update python3-dev && rm -f /var/cache/apk/*
 RUN apk add --update linux-headers && rm -f /var/cache/apk/*
+
+RUN apk add --update libffi-dev && rm -f /var/cache/apk/*
+RUN apk add --update openssl-dev && rm -f /var/cache/apk/*
+
 ADD actors/requirements.txt /requirements.txt
 RUN pip3 install -r /requirements.txt
 RUN pip3 install pytest ipython locustio
