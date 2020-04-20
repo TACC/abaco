@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
 - Actors are no longer put into ERROR state when OAuth (APIM) client generation fails.
 - The AgaveClientsService.create() method now tried to delete a "partially created" client for which credential generation 
 failed. 
+- Fixed bug in the Execution model class methods for updating an execution which could cause exceptions to be thrown if the 
+time to update the database exceeded certain pre-defined thresholds. 
+- Fixed an issue with workers not exiting cleanly when handling internal exceptions in the main thread.   
 
 ### Removed
 - No change.
