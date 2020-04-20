@@ -474,6 +474,7 @@ def execute_actor(actor_id,
     logger.debug("host_config object created by (worker {};{}).".format(worker_id, execution_id))
 
     # write binary data to FIFO if it exists:
+    fifo = None
     if fifo_host_path:
         try:
             fifo = os.open(fifo_host_path, os.O_RDWR)
@@ -537,7 +538,7 @@ def execute_actor(actor_id,
                                                                           worker_id, execution_id))
     if not server:
         msg = "Failed to instantiate results socket. " \
-              "Abaco compute host could be overloaded. Exception: {}; (worker {};{})".format(e, worker_id, execution_id)
+              "Abaco compute host could be overloaded. (worker {};{})".format(worker_id, execution_id)
         logger.error(msg)
         raise DockerStartContainerError(msg)
 
@@ -673,6 +674,7 @@ def execute_actor(actor_id,
                                                                                       worker_id, execution_id))
             # we need to wait for the container id to be available
             i = 0
+            c = None
             while i < 10:
                 try:
                     c = cli.containers(all=True, filters={'id': container.get('Id')})[0]
@@ -728,6 +730,7 @@ def execute_actor(actor_id,
 
     # get info from container execution, including exit code; Exceptions from any of these commands
     # should not cause the worker to shutdown or prevent starting subsequent actor containers.
+    exit_code = 'undetermined'
     try:
         container_info = cli.inspect_container(container.get('Id'))
         try:
@@ -737,14 +740,14 @@ def execute_actor(actor_id,
             except KeyError as e:
                 logger.error("Could not determine ExitCode for container {}. "
                              "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
-                exit_code = 'undetermined'
         except KeyError as e:
-            logger.error("Could not determine final state for container {}. "
-                         "Exception: {}; (worker {};{})".format(container.get('Id')), e, worker_id, execution_id)
+            logger.error("Could not determine final state for container {}. Exception: {}; "
+                         "(worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
             container_state = {'unavailable': True}
     except docker.errors.APIError as e:
         logger.error("Could not inspect container {}. "
                      "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
+        container_state = {'unavailable': True}
 
     logger.debug("right after getting container_info: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                  worker_id, execution_id))
@@ -815,8 +818,11 @@ def execute_actor(actor_id,
                                                                                    worker_id, execution_id))
 
     if fifo_host_path:
-        os.close(fifo)
-        os.remove(fifo_host_path)
+        try:
+            os.close(fifo)
+            os.remove(fifo_host_path)
+        except Exception as e:
+            logger.debug(f"got Exception trying to clean up fifo_host_path; e: {e}")
     if results_ch:
         results_ch.close()
     result['runtime'] = int(stop - start)
