@@ -1,6 +1,19 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.5.4 - 2020-04-20
+### Added
+- No change.
+
+### Changed
+- Actors are no longer put into ERROR state when OAuth (APIM) client generation fails.
+- The AgaveClientsService.create() method now tried to delete a "partially created" client for which credential generation 
+failed. 
+
+### Removed
+- No change.
+
+
 ## 1.5.3 - 2020-04-08
 ### Added
 - No change.
