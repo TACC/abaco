@@ -166,7 +166,7 @@ class Spawner(object):
                 return
 
         # before starting up a new worker, check to see if the actor is in ERROR state; it is possible the actor was put
-        # into ERROR state after the autoscaler put the worker request message on the sapwner command channel.
+        # into ERROR state after the autoscaler put the worker request message on the spawner command channel.
         if actor.status == ERROR:
             logger.debug(f"actor {actor_id} was in ERROR status while spawner was starting worker {worker_id} . "
                          f"Aborting creation of worker.")
@@ -267,26 +267,40 @@ class Spawner(object):
                 logger.error("Got a ChannelTimeoutException trying to generate a client for "
                              "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
                 if client_attempts == 10:
+                    # Update - 4/2020: we do NOT set the actor to an error statewhen client generation fails because
                     # put worker in an error state and return
-                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
-                                                              "worker {} for this actor. System administrators have been "
-                                                              "notified. Actor will be put in error state and "
-                                                              "must be updated before it will process".format(worker_id))
+                    # self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
+                    #                                           "worker {} for this actor. System administrators have been "
+                    #                                           "notified. Actor will be put in error state and "
+                    #                                           "must be updated before it will process".format(worker_id))
+                    # Worker.update_worker_status(actor_id, worker_id, ERROR)
                     client_ch.close()
-                    Worker.update_worker_status(actor_id, worker_id, ERROR)
+                    self.kill_worker(actor_id, worker_id)
                     logger.critical("Client generation FAILED.")
                     raise e
             client_ch.close()
 
             if client_msg.get('status') == 'error':
                 logger.error("Error generating client; worker_id: {}; message: {}".format(worker_id, client_msg.get('message')))
+                # check to see if the error was an error that cannot be retried:
+                if 'AgaveClientFailedDoNotRetry' in client_msg.get('message'):
+                    logger.debug(f"got AgaveClientFailedDoNotRetry in message for worker {worker_id}. "
+                                 f"Giving up and setting attempts directly to 10.")
+                    client_attempts = 10
                 if client_attempts == 10:
-                    self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
-                                                              "worker {} for this actor. System administrators "
-                                                              "have been notified. Actor will be put in error state and "
-                                                              "must be updated before it will process "
-                                                              "messages.".format(worker_id))
-                    Worker.update_worker_status(actor_id, worker_id, ERROR)
+                    # Update - 4/2020: we do NOT set the actor to an error statewhen client generation fails because
+                    # this is not something the user has control over.
+                    # self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
+                    #                                           "worker {} for this actor. System administrators "
+                    #                                           "have been notified. Actor will be put in error state and "
+                    #                                           "must be updated before it will process "
+                    #                                           "messages.".format(worker_id))
+                    # Worker.update_worker_status(actor_id, worker_id, ERROR)
+                    try:
+                        client_ch.close()
+                    except Exception as e:
+                        logger.debug(f"got exception trying to close the client_ch: {e}")
+                    self.kill_worker(actor_id, worker_id)
                     raise SpawnerException("Error generating client") #TODO - clean up error message
             # else, client was generated successfully:
             else:
