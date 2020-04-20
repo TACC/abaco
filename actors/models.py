@@ -941,7 +941,7 @@ class Execution(AbacoDAO):
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
             logger.critical(f"Exection.update_status took {ms} to run for actor {actor_id}, "
-                            f"execution: {execution_id}. worker: {worker_id}")
+                            f"execution: {execution_id}.")
 
     @classmethod
     def finalize_execution(cls, actor_id, execution_id, status, stats, final_state, exit_code, start_time):
@@ -983,7 +983,7 @@ class Execution(AbacoDAO):
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
             logger.critical(f"Execution.finalize_execution took {ms} to run for actor {actor_id}, "
-                            f"execution_id: {execution_id}, worker: {worker_id}")
+                            f"execution_id: {execution_id}")
 
         try:
             event_type = 'EXECUTION_COMPLETE'
@@ -1037,9 +1037,7 @@ class Execution(AbacoDAO):
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
-            logger.critical(f"Execution.set_logs took {ms} to run for actor {actor_id}, "
-                            f"execution: {exc_id}, worker: {worker_id}")
-
+            logger.critical(f"Execution.set_logs took {ms} to run for execution: {exc_id}.")
 
     def get_uuid_code(self):
         """ Return the Agave code for this object.
