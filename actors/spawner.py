@@ -274,11 +274,17 @@ class Spawner(object):
                     #                                           "notified. Actor will be put in error state and "
                     #                                           "must be updated before it will process".format(worker_id))
                     # Worker.update_worker_status(actor_id, worker_id, ERROR)
-                    client_ch.close()
+                    try:
+                        client_ch.close()
+                    except Exception as e:
+                        logger.debug(f"got exception trying to close the client_ch: {e}")
                     self.kill_worker(actor_id, worker_id)
                     logger.critical("Client generation FAILED.")
                     raise e
-            client_ch.close()
+            try:
+                client_ch.close()
+            except Exception as e:
+                logger.debug(f"got exception trying to close the client_ch: {e}")
 
             if client_msg.get('status') == 'error':
                 logger.error("Error generating client; worker_id: {}; message: {}".format(worker_id, client_msg.get('message')))
