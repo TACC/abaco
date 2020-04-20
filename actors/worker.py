@@ -606,4 +606,5 @@ if __name__ == '__main__':
         msg = "worker caught exception from main loop. worker exiting. e" \
               "Exception: {} worker_id: {}".format(e, worker_id)
         logger.info(msg)
+    sys.exit()
 
