@@ -156,8 +156,8 @@ class Spawner(object):
             if status == SHUTDOWN_REQUESTED or status == SHUTTING_DOWN or status == ERROR:
                 logger.debug(f"worker status was {status}; spawner deleting worker and returning..")
                 try:
-                    Worker.kill_worker(actor_id, worker_id)
-                    logger.debug(f"spawner called kill_worker because its status was: {status}. {actor_id}_{worker_id}")
+                    Worker.delete_worker(actor_id, worker_id)
+                    logger.debug(f"spawner called delete_worker because its status was: {status}. {actor_id}_{worker_id}")
                     return
                 except Exception as e:
                     logger.error(f"spawner got exception trying to delete a worker in SHUTDOWN_REQUESTED status."

@@ -1199,7 +1199,7 @@ def test_create_unlimited_alias_nonce(headers):
     check_nonce_fields(result, alias=ALIAS_1, level='EXECUTE', max_uses=-1, current_uses=0, remaining_uses=-1)
 
 @pytest.mark.aliastest
-def test_redeem_unlimted_alias_nonce(headers):
+def test_redeem_unlimited_alias_nonce(headers):
     # first, get the nonce id:
     url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
     rsp = requests.get(url, headers=headers)
