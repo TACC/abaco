@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.6.0 - 2020-04-13
+## 1.6.0 - 2020-04-30
 ### Added
 - Added the `GET /actors/search/{search_type}?{search_terms}` endpoint for mongo database full-text search and matching
 - Added abaco_metrics_store to store long term information about actors executions
@@ -19,6 +19,7 @@ for the fact that actors without executions are not account for in the execution
 ### Changed
 - Converted Redis databases to Mongo for database simplification. This includes the actors_store,
 the workers_store, the alias_store, the nonce_store, and pregen_clients.
+- Changed all time instances in Mongo from unix strings to datetime objects.
 - Modified the Mongo store class to allow for missing features from Redis and allow for recursive use of any function
 that gets, sets, or deletes. Additionally added full_update, a function that allows for full use of the Mongo
 update_one function. Additionally added aggregation and indexing functions to use pymongo native functions.

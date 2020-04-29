@@ -12,6 +12,7 @@
 import os
 import shutil
 import time
+import datetime
 
 from agaveflask.auth import get_api_server
 import channelpy
@@ -317,17 +318,17 @@ def check_workers(actor_id, ttl):
             return
         # we don't shut down workers that are currently running:
         if not worker['status'] == codes.BUSY:
-            last_execution = int(float(worker.get('last_execution_time', 0)))
+            last_execution = worker.get('last_execution_time', 0)
             # if worker has made zero executions, use the create_time
             if last_execution == 0:
-                last_execution = worker.get('create_time', 0)
+                last_execution = worker.get('create_time', datetime.datetime.min)
             logger.debug("using last_execution: {}".format(last_execution))
             try:
-                last_execution = int(float(last_execution))
+                assert type(last_execution) == datetime.datetime
             except:
-                logger.error("Could not case last_execution {} to int(float()".format(last_execution))
-                last_execution = 0
-            if last_execution + ttl < time.time():
+                logger.error("Time received for TTL measurements is not of type datetime.")
+                last_execution = datetime.datetime.min
+            if last_execution + datetime.timedelta(seconds=ttl) < datetime.datetime.utcnow():
                 # shutdown worker
                 logger.info("Shutting down worker beyond ttl.")
                 shutdown_worker(actor_id, worker['id'])

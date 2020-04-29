@@ -18,7 +18,7 @@ from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, W
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
-from models import dict_to_camel, dict_to_under, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
+from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
@@ -690,15 +690,21 @@ class ActorsResource(Resource):
 
     def get(self):
         logger.debug("top of GET /actors")
-
-        actors = []
-        for actor_info in actors_store.items():
-            if actor_info['tenant'] == g.tenant:
-                actor = Actor.from_db(actor_info)
-                if check_permissions(g.user, actor.db_id, READ):
-                    actors.append(actor.display())
-        logger.info("actors retrieved.")
-        return ok(result=actors, msg="Actors retrieved successfully.")
+        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+            args_given = request.args
+            args_full = {}
+            args_full.update(args_given)
+            result = Search(args_full, 'actors', g.tenant, g.user).search()
+            return ok(result=result, msg="Actors search completed successfully.")
+        else:
+            actors = []
+            for actor_info in actors_store.items():
+                if actor_info['tenant'] == g.tenant:
+                    actor = Actor.from_db(actor_info)
+                    if check_permissions(g.user, actor.db_id, READ):
+                        actors.append(actor.display())
+            logger.info("actors retrieved.")
+            return ok(result=actors, msg="Actors retrieved successfully.")
 
     def validate_post(self):
         logger.debug("top of validate post in /actors")
@@ -1032,20 +1038,27 @@ class ActorStateResource(Resource):
 class ActorExecutionsResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/executions".format(actor_id))
-        dbid = g.db_id
-        try:
-            actor = Actor.from_db(actors_store[dbid])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
-        try:
-            summary = ExecutionsSummary(db_id=dbid)
-        except DAOError as e:
-            logger.debug("did not find executions summary: {}".format(actor_id))
-            raise ResourceError("Could not retrieve executions summary for actor: {}. "
-                                "Details: {}".format(actor_id, e), 404)
-        return ok(result=summary.display(), msg="Actor executions retrieved successfully.")
+        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+            args_given = request.args
+            args_full = {'actor_id': f'{g.tenant}_{actor_id}'}
+            args_full.update(args_given)
+            result = Search(args_full, 'executions', g.tenant, g.user).search()
+            return ok(result=result, msg="Executions search completed successfully.")
+        else:
+            dbid = g.db_id
+            try:
+                actor = Actor.from_db(actors_store[dbid])
+            except KeyError:
+                logger.debug("did not find actor: {}.".format(actor_id))
+                raise ResourceError(
+                    "No actor found with id: {}.".format(actor_id), 404)
+            try:
+                summary = ExecutionsSummary(db_id=dbid)
+            except DAOError as e:
+                logger.debug("did not find executions summary: {}".format(actor_id))
+                raise ResourceError("Could not retrieve executions summary for actor: {}. "
+                                    "Details: {}".format(actor_id, e), 404)
+            return ok(result=summary.display(), msg="Actor executions retrieved successfully.")
 
     def post(self, actor_id):
         logger.debug("top of POST /actors/{}/executions".format(actor_id))
@@ -1237,30 +1250,37 @@ class ActorExecutionLogsResource(Resource):
     def get(self, actor_id, execution_id):
         def get_hypermedia(actor, exc):
             return {'_links': {'self': '{}/actors/v2/{}/executions/{}/logs'.format(actor.api_server, actor.id, exc.id),
-                               'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
-                               'execution': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc.id)},
+                                'owner': '{}/profiles/v2/{}'.format(actor.api_server, actor.owner),
+                                'execution': '{}/actors/v2/{}/executions/{}'.format(actor.api_server, actor.id, exc.id)},
                     }
         logger.debug("top of GET /actors/{}/executions/{}/logs.".format(actor_id, execution_id))
-        dbid = g.db_id
-        try:
-            actor = Actor.from_db(actors_store[dbid])
-        except KeyError:
-            logger.debug("did not find actor: {}.".format(actor_id))
-            raise ResourceError(
-                "No actor found with id: {}.".format(actor_id), 404)
-        try:
-            exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
-        except KeyError:
-            logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
-            raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
-        try:
-            logs = logs_store[execution_id]['logs']
-        except KeyError:
-            logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
-            logs = ""
-        result={'logs': logs}
-        result.update(get_hypermedia(actor, exc))
-        return ok(result, msg="Logs retrieved successfully.")
+        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+            args_given = request.args
+            args_full = {'actor_id': f'{g.tenant}_{actor_id}', '_id': execution_id}
+            args_full.update(args_given)
+            result = Search(args_full, 'logs', g.tenant, g.user).search()
+            return ok(result=result, msg="Log search completed successfully.")
+        else:
+            dbid = g.db_id
+            try:
+                actor = Actor.from_db(actors_store[dbid])
+            except KeyError:
+                logger.debug("did not find actor: {}.".format(actor_id))
+                raise ResourceError(
+                    "No actor found with id: {}.".format(actor_id), 404)
+            try:
+                exc = Execution.from_db(executions_store[f'{dbid}_{execution_id}'])
+            except KeyError:
+                logger.debug(f"did not find execution with actor id of {actor_id} and execution id of {execution_id}.")
+                raise ResourceError(f"No executions found with actor id of {actor_id} and execution id of {execution_id}.")
+            try:
+                logs = logs_store[execution_id]['logs']
+            except KeyError:
+                logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
+                logs = ""
+            result={'logs': logs}
+            result.update(get_hypermedia(actor, exc))
+            return ok(result, msg="Logs retrieved successfully.")
 
 
 def get_messages_hypermedia(actor):
@@ -1524,20 +1544,27 @@ class MessagesResource(Resource):
 class WorkersResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/workers for tenant {}.".format(actor_id, g.tenant))
-        dbid = g.db_id
-        try:
-            workers = Worker.get_workers(dbid)
-        except WorkerException as e:
-            logger.debug("did not find workers for actor: {}.".format(actor_id))
-            raise ResourceError(e.msg, 404)
-        result = []
-        for worker in workers:
+        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+            args_given = request.args
+            args_full = {'actor_id': f'{g.tenant}_{actor_id}'}
+            args_full.update(args_given)
+            result = Search(args_full, 'workers', g.tenant, g.user).search()
+            return ok(result=result, msg="Workers search completed successfully.")
+        else:
+            dbid = g.db_id
             try:
-                w = Worker(**worker)
-                result.append(w.display())
-            except Exception as e:
-                logger.error("Unable to instantiate worker in workers endpoint from description: {}. ".format(worker))
-        return ok(result=result, msg="Workers retrieved successfully.")
+                workers = Worker.get_workers(dbid)
+            except WorkerException as e:
+                logger.debug("did not find workers for actor: {}.".format(actor_id))
+                raise ResourceError(e.msg, 404)
+            result = []
+            for worker in workers:
+                try:
+                    w = Worker(**worker)
+                    result.append(w.display())
+                except Exception as e:
+                    logger.error("Unable to instantiate worker in workers endpoint from description: {}. ".format(worker))
+            return ok(result=result, msg="Workers retrieved successfully.")
 
     def validate_post(self):
         parser = RequestParser()

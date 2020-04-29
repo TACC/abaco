@@ -63,35 +63,24 @@ def dict_to_camel(d):
         d2[under_to_camel(k)] = v
     return d2
 
-def camel_to_under(value):
-    return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
-
-def dict_to_under(d):
-    """Convert all keys in a dictionary to camel case."""
-    d2 = {}
-    for k,v in d.items():
-        d2[under_to_camel(k)] = v
-    return d2
-
 def get_current_utc_time():
     """Return string representation of current time in UTC."""
-    utcnow = datetime.datetime.utcnow()
-    return str(utcnow.timestamp())
+    return datetime.datetime.utcnow()
 
 def display_time(t):
     """ Convert a string representation of a UTC timestamp to a display string."""
     if not t:
         return "None"
     try:
-        time_f = float(t)
-        dt = datetime.datetime.fromtimestamp(time_f)
-    except ValueError as e:
-        logger.error("Invalid time data. Could not cast {} to float. Exception: {}".format(t, e))
+        dt = t.isoformat().replace('000', 'Z')
+    except AttributeError as e:
+        logger.error(f"Did not receive datetime object. Received object of type {type(t)}. Exception: {e}")
         raise DAOError("Error retrieving time data.")
-    except TypeError as e:
-        logger.error("Invalid time data. Could not convert float to datetime. t: {}. Exception: {}".format(t, e))
+    except Exception as e:
+        logger.error(f"Error in formatting display time. Exception: {e}")
+
         raise DAOError("Error retrieving time data.")
-    return str(dt)
+    return dt
 
 
 class Search():
@@ -169,13 +158,15 @@ class Search():
         search = f'"{self.tenant}"'
         skip_amo = 0
         limit_amo = 10
-        
+
         case = Config.get('web', 'case')
         if case == 'camel':
-            self.args = dict_to_under(self.args)
+            self.args = self.dict_to_under(self.args)
 
         for key, val in self.args.items():
-            if key == "search":
+            if key == "x-nonce":
+                pass
+            elif key == "search":
                 if isinstance(val, list):
                     joined_val = ' '.join(val)
                     search = search + f' {joined_val}'
@@ -199,19 +190,46 @@ class Search():
                 if key == "limit":
                     limit_amo = val
             else:
+                time_keys = ['start_time', 'message_received_time', 'last_execution_time',
+                            'last_update_time', 'StartedAt', 'FinishedAt', 'create_time',
+                            'last_health_check_time']
+                # Boolean check
                 if val.lower() == 'false':
                     val = False
                 elif val.lower() == 'true':
                     val = True
+                # None check
                 elif val.lower() == 'none':
                     val = None
+                # Datetime check
+                elif any(time_key in key for time_key in time_keys):
+                    if '.between' in key:
+                        if not ',' in val:
+                            raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                        time1, time2 = val.split(',')
+                        time1 = self.broad_ISO_to_datetime(time1)
+                        time2 = self.broad_ISO_to_datetime(time2)
+                        val = [time1, time2]
+                    else:
+                        val = self.broad_ISO_to_datetime(val)
                 else:
-                    try:
+                    # Number check (floats are fine for all comparisons)
+                    try: 
                         val = float(val)
                     except ValueError:
                         pass
                     except TypeError:
                         pass
+                    # List check/Other JSON check
+                    try:
+                        val = json.loads(val.replace("'", '"'))
+                    except json.JSONDecodeError:
+                        # Checks if list had the wrong quotes
+                        try:
+                            val = json.loads(val.replace('"', "'"))
+                        except json.JSONDecodeError:
+                            pass
+
                 used_oper = False
 
                 oper_aliases = {'.neq': '$ne', '.eq': '$eq', '.lte': '$lte', '.lt': '$lt',
@@ -225,16 +243,23 @@ class Search():
 
                 if not used_oper:
                     if '.between' in key:
-                        if not ',' in val:
-                            raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
-                        key = key.split('.between')[0]
-                        val1, val2 = val.split(',')
-                        try:
-                            val1 = float(val1)
-                            val2 = float(val2)
-                        except ValueError:
-                            raise('The values given to between should be numbers.')
-                        query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
+                        if isinstance(val, list):
+                            if isinstance(val[0], datetime.datetime) and isinstance(val[1], datetime.datetime):
+                                key = key.split('.between')[0]
+                                query += [{'$match': {key: {'$gte': val[0], '$lte': val[1]}}}]
+                            else:
+                                raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
+                        else:
+                            if not ',' in val:
+                                raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                            key = key.split('.between')[0]
+                            val1, val2 = val.split(',')
+                            try:
+                                val1 = float(val1)
+                                val2 = float(val2)
+                            except ValueError:
+                                raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
+                            query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
                         
                     elif '.nlike' in key:
                         key = key.split('.nlike')[0]
@@ -278,10 +303,15 @@ class Search():
                     search_list[i].pop('api_server')
                 except KeyError:
                     pass
-                if 'create_time' in result:
+                if 'start_time' in result:
                     search_list[i]['start_time'] = display_time(result['start_time'])
                 if 'message_received_time' in result:
                     search_list[i]['message_received_time'] = display_time(result['message_received_time'])
+                if 'final_state' in result:
+                    if 'StartedAt' in result['final_state']:
+                        search_list[i]['final_state']['StartedAt'] = display_time(result['final_state']['StartedAt'])
+                    if 'FinishedAt' in result['final_state']:
+                        search_list[i]['final_state']['FinishedAt'] = display_time(result['final_state']['FinishedAt'])
                 search_list[i]['actor_id'] = aid
                 search_list[i].pop('_id', None)
                 search_list[i].pop('permissions', None)
@@ -364,6 +394,78 @@ class Search():
                         "search": case_corrected_list}
         return final_result
 
+    def broad_ISO_to_datetime(self, dt_str):
+        # There are dz_tz_ready variables to get rid of any colons in timezone information
+        # being given in the ISO 8601 format.
+        try:
+            dt_tz_ready = dt_str[:19] + dt_str[19:].replace(':', '')
+            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S.%f%z")
+        except ValueError:
+            try:
+                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S.%f")
+            except ValueError:
+                try:
+                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S%z")
+                except ValueError:
+                    try:
+                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S")
+                    except ValueError:
+                        try:
+                            dt_tz_ready = dt_str[:16] + dt_str[16:].replace(':', '')
+                            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M%z")
+                        except ValueError:
+                            try:
+                                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M")
+                            except ValueError:
+                                try:
+                                    dt_tz_ready = dt_str[:13] + dt_str[13:].replace(':', '')
+                                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H%z")
+                                except:
+                                    try:
+                                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H")
+                                    except ValueError:
+                                        try:
+                                            dt_tz_ready = dt_str.replace(':', '')
+                                            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%z") 
+                                        except ValueError:
+                                            try:
+                                                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT")
+                                            except ValueError:
+                                                try:
+                                                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%d%z")
+                                                except ValueError:
+                                                    try:
+                                                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%d")
+                                                    except ValueError:
+                                                        try:
+                                                            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m%z")
+                                                        except ValueError:
+                                                            try:
+                                                                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m")
+                                                            except ValueError:
+                                                                try:
+                                                                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y%z")
+                                                                except ValueError:
+                                                                    try:
+                                                                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y")
+                                                                    except ValueError:
+                                                                        raise ValueError
+        return dt
+
+    def camel_to_under(self, value):
+        return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
+
+    def dict_to_under(self, d):
+        """Convert all keys in a dictionary to camel case."""
+        d2 = {}
+        for k,v in d.items():
+            k = k.split(".")
+            k[0] = self.camel_to_under(k[0])
+            k = ".".join(k)
+            d2[k] = v
+        return d2
+
+
 class Event(object):
     """
     Base event class for all Abaco events.
@@ -379,8 +481,8 @@ class Event(object):
         self.event_type = event_type
         data['tenant_id'] = self.tenant_id
         data['event_type'] = event_type
-        data['event_time_utc'] = get_current_utc_time()
-        data['event_time_display'] = display_time(data['event_time_utc'])
+        data['event_time_utc'] = get_current_utc_time().isoformat()[:23] + 'Z'
+        data['event_time_display'] = data['event_time_utc']
         data['actor_id'] = self.actor_id
         data['actor_dbid'] = dbid
         self._get_events_attrs()
@@ -804,7 +906,7 @@ class Alias(AbacoDAO):
     ]
 
     # the following nouns cannot be used for an alias as they
-    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization']
+    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization', 'search']
     FORBIDDEN_CHAR = [':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
 
 
@@ -1339,10 +1441,15 @@ class Execution(AbacoDAO):
         """Return a display version of the execution."""
         self.update(self.get_hypermedia())
         tenant = self.pop('tenant')
-        start_time_str = self.pop('start_time')
-        received_time_str = self.pop('message_received_time')
-        self['start_time'] = display_time(start_time_str)
-        self['message_received_time'] = display_time(received_time_str)
+        if self.get('start_time'):
+            self['start_time'] = display_time(self['start_time'])
+        if self.get('message_received_time'):
+            self['message_received_time'] = display_time(self['message_received_time'])
+        if self.get('final_state'):
+            if self['final_state'].get('StartedAt'):
+                self['final_state']['StartedAt'] = display_time(self['final_state']['StartedAt'])
+            if self['final_state'].get('FinishedAt'):
+                self['final_state']['FinishedAt'] = display_time(self['final_state']['FinishedAt'])
         self.actor_id = Actor.get_display_id(tenant, self.actor_id)
         return self.case()
 
@@ -1384,13 +1491,15 @@ class ExecutionsSummary(AbacoDAO):
                          'start_time': val.get('start_time'),
                          'message_received_time': val.get('message_received_time')}
             if val.get('final_state'):
-                execution['finish_time'] = val.get('final_state').get('FinishedAt')
+                db_finish_time = val.get('final_state').get('FinishedAt')
                 # we rely completely on docker for the final_state object which includes the FinishedAt time stamp;
                 # under heavy load, we have seen docker fail to set this time correctly and instead set it to 1/1/0001.
                 # in that case, we should use the total_runtime to back into it.
-                if execution['finish_time'].startswith('0001-01-01'):
-                    finish_time = float(val.get('start_time')) + float(val['runtime'])
-                    execution['finish_time'] = display_time(str(finish_time))
+                if db_finish_time == datetime.datetime.min:
+                    derived_finish_time = val.get('start_time') + datetime.timedelta(seconds=val['runtime'])
+                    execution['finish_time'] = display_time(derived_finish_time)
+                else:
+                    execution['finish_time'] = display_time(db_finish_time)
             tot['executions'].append(execution)
             tot['total_executions'] += 1
             tot['total_cpu'] += int(val['cpu'])
@@ -1469,9 +1578,9 @@ class Worker(AbacoDAO):
         # time fields
         if name == 'create_time':
             time_str = get_current_utc_time()
-            self.create_time = time_str
-            return time_str
-
+            self.create_time = time_str 
+            return time_str 
+    
     @classmethod
     def get_uuid(cls):
         """Generate a random uuid."""
@@ -1644,7 +1753,7 @@ class Worker(AbacoDAO):
                     if not (prev_status == "READY" and status == "READY"):
                         raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:
-            logger.error("Got exception trying to update worker {} subfield status to {}; "
+            logger.warning("Got exception trying to update worker {} subfield status to {}; "
                          "e: {}; type(e): {}".format(worker_id, status, e, type(e)))
 
         stop_timer = timeit.default_timer()

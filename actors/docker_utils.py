@@ -4,6 +4,7 @@ import os
 import socket
 import time
 import timeit
+import datetime
 
 import docker
 from requests.packages.urllib3.exceptions import ReadTimeoutError
@@ -739,13 +740,25 @@ def execute_actor(actor_id,
                 logger.error("Could not determine ExitCode for container {}. "
                              "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
                 exit_code = 'undetermined'
+            # Converting ISO8601 times to unix timestamps
+            try:
+                # Slicing to 23 to account for accuracy up to milliseconds and replace to get rid of ISO 8601 'Z'
+                startedat_ISO = container_state['StartedAt'].replace('Z', '')[:23]
+                finishedat_ISO = container_state['FinishedAt'].replace('Z', '')[:23]
+
+                container_state['StartedAt'] = datetime.datetime.strptime(startedat_ISO, "%Y-%m-%dT%H:%M:%S.%f")
+                container_state['FinishedAt'] = datetime.datetime.strptime(finishedat_ISO, "%Y-%m-%dT%H:%M:%S.%f")
+            except Exception as e:
+                logger.error(f"Datetime conversion failed for container {container.get('Id')}. ",
+                             f"Exception: {e}; (worker {worker_id};{execution_id})")
+                container_state = {'unavailable': True}
         except KeyError as e:
-            logger.error("Could not determine final state for container {}. "
-                         "Exception: {}; (worker {};{})".format(container.get('Id')), e, worker_id, execution_id)
+            logger.error(f"Could not determine final state for container {container.get('Id')}. ",
+                         f"Exception: {e}; (worker {worker_id};{execution_id})")
             container_state = {'unavailable': True}
     except docker.errors.APIError as e:
-        logger.error("Could not inspect container {}. "
-                     "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
+        logger.error(f"Could not inspect container {container.get('Id')}. ",
+                     f"Exception: {e}; (worker {worker_id};{execution_id})")
 
     logger.debug("right after getting container_info: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                  worker_id, execution_id))
