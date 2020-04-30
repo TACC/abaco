@@ -17,7 +17,7 @@ export TAG := :dev
 endif
 
 
-# Gets all images and starts Abaco suite in daemon mode
+# Gets all remote images and starts Abaco suite in daemon mode
 deploy:	
 	@docker rmi abaco/core$$TAG
 	@docker pull abaco/core$$TAG
@@ -25,32 +25,71 @@ deploy:
 
 
 # Builds core locally and sets to correct tag. This should take priority over DockerHub images
-build:
-	@docker build ./ -t abaco/core$$TAG
+build-core:
+	@docker build -t abaco/core$$TAG ./
+
+
+# Builds nginx
+build-nginx:
+	@docker build -t abaco/nginx$$TAG images/nginx/.
+
+
+# Builds testsuite
+build-testsuite:
+	@docker build -t abaco/testsuite$$TAG -f Dockerfile-test .
 
 
 # Builds core locally and then runs with Abaco suite with that abaco/core image in daemon mode
-local-deploy: build
-	@docker-compose up -d
+local-deploy: build-core build-nginx
+	@docker-compose --project-name=abaco up -d
 
 
-# Deploys, but not silently and will abort if a container exits.
-test-deploy:
-	@docker-compose up --abort-on-container-exit
+# Builds local everything and runs both camel case
+# and snake case tests.
+# Can run specific test based on the 'test' environment variable
+# ex: export test=test/load_tests.py
+test:
+	@echo "\n\nRunning Both Tests.\n"
+	make test-camel
+	make down
+	make test-snake
+	make down
+	@echo "Converting back to camel"
+	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf
+
+
+# Builds local everything and performs testsuite for camel case.
+# Can run specific test based on the 'test' environment variable
+# ex: export test=test/load_tests.py
+test-camel: build-testsuite
+	@echo "\n\nCamel Case Tests.\n"
+	@echo "Converting config file to camel case.\n"
+	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
+	@echo "Launching Abaco Stack.\n"
+	make local-deploy
+	@sleep 10
+	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$$TAG $$test
+
+
+# Builds local everything and performs testsuite for snake case.
+# Converts local-dev.conf back to camel case after test.
+# Can run specific test based on the 'test' environment variable
+# ex: export test=test/load_tests.py
+test-snake: build-testsuite
+	@echo "\n\nSnake Case Tests.\n"
+	@echo "Converting config file to snake case.\n"
+	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf
+	@echo "Launching Abaco Stack.\n"
+	make local-deploy
+	@sleep 10
+	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$$TAG $$test
+	@echo "Converting back to camel"
+	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 
 
 # Pulls all Docker images not yet available but needed to run Abaco suite
 pull:
 	@docker-compose pull
-
-
-# Runs test suite against current repository
-# Runs specific test based on the 'test' environment variable
-# ex: export test=test/load_tests.py
-test:
-	sleep 5
-	docker build -t abaco/testsuite$$TAG -f Dockerfile-test .
-	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$$TAG $$test
 
 
 # Builds a few sample Docker images
