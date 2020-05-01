@@ -108,7 +108,8 @@ class Search():
         pipeline = search + query + security
         start = time.time()
         full_search_res = list(queried_store.aggregate(pipeline))
-        logger.info(f'Got search response in {time.time() - start} seconds. Pipeline: {pipeline} First two results: {full_search_res[0:1]}')
+        logger.info(f'Got search response in {time.time() - start} seconds.',
+                    f'Pipeline: {pipeline} First two results: {full_search_res[0:1]}')
         final_result = self.post_processing(full_search_res, skip, limit)
         return final_result
 
@@ -157,7 +158,7 @@ class Search():
         query = []
         search = f'"{self.tenant}"'
         skip_amo = 0
-        limit_amo = 10
+        limit_amo = 100
 
         case = Config.get('web', 'case')
         if case == 'camel':
@@ -193,6 +194,7 @@ class Search():
                 time_keys = ['start_time', 'message_received_time', 'last_execution_time',
                             'last_update_time', 'StartedAt', 'FinishedAt', 'create_time',
                             'last_health_check_time']
+                # Trying lots of types to parse inputted strings.
                 # Boolean check
                 if val.lower() == 'false':
                     val = False
@@ -216,22 +218,18 @@ class Search():
                     # Number check (floats are fine for all comparisons)
                     try: 
                         val = float(val)
-                    except ValueError:
-                        pass
-                    except TypeError:
-                        pass
-                    # List check/Other JSON check
-                    try:
-                        val = json.loads(val.replace("'", '"'))
-                    except json.JSONDecodeError:
-                        # Checks if list had the wrong quotes
+                    except (ValueError, TypeError):
+                        # List check/Other JSON check
                         try:
-                            val = json.loads(val.replace('"', "'"))
+                            val = json.loads(val.replace("'", '"'))
                         except json.JSONDecodeError:
-                            pass
+                            # Checks if list had the wrong quotes
+                            try:
+                                val = json.loads(val.replace('"', "'"))
+                            except json.JSONDecodeError:
+                                pass
 
                 used_oper = False
-
                 oper_aliases = {'.neq': '$ne', '.eq': '$eq', '.lte': '$lte', '.lt': '$lt',
                                 '.gte': '$gte', '.gt': '$gt', '.nin': '$nin', '.in': '$in'}
                 for oper_alias, mongo_oper in oper_aliases.items():
@@ -240,7 +238,6 @@ class Search():
                         query += [{'$match': {key: {mongo_oper: val}}}]
                         used_oper = True
                         break
-
                 if not used_oper:
                     if '.between' in key:
                         if isinstance(val, list):
@@ -260,15 +257,12 @@ class Search():
                             except ValueError:
                                 raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
                             query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
-                        
                     elif '.nlike' in key:
                         key = key.split('.nlike')[0]
                         query += [{'$match': {key: {'$not': {'$regex': f"{val}"}}}}]
-
                     elif '.like' in key:
                         key = key.split('.like')[0]
                         query += [{'$match': {key: {'$regex': f"{val}"}}}]
-
                     else:
                         query += [{'$match': {key: val}}]
 
@@ -291,42 +285,44 @@ class Search():
         case = Config.get('web', 'case')
         if self.search_type == 'executions':
             for i, result in enumerate(search_list):
-                aid = Actor.get_display_id(result['tenant'], result['actor_id'])
-                try:
-                    api_server = result['api_server']
-                    id = result['id']
-                    executor = result['executor']
-                    search_list[i]['_links'] = {
-                        'self': f'{api_server}/actors/v2/{aid}/executions/{id}',
-                        'owner': f'{api_server}/profiles/v2/{executor}',
-                        'logs': f'{api_server}/actors/v2/{aid}/logs'}
-                    search_list[i].pop('api_server')
-                except KeyError:
-                    pass
-                if 'start_time' in result:
+                if result.get('tenant') and result.get('actor_id'):
+                    aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                    search_list[i]['actor_id'] = aid
+                    try:
+                        api_server = result['api_server']
+                        id = result['id']
+                        executor = result['executor']
+                        search_list[i]['_links'] = {
+                            'self': f'{api_server}/actors/v2/{aid}/executions/{id}',
+                            'owner': f'{api_server}/profiles/v2/{executor}',
+                            'logs': f'{api_server}/actors/v2/{aid}/logs'}
+                        search_list[i].pop('api_server')
+                    except KeyError:
+                        pass
+                if result.get('start_time'):
                     search_list[i]['start_time'] = display_time(result['start_time'])
-                if 'message_received_time' in result:
+                if result.get('message_received_time'):
                     search_list[i]['message_received_time'] = display_time(result['message_received_time'])
-                if 'final_state' in result:
-                    if 'StartedAt' in result['final_state']:
+                if result.get('final_state'):
+                    if result['final_state'].get('StartedAt'):
                         search_list[i]['final_state']['StartedAt'] = display_time(result['final_state']['StartedAt'])
-                    if 'FinishedAt' in result['final_state']:
+                    if result['final_state'].get('FinishedAt'):
                         search_list[i]['final_state']['FinishedAt'] = display_time(result['final_state']['FinishedAt'])
-                search_list[i]['actor_id'] = aid
                 search_list[i].pop('_id', None)
                 search_list[i].pop('permissions', None)
                 search_list[i].pop('tenant', None)
 
         elif self.search_type == 'workers':
             for i, result in enumerate(search_list):
-                aid = Actor.get_display_id(result['tenant'], result['actor_id'])
-                if 'last_execution_time' in result:
+                if result.get('tenant') and result.get('actor_id'):
+                    aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                    search_list[i]['actor_id'] = aid
+                if result.get('last_execution_time'):
                     search_list[i]['last_execution_time'] = display_time(result['last_execution_time'])
-                if 'last_health_check_time' in result:
+                if result.get('last_health_check_time'):
                     search_list[i]['last_health_check_time'] = display_time(result['last_health_check_time'])
-                if 'create_time' in result:
+                if result.get('create_time'):
                     search_list[i]['create_time'] = display_time(result['create_time'])
-                search_list[i]['actor_id'] = aid
                 search_list[i].pop('_id', None)
                 search_list[i].pop('permissions', None)
                 search_list[i].pop('tenant', None)
@@ -344,9 +340,9 @@ class Search():
                     search_list[i].pop('api_server')
                 except KeyError:
                     pass
-                if 'create_time' in result:
+                if result.get('create_time'):
                     search_list[i]['create_time'] = display_time(result['create_time'])
-                if 'last_update_time' in result:
+                if result.get('last_update_time'):
                     search_list[i]['last_update_time'] = display_time(result['last_update_time'])
                 search_list[i].pop('_id', None)
                 search_list[i].pop('permissions', None)
@@ -449,7 +445,9 @@ class Search():
                                                                     try:
                                                                         dt = datetime.datetime.strptime(dt_tz_ready, "%Y")
                                                                     except ValueError:
-                                                                        raise ValueError
+                                                                        raise ValueError("Inputted datetime was in an incorrect format.",
+                                                                                         " Please refer to docs and follow ISO 8601 formatting.",
+                                                                                         " e.g. '2020-05-01T14:45:41.591Z'")
         return dt
 
     def camel_to_under(self, value):
