@@ -380,6 +380,8 @@ def get_db_id():
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
     logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    if actor_identifier == 'search':
+        raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
         actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
     except KeyError:

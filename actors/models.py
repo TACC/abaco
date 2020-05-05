@@ -393,6 +393,7 @@ class Search():
     def broad_ISO_to_datetime(self, dt_str):
         # There are dz_tz_ready variables to get rid of any colons in timezone information
         # being given in the ISO 8601 format.
+        dt_str = dt_str.replace('Z', '')
         try:
             dt_tz_ready = dt_str[:19] + dt_str[19:].replace(':', '')
             dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S.%f%z")

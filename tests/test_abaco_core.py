@@ -1917,6 +1917,97 @@ def test_search_permissions_limited(headers):
         assert result['_metadata']['recordsSkipped'] == 0
         assert result['_metadata']['totalCount'] == 1
 
+def test_search_datetime(headers):
+    url = '{}/actors/search/executions?final_state.StartedAt.gt=2000-05:00'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    print(result)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/executions?final_state.StartedAt.gt=2000-01-01T01:00:00.000Z'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/executions?final_state.StartedAt.lt=2000-01-01T01:00'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 0
+
+    url = '{}/actors/search/executions?message_received_time.between=2000-01-01T01:00,2200-12-30T23:59:59.999Z'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/actors?create_time.between=2000-01-01,2200-01-01'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 8
+
+def test_search_exactsearch_search(headers):
+    url = '{}/actors/search/actors?exactsearch=abacosamples/sleep_loop'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 1
+
+    url = '{}/actors/search/actors?search=sleep_loop'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['search'][0]['image'] == 'abacosamples/sleep_loop'
+
+    url = '{}/actors/search/actors?exactsearch=NOTATHINGWORD'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 0
+
+def test_search_in_nin(headers):
+    url = '{}/actors/search/executions?status.in=["COMPLETE", "READY"]'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/executions?status.nin=["COMPLETE", "READY"]'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 0
+
+def test_search_eq_neq(headers):
+    url = '{}/actors/search/actors?image=abacosamples/py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 1
+
+    url = '{}/actors/search/actors?image.neq=abacosamples/py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+def test_search_like_nlike(headers):
+    url = '{}/actors/search/actors?image.like=py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 1
+    
+    url = '{}/actors/search/actors?image.nlike=py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+def test_search_skip_limit(headers):
+    url = '{}/actors/search/actors?skip=4&limit=23'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 4
+        assert result['_metadata']['record_limit'] == 23
+        assert result['_metadata']['records_skipped'] == 4
+        assert result['_metadata']['total_count'] == 8
+    else:
+        assert result['_metadata']['countReturned'] == 4
+        assert result['_metadata']['recordLimit'] == 23
+        assert result['_metadata']['recordsSkipped'] == 4
+        assert result['_metadata']['totalCount'] == 8
+
 
 # ##############################
 # tenancy - tests for bleed over
