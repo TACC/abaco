@@ -73,7 +73,7 @@ test-camel: build-testsuite
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
 	@sleep 10
-	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=1 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
+	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
 
 # Builds local everything and performs testsuite for snake case.
 # Converts local-dev.conf back to camel case after test.
