@@ -1,6 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
 ## 1.6.0 - 2020-04-30
 ### Added
 - Added the `GET /actors/search/{search_type}?{search_terms}` endpoint for mongo database full-text search and matching
@@ -37,6 +38,23 @@ to allow for atomic queries/sets without needing to implement transactions like 
 - Eliminated any Redis calls, the Redis stores, Redis objects, any reference to Redis, Redis images, etc.
 - Batching executions. Previously meant to fix execution document from going over Mongo document size limits. No
 longer needed with the flattening of the executions_store.
+
+
+## 1.5.4 - 2020-04-20
+### Added
+- No change.
+
+### Changed
+- Actors are no longer put into ERROR state when OAuth (APIM) client generation fails.
+- The AgaveClientsService.create() method now tried to delete a "partially created" client for which credential generation 
+failed. 
+- Fixed bug in the Execution model class methods for updating an execution which could cause exceptions to be thrown if the 
+time to update the database exceeded certain pre-defined thresholds. 
+- Fixed an issue with workers not exiting cleanly when handling internal exceptions in the main thread.   
+
+### Removed
+- No change.
+
 
 ## 1.5.3 - 2020-04-08
 ### Added

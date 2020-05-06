@@ -1048,6 +1048,11 @@ components:
           description: Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.
           nullable: true
           default: null
+        webhook:
+          type: string
+          description: URL to publish this actor's events too.
+          nullable: true
+          default: null
       required: [image]
 
     Actor:
@@ -1106,6 +1111,9 @@ components:
           type: string
           description: Return type (none, bin, json) for this actor. Default is none.
           enum: [none, bin, json]
+        webhook:
+          type: string
+          description: URL to publish this actor's events too.
 
     ArrayOfActors:
       type: array
