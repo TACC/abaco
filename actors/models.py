@@ -108,7 +108,7 @@ class Search():
         pipeline = search + query + security
         start = time.time()
         full_search_res = list(queried_store.aggregate(pipeline))
-        logger.info(f'Got search response in {time.time() - start} seconds.',
+        logger.info(f'Got search response in {time.time() - start} seconds.'\
                     f'Pipeline: {pipeline} First two results: {full_search_res[0:1]}')
         final_result = self.post_processing(full_search_res, skip, limit)
         return final_result
@@ -129,8 +129,8 @@ class Search():
         try:
             queried_store = store_dict[self.search_type]
         except KeyError:
-            raise KeyError(f'Inputted search_type is invalid, must\
-                             be one of {list(store_dict.keys())}.')
+            raise KeyError(f"Inputted search_type is invalid, must"\
+                            " be one of {list(store_dict.keys())}.")
         
         localField = 'actor_id'
         if self.search_type =='actors':
@@ -156,29 +156,41 @@ class Search():
         specified. For example, '_links.owner'.
         """
         query = []
+        # Always searches by tenant to increase speed of search
         search = f'"{self.tenant}"'
+        # Initial paging settings
         skip_amo = 0
         limit_amo = 100
 
+        # Converts everything to snake case as that's what Mongo holds.
+        # This means that snake case input will always work, but not camel case.
         case = Config.get('web', 'case')
         if case == 'camel':
             self.args = self.dict_to_under(self.args)
 
+        # Args are passed in as a dictionary. A list of values if there are
+        # multiple of the same key, one value if not.
+        # Checks each key given by the requests query parameters.
         for key, val in self.args.items():
+            # Ignores x-nonce and that for Abaco authentication, not search.
             if key == "x-nonce":
                 pass
+            # Adds vals matched to 'search' to the 'search' string which will
+            # later be added to the pipeline
             elif key == "search":
                 if isinstance(val, list):
                     joined_val = ' '.join(val)
                     search = search + f' {joined_val}'
                 else:
                     search = search + f' {val}'
+            # Same as 'search', but with double quotation around the value
             elif key == "exactsearch":
                 if isinstance(val, list):
                     joined_val = '" "'.join(val)
                     search = search + f' "{joined_val}"'
                 else:
                     search = search + f' "{val}"'
+            # Checks for only one limit and skip, sets. Raises errors.
             elif key == "skip" or key == "limit":
                 try:
                     val = int(val)
@@ -191,6 +203,7 @@ class Search():
                 if key == "limit":
                     limit_amo = val
             else:
+                # Keys in the mongo db that should neccessitate datetime objects.
                 time_keys = ['start_time', 'message_received_time', 'last_execution_time',
                             'last_update_time', 'StartedAt', 'FinishedAt', 'create_time',
                             'last_health_check_time']
@@ -203,7 +216,9 @@ class Search():
                 # None check
                 elif val.lower() == 'none':
                     val = None
-                # Datetime check
+                # Datetime check - Checks for keys that correspond to datetime objects,
+                # if there is a match, the value is converted to a datetime object.
+                # '.between' gets special parsing due to the comma delimination.
                 elif any(time_key in key for time_key in time_keys):
                     if '.between' in key:
                         if not ',' in val:
@@ -230,8 +245,11 @@ class Search():
                                 pass
 
                 used_oper = False
+                # Alias of mongo operators to expected operators to match TACC
+                # schema of search operators.
                 oper_aliases = {'.neq': '$ne', '.eq': '$eq', '.lte': '$lte', '.lt': '$lt',
                                 '.gte': '$gte', '.gt': '$gt', '.nin': '$nin', '.in': '$in'}
+                # Checks for search operators, if one is found
                 for oper_alias, mongo_oper in oper_aliases.items():
                     if oper_alias in key:
                         key = key.split(oper_alias)[0]
@@ -239,6 +257,8 @@ class Search():
                         used_oper = True
                         break
                 if not used_oper:
+                    # Now we check for operators that require extra parsing
+                    # '.between' needs to parse out the comma and check for datetime or float
                     if '.between' in key:
                         if isinstance(val, list):
                             if isinstance(val[0], datetime.datetime) and isinstance(val[1], datetime.datetime):
@@ -257,15 +277,20 @@ class Search():
                             except ValueError:
                                 raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
                             query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
+                    # '.nlike' requires some regex magic to attempt parity with SQL "nlike"
                     elif '.nlike' in key:
                         key = key.split('.nlike')[0]
                         query += [{'$match': {key: {'$not': {'$regex': f"{val}"}}}}]
+                    # '.like' requires some regex magic to attempt parity with SQL "like"
                     elif '.like' in key:
                         key = key.split('.like')[0]
                         query += [{'$match': {key: {'$regex': f"{val}"}}}]
+                    # If no operators match, a simple equality search is done.
                     else:
                         query += [{'$match': {key: val}}]
-
+        
+        # As mentioned, search gets added to the stanza and sort is done by
+        # textScore. Always is done as search always include tenant for speed.
         search = [{'$match': {'$text': {'$search': search}}},
                   {'$sort': {'score': {'$meta': 'textScore'}}}]
         return search, query, skip_amo, limit_amo
@@ -282,7 +307,7 @@ class Search():
         total_count = len(search_list)
         search_list = search_list[skip: skip + limit]
 
-        case = Config.get('web', 'case')
+        # Does post processing on execution db searches.
         if self.search_type == 'executions':
             for i, result in enumerate(search_list):
                 if result.get('tenant') and result.get('actor_id'):
@@ -312,6 +337,7 @@ class Search():
                 search_list[i].pop('permissions', None)
                 search_list[i].pop('tenant', None)
 
+        # Does post processing on workers db searches.
         elif self.search_type == 'workers':
             for i, result in enumerate(search_list):
                 if result.get('tenant') and result.get('actor_id'):
@@ -327,6 +353,7 @@ class Search():
                 search_list[i].pop('permissions', None)
                 search_list[i].pop('tenant', None)
 
+        # Does post processing on actor db searches.
         elif self.search_type == 'actors':
             for i, result in enumerate(search_list):
                 try:
@@ -351,6 +378,7 @@ class Search():
                 search_list[i].pop('tenant', None)
                 search_list[i].pop('db_id', None)
 
+        # Does post processing on logs db searches.
         elif self.search_type == 'logs':
             for i, result in enumerate(search_list):
                 try:
@@ -369,6 +397,8 @@ class Search():
                 search_list[i].pop('actor_id', None)
                 search_list[i].pop('tenant', None)
 
+        # Adjusts case of the response to match expected case.
+        case = Config.get('web', 'case')
         logger.info(f'Adjusting search response case')
         case_corrected_list = []
         for dictionary in search_list:
@@ -377,6 +407,8 @@ class Search():
             else:
                 case_corrected_list = search_list
 
+        # Creating a metadata object with paging information
+        # and then adjusting for case as well.
         metadata = {"total_count": total_count,
                     "records_skipped": skip,
                     "record_limit": limit,
@@ -386,69 +418,54 @@ class Search():
         else:
             case_corrected_metadata = metadata
 
+        # Returning the final result which is an object with
+        # _metadata and search for the search results.
         final_result = {"_metadata": case_corrected_metadata,
                         "search": case_corrected_list}
         return final_result
 
     def broad_ISO_to_datetime(self, dt_str):
-        # There are dz_tz_ready variables to get rid of any colons in timezone information
-        # being given in the ISO 8601 format.
-        try:
-            dt_tz_ready = dt_str[:19] + dt_str[19:].replace(':', '')
-            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S.%f%z")
-        except ValueError:
+        """
+        Parses a broadly conforming ISO 8601 string.
+        """
+        dt_str = dt_str.replace('Z', '')
+        datetime_strs = ['%Y-%m-%dT%H:%M:%S.%f%z', #0 
+                        '%Y-%m-%dT%H:%M:%S.%f',
+                        '%Y-%m-%dT%H:%M:%S%z',
+                        '%Y-%m-%dT%H:%M:%S', 
+                        '%Y-%m-%dT%H:%M%z', #4
+                        '%Y-%m-%dT%H:%M',
+                        '%Y-%m-%dT%H%z', #6
+                        '%Y-%m-%dT%H',
+                        '%Y-%m-%dT%z',
+                        '%Y-%m-%dT', #9
+                        '%Y-%m-%d%z',
+                        '%Y-%m-%d',
+                        '%Y-%m%z',
+                        '%Y-%m',
+                        '%Y%z',
+                        '%Y']
+        # Try each parse for each datetime str
+        for i, datetime_try in enumerate(datetime_strs):
+            # Fixing the datetime_str input's timezone. ISO has ":" in the timezone,
+            # the parser does not want that, so conditionally we delete tz ":".
+            if i <= 4:
+                dt_tz_ready = dt_str[:19] + dt_str[19:].replace(':', '')
+            elif i <= 6:
+                dt_tz_ready = dt_str[:16] + dt_str[16:].replace(':', '')
+            elif i <= 9:
+                dt_tz_ready = dt_str[:13] + dt_str[13:].replace(':', '')
+            else:
+                dt_tz_ready = dt_str.replace(':', '')
             try:
-                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S.%f")
-            except ValueError:
-                try:
-                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S%z")
-                except ValueError:
-                    try:
-                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M:%S")
-                    except ValueError:
-                        try:
-                            dt_tz_ready = dt_str[:16] + dt_str[16:].replace(':', '')
-                            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M%z")
-                        except ValueError:
-                            try:
-                                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H:%M")
-                            except ValueError:
-                                try:
-                                    dt_tz_ready = dt_str[:13] + dt_str[13:].replace(':', '')
-                                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H%z")
-                                except:
-                                    try:
-                                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%H")
-                                    except ValueError:
-                                        try:
-                                            dt_tz_ready = dt_str.replace(':', '')
-                                            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT%z") 
-                                        except ValueError:
-                                            try:
-                                                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%dT")
-                                            except ValueError:
-                                                try:
-                                                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%d%z")
-                                                except ValueError:
-                                                    try:
-                                                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m-%d")
-                                                    except ValueError:
-                                                        try:
-                                                            dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m%z")
-                                                        except ValueError:
-                                                            try:
-                                                                dt = datetime.datetime.strptime(dt_tz_ready, "%Y-%m")
-                                                            except ValueError:
-                                                                try:
-                                                                    dt = datetime.datetime.strptime(dt_tz_ready, "%Y%z")
-                                                                except ValueError:
-                                                                    try:
-                                                                        dt = datetime.datetime.strptime(dt_tz_ready, "%Y")
-                                                                    except ValueError:
-                                                                        raise ValueError("Inputted datetime was in an incorrect format.",
-                                                                                         " Please refer to docs and follow ISO 8601 formatting.",
-                                                                                         " e.g. '2020-05-01T14:45:41.591Z'")
-        return dt
+                dt = datetime.datetime.strptime(dt_tz_ready, datetime_try)
+                return dt
+            except:
+                pass
+        # If no parse was successful, error!
+        raise ValueError("Inputted datetime was in an incorrect format."\
+                        " Please refer to docs and follow ISO 8601 formatting."\
+                        " e.g. '2020-05-01T14:45:41.591Z'")
 
     def camel_to_under(self, value):
         return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
@@ -1221,7 +1238,7 @@ class Execution(AbacoDAO):
         ('io', 'required', 'io', str,
          'Block I/O usage, in number of 512-byte sectors read from and written to, by the execution.', None),
         ('id', 'derived', 'id', str, 'Human readable id for this execution.', None),
-        ('status', 'required', 'status', str, 'Status of the execution.', None),\
+        ('status', 'required', 'status', str, 'Status of the execution.', None),
         ('exit_code', 'optional', 'exit_code', str, 'The exit code of this execution.', None),
         ('final_state', 'optional', 'final_state', str, 'The final state of the execution.', None),
     ]
