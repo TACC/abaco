@@ -16,6 +16,11 @@ else
 export TAG := :dev
 endif
 
+ifdef in_jenkins
+unexport interactive
+else
+export interactive := -it
+endif
 
 # Gets all remote images and starts Abaco suite in daemon mode
 deploy:	
@@ -68,11 +73,7 @@ test-camel: build-testsuite
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
 	@sleep 10
-	test -t 1 &&\
-	docker run -it --network=abaco_abaco -e base_url=http://nginx -e maxErrors=1 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
-	test -t 1 ||\
-	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
-
+	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=1 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
 
 # Builds local everything and performs testsuite for snake case.
 # Converts local-dev.conf back to camel case after test.
@@ -85,10 +86,7 @@ test-snake: build-testsuite
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
 	@sleep 10
-	test -t 1 &&\
-	docker run -it --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
-	test -t 1 ||\
-	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
+	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
 	@echo "Converting back to camel"
 	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 
@@ -118,6 +116,7 @@ all-samples:
 vars:
 	@echo $$TAG
 	@echo $$abaco_path
+	@echo $$interactive
 
 
 # Ends all active Docker containers needed for abaco
