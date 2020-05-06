@@ -672,12 +672,8 @@ class AbacoUtilizationResource(Resource):
     def get(self):
         logger.debug("top of GET /actors/utilization")
         num_current_actors = len(actors_store)
-        num_actors = len(workers_store)
-        num_workers = 0
-        for workers in workers_store.items():
-            del workers['_id']
-            num_workers += len(workers)
-
+        num_actors = len(abaco_metrics_store['stats', 'actor_total'])
+        num_workers = len(workers_store)
         ch = CommandChannel()
         result = {'currentActors': num_current_actors,
                   'totalActors': num_actors,
