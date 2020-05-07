@@ -4,7 +4,7 @@ version: "2"
 
 services:
     nginx:
-        image: abaco/nginx$TAG
+        image: abaco/nginx:$TAG
 #        image: nginx
         volumes:
             - ./local-dev.conf:/etc/service.conf
@@ -15,7 +15,7 @@ services:
         restart: always
 
     reg:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         ports:
             - "5000:5000"
         volumes:
@@ -29,7 +29,7 @@ services:
             TAS_ROLE_PASS:
 
     mes:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -43,7 +43,7 @@ services:
             TAS_ROLE_PASS:
 
     admin:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -57,7 +57,7 @@ services:
             TAS_ROLE_PASS:
 
     spawner:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: "python3 -u /actors/spawner.py"
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -72,7 +72,7 @@ services:
             queue: default
 
     clientg:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: "python3 -u /actors/clients.py"
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -92,7 +92,7 @@ services:
     #        _abaco_DEV-STAGING_password: abaco1
 
     metrics:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -106,7 +106,7 @@ services:
             TAS_ROLE_PASS:
 
     health:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: /actors/health_check.sh
         volumes:
             - /:/host

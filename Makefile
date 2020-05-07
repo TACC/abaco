@@ -7,7 +7,7 @@
 ifdef abaco_path
 export abaco_path := $(abaco_path)
 else
-export abaco_path := $(pwd)
+export abaco_path := $(PWD)
 endif
 
 ifdef TAG
