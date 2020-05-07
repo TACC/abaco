@@ -447,6 +447,7 @@ def get_tenants():
             'AGAVE-PROD',
             'ARAPORT-ORG',
             'DESIGNSAFE',
+            'DEV',
             'DEV-DEVELOP',
             'DEV-STAGING',
             'IPLANTC-ORG',
