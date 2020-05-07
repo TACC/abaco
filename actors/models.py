@@ -1514,11 +1514,23 @@ class ExecutionsSummary(AbacoDAO):
                'executions': []}
         executions = executions_store.items({'actor_id': dbid})
         for val in executions:
+            try:
+                start_time = display_time(val.get('start_time'))
+            except:
+                start_time = val.get('start_time')
+            try:
+                finish_time = display_time(val.get('finish_time'))
+            except:
+                finish_time = val.get('finish_time')
+            try:
+                message_received_time = display_time(val.get('message_received_time'))
+            except:
+                message_received_time = val.get('message_received_time')
             execution = {'id': val.get('id'),
                          'status': val.get('status'),
-                         'start_time': display_time(val.get('start_time')),
-                         'finish_time': display_time(val.get('finish_time')),
-                         'message_received_time': display_time(val.get('message_received_time'))}
+                         'start_time': start_time,
+                         'finish_time': finish_time,
+                         'message_received_time': message_received_time}
             if Config.get('web', 'case') == 'camel':
                 execution = dict_to_camel(execution)
             tot['executions'].append(execution)
