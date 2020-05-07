@@ -7,13 +7,13 @@
 ifdef abaco_path
 export abaco_path := $(abaco_path)
 else
-export abaco_path := $(PWD)
+export abaco_path := $(pwd)
 endif
 
 ifdef TAG
 export TAG := $(TAG)
 else
-export TAG := :dev
+export TAG := dev
 endif
 
 ifdef in_jenkins
@@ -24,24 +24,24 @@ endif
 
 # Gets all remote images and starts Abaco suite in daemon mode
 deploy:	
-	@docker rmi abaco/core$$TAG
-	@docker pull abaco/core$$TAG
+	@docker rmi abaco/core:$$TAG
+	@docker pull abaco/core:$$TAG
 	@docker-compose up -d
 
 
 # Builds core locally and sets to correct tag. This should take priority over DockerHub images
 build-core:
-	@docker build -t abaco/core$$TAG ./
+	@docker build -t abaco/core:$$TAG ./
 
 
 # Builds nginx
 build-nginx:
-	@docker build -t abaco/nginx$$TAG images/nginx/.
+	@docker build -t abaco/nginx:$$TAG images/nginx/.
 
 
 # Builds testsuite
 build-testsuite:
-	@docker build -t abaco/testsuite$$TAG -f Dockerfile-test .
+	@docker build -t abaco/testsuite:$$TAG -f Dockerfile-test .
 
 
 # Builds core locally and then runs with Abaco suite with that abaco/core image in daemon mode
@@ -73,7 +73,7 @@ test-camel: build-testsuite
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
 	@sleep 10
-	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
+	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 
 # Builds local everything and performs testsuite for snake case.
 # Converts local-dev.conf back to camel case after test.
@@ -86,7 +86,7 @@ test-snake: build-testsuite
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
 	@sleep 10
-	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite$$TAG $$test
+	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 	@echo "Converting back to camel"
 	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 

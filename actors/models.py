@@ -63,6 +63,19 @@ def dict_to_camel(d):
         d2[under_to_camel(k)] = v
     return d2
 
+def camel_to_under(value):
+    return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
+
+def dict_to_under(d):
+    """Convert all keys in a dictionary to camel case."""
+    d2 = {}
+    for k,v in d.items():
+        k = k.split(".")
+        k[0] = camel_to_under(k[0])
+        k = ".".join(k)
+        d2[k] = v
+    return d2
+
 def get_current_utc_time():
     """Return string representation of current time in UTC."""
     return datetime.datetime.utcnow()
@@ -166,7 +179,7 @@ class Search():
         # This means that snake case input will always work, but not camel case.
         case = Config.get('web', 'case')
         if case == 'camel':
-            self.args = self.dict_to_under(self.args)
+            self.args = dict_to_under(self.args)
 
         # Args are passed in as a dictionary. A list of values if there are
         # multiple of the same key, one value if not.
@@ -466,19 +479,6 @@ class Search():
         raise ValueError("Inputted datetime was in an incorrect format."\
                         " Please refer to docs and follow ISO 8601 formatting."\
                         " e.g. '2020-05-01T14:45:41.591Z'")
-
-    def camel_to_under(self, value):
-        return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
-
-    def dict_to_under(self, d):
-        """Convert all keys in a dictionary to camel case."""
-        d2 = {}
-        for k,v in d.items():
-            k = k.split(".")
-            k[0] = self.camel_to_under(k[0])
-            k = ".".join(k)
-            d2[k] = v
-        return d2
 
 
 class Event(object):
@@ -1375,10 +1375,25 @@ class Execution(AbacoDAO):
         except KeyError:
             logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
             raise ExecutionException("Execution {} not found.".format(execution_id))
+
+        try:
+            finish_time = final_state.get('FinishedAt')
+            # we rely completely on docker for the final_state object which includes the FinishedAt time stamp;
+            # under heavy load, we have seen docker fail to set this time correctly and instead set it to 1/1/0001.
+            # in that case, we should use the total_runtime to back into it.
+            if finish_time == datetime.datetime.min:
+                derived_finish_time = start_time + datetime.timedelta(seconds=stats['runtime'])
+                executions_store[f'{actor_id}_{execution_id}', 'finish_time'] = derived_finish_time
+            else:
+                executions_store[f'{actor_id}_{execution_id}', 'finish_time'] = finish_time
+        except Exception as e:
+            logger.error(f"Could not finalize execution. Error: {e}")
+            raise ExecutionException(f"Could not finalize execution. Error: {e}")
+
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
-            logger.critical(f"Execution.finalize_execution took {ms} to run for actor {actor_id}, "
+            logger.critical(f"Execution.finalize_execution took {ms} to run for actor {actor_id}, "\
                             f"execution_id: {execution_id}, worker: {worker_id}")
 
         try:
@@ -1503,18 +1518,11 @@ class ExecutionsSummary(AbacoDAO):
         for val in executions:
             execution = {'id': val.get('id'),
                          'status': val.get('status'),
-                         'start_time': val.get('start_time'),
-                         'message_received_time': val.get('message_received_time')}
-            if val.get('final_state'):
-                db_finish_time = val.get('final_state').get('FinishedAt')
-                # we rely completely on docker for the final_state object which includes the FinishedAt time stamp;
-                # under heavy load, we have seen docker fail to set this time correctly and instead set it to 1/1/0001.
-                # in that case, we should use the total_runtime to back into it.
-                if db_finish_time == datetime.datetime.min:
-                    derived_finish_time = val.get('start_time') + datetime.timedelta(seconds=val['runtime'])
-                    execution['finish_time'] = display_time(derived_finish_time)
-                else:
-                    execution['finish_time'] = display_time(db_finish_time)
+                         'start_time': display_time(val.get('start_time')),
+                         'finish_time': display_time(val.get('finish_time')),
+                         'message_received_time': display_time(val.get('message_received_time'))}
+            if Config.get('web', 'case') == 'camel':
+                execution = dict_to_camel(execution)
             tot['executions'].append(execution)
             tot['total_executions'] += 1
             tot['total_cpu'] += int(val['cpu'])
@@ -1658,6 +1666,11 @@ class Worker(AbacoDAO):
             return None
         else:
             val = workers_store[f'{actor_id}_{worker_id}'] = worker
+            abaco_metrics_store.full_update(
+                {'_id': 'stats'},
+                {'$inc': {'worker_total': 1},
+                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                upsert=True)
             logger.info(f"got worker: {val} from add_if_empty.")
             return worker_id
 
@@ -1676,9 +1689,19 @@ class Worker(AbacoDAO):
             # we know this worker_id is new since we just generated it, so we don't need to use the update
             # method.
             workers_store[f'{actor_id}_{worker_id}'] = worker
+            abaco_metrics_store.full_update(
+                {'_id': 'stats'},
+                {'$inc': {'worker_total': 1},
+                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                upsert=True)
             logger.info("added additional worker with id: {} to workers_store.".format(worker_id))
         except KeyError:
             workers_store.add_if_empty([f'{actor_id}_{worker_id}'], worker)
+            abaco_metrics_store.full_update(
+                {'_id': 'stats'},
+                {'$inc': {'worker_total': 1},
+                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                upsert=True)
             logger.info("added first worker with id: {} to workers_store.".format(worker_id))
         return worker_id
 

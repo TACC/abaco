@@ -39,12 +39,13 @@ def get_actors_executions_for_report():
                     actor = Actor.from_db(actors_store[actor_id])
                     # creates dict if actor does exist
                     actor_stats[actor_id] = {'actor_id': actor.get('id'),
-                                            'owner': actor.get('owner'),
-                                            'image': actor.get('image'),
-                                            'total_executions': 0,
-                                            'total_execution_cpu': 0,
-                                            'total_execution_io': 0,
-                                            'total_execution_runtime': 0}
+                                             'dbid': actor_id,
+                                             'owner': actor.get('owner'),
+                                             'image': actor.get('image'),
+                                             'total_executions': 0,
+                                             'total_execution_cpu': 0,
+                                             'total_execution_io': 0,
+                                             'total_execution_runtime': 0}
                     result['summary']['total_actors_existing_with_executions'] += 1
 
                 # write actor information if actor does exist
@@ -64,7 +65,11 @@ def get_actors_executions_for_report():
         result['summary']['total_execution_runtime_all'] += actor_runtime
         result['summary']['total_execution_io_all'] += actor_io
         result['summary']['total_execution_cpu_all'] += actor_cpu
+        result['actors'] = list(actor_stats.values())
 
     result['summary']['total_actors_all'] += abaco_metrics_store['stats', 'actor_total']
     result['summary']['total_actors_existing'] += len(actors_store)
-    return result
+    return 
+    
+if __name__ == "__main__":
+    print(get_actors_executions_for_report())
