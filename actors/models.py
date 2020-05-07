@@ -87,7 +87,7 @@ def display_time(t):
     try:
         dt = t.isoformat().replace('000', 'Z')
     except AttributeError as e:
-        logger.error(f"Did not receive datetime object. Received object of type {type(t)}. Exception: {e}")
+        logger.error(f"Did not receive datetime object. Received object of type {type(t)}. Object: {t}. Exception: {e}")
         raise DAOError("Error retrieving time data.")
     except Exception as e:
         logger.error(f"Error in formatting display time. Exception: {e}")
@@ -339,6 +339,8 @@ class Search():
                         pass
                 if result.get('start_time'):
                     search_list[i]['start_time'] = display_time(result['start_time'])
+                if result.get('finish_time'):
+                    search_list[i]['finish_time'] = display_time(result['finish_time'])
                 if result.get('message_received_time'):
                     search_list[i]['message_received_time'] = display_time(result['message_received_time'])
                 if result.get('final_state'):
@@ -1233,6 +1235,7 @@ class Execution(AbacoDAO):
         ('worker_id', 'optional', 'worker_id', str, 'The worker who supervised this execution.', None),
         ('message_received_time', 'derived', 'message_received_time', str, 'Time (UTC) the message was received.', None),
         ('start_time', 'optional', 'start_time', str, 'Time (UTC) the execution started.', None),
+        ('finish_time', 'optional', 'finish_time', str, 'Time (UTC) the execution finished.', None),
         ('runtime', 'required', 'runtime', str, 'Runtime, in milliseconds, of the execution.', None),
         ('cpu', 'required', 'cpu', str, 'CPU usage, in user jiffies, of the execution.', None),
         ('io', 'required', 'io', str,
@@ -1471,6 +1474,8 @@ class Execution(AbacoDAO):
         tenant = self.pop('tenant')
         if self.get('start_time'):
             self['start_time'] = display_time(self['start_time'])
+        if self.get('finish_time'):
+            self['finish_time'] = display_time(self['finish_time'])
         if self.get('message_received_time'):
             self['message_received_time'] = display_time(self['message_received_time'])
         if self.get('final_state'):
@@ -1514,23 +1519,20 @@ class ExecutionsSummary(AbacoDAO):
                'executions': []}
         executions = executions_store.items({'actor_id': dbid})
         for val in executions:
-            try:
-                start_time = display_time(val.get('start_time'))
-            except:
-                start_time = val.get('start_time')
-            try:
-                finish_time = display_time(val.get('finish_time'))
-            except:
-                finish_time = val.get('finish_time')
-            try:
-                message_received_time = display_time(val.get('message_received_time'))
-            except:
-                message_received_time = val.get('message_received_time')
+            start_time = val.get('start_time')
+            if start_time:
+                start_time = display_time(start_time)
+            finish_time = val.get('finish_time')
+            if finish_time:
+                finish_time = display_time(finish_time)
+            message_received_time = val.get('message_received_time')
+            if message_received_time:
+                message_received_time = display_time(message_received_time)
             execution = {'id': val.get('id'),
                          'status': val.get('status'),
-                         'start_time': start_time,
-                         'finish_time': finish_time,
-                         'message_received_time': message_received_time}
+                         'start_time': val.get('start_time'),
+                         'finish_time': val.get('finish_time'),
+                         'message_received_time': val.get('message_received_time')}
             if Config.get('web', 'case') == 'camel':
                 execution = dict_to_camel(execution)
             tot['executions'].append(execution)
@@ -1566,13 +1568,6 @@ class ExecutionsSummary(AbacoDAO):
     def display(self):
         self.update(self.get_hypermedia())
         self.pop('db_id')
-        for e in self['executions']:
-            if e.get('start_time'):
-                start_time_str = e.pop('start_time')
-                e['start_time'] = display_time(start_time_str)
-            if e.get('message_received_time'):
-                message_received_time_str = e.pop('message_received_time')
-                e['message_received_time'] = display_time(message_received_time_str)
         return self.case()
 
 
