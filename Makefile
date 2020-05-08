@@ -72,7 +72,7 @@ test-camel: build-testsuite
 	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
-	@sleep 10
+	@sleep 30
 	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 
 # Builds local everything and performs testsuite for snake case.
@@ -85,7 +85,7 @@ test-snake: build-testsuite
 	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
-	@sleep 10
+	@sleep 30
 	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 	@echo "Converting back to camel"
 	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
