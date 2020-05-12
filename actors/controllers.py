@@ -730,6 +730,7 @@ class ActorsResource(Resource):
                 msg = e.data.get('message')
             else:
                 msg = '{}: {}'.format(msg, e)
+            logger.debug(f"Validate post - invalid actor description: {msg}")
             raise DAOError("Invalid actor description: {}".format(msg))
         return args
 

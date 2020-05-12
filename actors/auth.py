@@ -39,10 +39,6 @@ TOKEN_RE = re.compile('Bearer (.+)')
 
 WORLD_USER = 'ABACO_WORLD'
 
-def get_pub_key():
-    pub_key = Config.get('web', 'apim_public_key')
-    return RSA.importKey(base64.b64decode(pub_key))
-
 
 def authn_and_authz():
     """All-in-one convenience function for implementing the basic abaco authentication
