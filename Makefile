@@ -68,10 +68,8 @@ test:
 # ex: export test=test/load_tests.py
 test-camel: build-testsuite
 	@echo "\n\nCamel Case Tests.\n"
-	@echo "Converting config file to camel case.\n"
-	sed -i 's/case: snake/case: camel/g' local-dev.conf
-	@echo "Launching Abaco Stack.\n"
-	make local-deploy
+	@echo "Converting config file to camel case and launching Abaco Stack.\n"
+	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf; make local-deploy
 	@sleep 15
 	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 
@@ -81,11 +79,8 @@ test-camel: build-testsuite
 # ex: export test=test/load_tests.py
 test-snake: build-testsuite
 	@echo "\n\nSnake Case Tests.\n"
-	@echo "Converting config file to snake case.\n"
-	sed -i 's/case: camel/case: snake/g' local-dev.conf
-	@sleep 3
-	@echo "Launching Abaco Stack.\n"
-	make local-deploy
+	@echo "Converting config file to snake case and launching Abaco Stack.\n"
+	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf; make local-deploy
 	@sleep 15
 	docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=999 -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 	@echo "Converting back to camel"
