@@ -632,12 +632,18 @@ class AbacoDAO(DbDict):
     @classmethod
     def request_parser(cls):
         """Return a flask RequestParser object that can be used in post/put processing."""
+        logger.debug("Top of request_parser().")
         parser = RequestParser()
+        config_case = Config.get('web', 'case')
+        if config_case == 'camel':
+            logger.debug("request_parser() using 'camel' case.")
+        else:
+            logger.debug("request_parser() using 'snake' case.")
         for name, source, attr, typ, help, default in cls.PARAMS:
             if source == 'derived':
                 continue
             required = source == 'required'
-            if Config.get('web', 'case') == 'camel':
+            if config_case == 'camel':
                 param_name = under_to_camel(name)
             else:
                 param_name = name

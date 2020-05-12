@@ -69,8 +69,7 @@ test:
 test-camel: build-testsuite
 	@echo "\n\nCamel Case Tests.\n"
 	@echo "Converting config file to camel case.\n"
-	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
-	@sleep 3
+	sed -i 's/case: snake/case: camel/g' local-dev.conf
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
 	@sleep 15
@@ -83,7 +82,7 @@ test-camel: build-testsuite
 test-snake: build-testsuite
 	@echo "\n\nSnake Case Tests.\n"
 	@echo "Converting config file to snake case.\n"
-	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf
+	sed -i 's/case: camel/case: snake/g' local-dev.conf
 	@sleep 3
 	@echo "Launching Abaco Stack.\n"
 	make local-deploy
