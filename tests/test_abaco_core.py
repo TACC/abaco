@@ -2201,7 +2201,7 @@ def test_create_actor_with_webhook(headers):
     url = '{}/actors/{}/executions'.format(base_url, aid)
     webhook_ready_ex_id = None
     idx = 0
-    while not webhook_ready_ex_id and idx < 25:
+    while not webhook_ready_ex_id and idx < 35:
         rsp = requests.get(url, headers=headers)
         ex_data = rsp.json().get('result').get('executions')
         if ex_data and len(ex_data) > 0:
@@ -2252,7 +2252,7 @@ def test_execute_event_actor(headers):
     url = '{}/actors/{}/executions'.format(base_url, link_actor_id)
     # the linked actor should get 2 messages - one for the original actor initially being set to READY
     # and a second when the execution sent above completes.
-    while not link_execution_ex_id and idx < 15:
+    while not link_execution_ex_id and idx < 35:
         rsp = requests.get(url, headers=headers)
         ex_data = rsp.json().get('result').get('executions')
         if ex_data and len(ex_data) > 1:
