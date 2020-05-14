@@ -929,8 +929,8 @@ class Alias(AbacoDAO):
     ]
 
     # the following nouns cannot be used for an alias as they
-    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization', 'search']
-    FORBIDDEN_CHAR = [':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
+    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin']
+    FORBIDDEN_CHAR = ['.', '\\', ' ', '"', ':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
 
 
     @classmethod
