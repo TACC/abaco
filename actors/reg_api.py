@@ -4,9 +4,11 @@ from flask_cors import CORS
 
 from agaveflask.utils import AgaveApi, handle_error
 
-from controllers import ActorResource, AliasesResource, AliasResource, ActorStateResource, ActorsResource, \
+from controllers import ActorResource, AliasesResource, AliasResource, AliasNoncesResource, AliasNonceResource, \
+    ActorStateResource, ActorsResource, \
     ActorExecutionsResource, ActorExecutionResource, ActorExecutionResultsResource, \
-    ActorExecutionLogsResource, ActorNoncesResource, ActorNonceResource
+    ActorExecutionLogsResource, ActorNoncesResource, ActorNonceResource, \
+    AbacoUtilizationResource, SearchResource
 from auth import authn_and_authz
 from errors import errors
 
@@ -26,8 +28,15 @@ api.handle_user_exception = handle_error
 
 # Resources
 api.add_resource(ActorsResource, '/actors')
+api.add_resource(AbacoUtilizationResource, '/actors/utilization')
+
 api.add_resource(AliasesResource, '/actors/aliases')
 api.add_resource(AliasResource, '/actors/aliases/<string:alias>')
+api.add_resource(AliasNoncesResource, '/actors/aliases/<string:alias>/nonces')
+api.add_resource(AliasNonceResource, '/actors/aliases/<string:alias>/nonces/<string:nonce_id>')
+
+api.add_resource(SearchResource, '/actors/search/<string:search_type>')
+
 api.add_resource(ActorResource, '/actors/<string:actor_id>')
 api.add_resource(ActorStateResource, '/actors/<string:actor_id>/state')
 api.add_resource(ActorExecutionsResource, '/actors/<string:actor_id>/executions')

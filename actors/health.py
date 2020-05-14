@@ -12,14 +12,17 @@
 import os
 import shutil
 import time
+import datetime
 
-from agaveflask.logs import get_log_file_strategy
+from agaveflask.auth import get_api_server
 import channelpy
 
+from aga import Agave
+from auth import get_tenants, get_tenant_verify
 import codes
 from config import Config
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
-from models import Actor, Worker
+from models import Actor, Worker, is_hashid
 from channels import ClientsChannel, CommandChannel, WorkerChannel
 from stores import actors_store, clients_store, executions_store, workers_store
 from worker import shutdown_worker
@@ -38,23 +41,23 @@ MAX_EXECUTIONS_PER_MONGO_DOC = 25000
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
-    return [db_id for db_id, _ in actors_store.items()]
+    return [aid for aid in actors_store]
 
 def check_workers_store(ttl):
     logger.debug("Top of check_workers_store.")
     """Run through all workers in workers_store and ensure there is no data integrity issue."""
-    for actor_id, worker in workers_store.items():
-        check_worker_health(worker, actor_id, ttl)
+    for worker in workers_store.items():
+        aid = worker['actor_id']
+        check_worker_health(aid, worker, ttl)
 
 def get_worker(wid):
     """
     Check to see if a string `wid` is the id of a worker in the worker store.
     If so, return it; if not, return None.
     """
-    for actor_id, value in workers_store.items():
-        for worker_id, worker in value.items():
-            if worker_id == wid:
-                return worker
+    worker = workers_store.items({'id': wid})
+    if worker:
+        return worker
     return None
 
 def clean_up_socket_dirs():
@@ -86,13 +89,79 @@ def clean_up_ipc_dirs():
     clean_up_socket_dirs()
     clean_up_fifo_dirs()
 
+def delete_client(ag, client_name):
+    """Remove a client from the APIM."""
+    try:
+        ag.clients.delete(clientName=client_name)
+    except Exception as e:
+        m = 'Not able to delete client from APIM. Got an exception: {}'.format(e)
+        logger.error(m)
+    return None
+
+def clean_up_apim_clients(tenant):
+    """Check the list of clients registered in APIM and remove any that are associated with retired workers."""
+    username = os.environ.get('_abaco_{}_username'.format(tenant), '')
+    password = os.environ.get('_abaco_{}_password'.format(tenant), '')
+    if not username:
+        msg = "Health process did not get a username for tenant {}; " \
+              "returning from clean_up_apim_clients".format(tenant)
+        if tenant in ['SD2E', 'TACC-PROD']:
+            logger.error(msg)
+        else:
+            logger.info(msg)
+        return None
+    if not password:
+        msg = "Health process did not get a password for tenant {}; " \
+              "returning from clean_up_apim_clients".format(tenant)
+        if tenant in ['SD2E', 'TACC-PROD']:
+            logger.error(msg)
+        else:
+            logger.info(msg)
+        return None
+    api_server = get_api_server(tenant)
+    verify = get_tenant_verify(tenant)
+    ag = Agave(api_server=api_server,
+               username=username,
+               password=password,
+               verify=verify)
+    logger.debug("health process created an ag for tenant: {}".format(tenant))
+    try:
+        cs = ag.clients.list()
+        clients = cs.json()['result']
+    except Exception as e:
+        msg = "Health process got an exception trying to retrieve clients; exception: {}".format(e)
+        logger.error(msg)
+        return None
+    for client in clients:
+        # check if the name of the client is an abaco hash (i.e., a worker id). if not, we ignore it from the beginning
+        name = client.get('name')
+        if not is_hashid(name):
+            logger.debug("client {} is not an abaco hash id; skipping.".format(name))
+            continue
+        # we know this client came from a worker, so we need to check to see if the worker is still active;
+        # first check if the worker even exists; if it does, the id will be the client name:
+        worker = get_worker(name)
+        if not worker:
+            logger.info("no worker associated with id: {}; deleting client.".format(name))
+            delete_client(ag, name)
+            logger.info("client {} deleted by health process.".format(name))
+            continue
+        # if the worker exists, we should check the status:
+        status = worker.get('status')
+        if status == codes.ERROR:
+            logger.info("worker {} was in ERROR status so deleting client; worker: {}.".format(name, worker))
+            delete_client(ag, name)
+            logger.info("client {} deleted by health process.".format(name))
+        else:
+            logger.debug("worker {} still active; not deleting client.".format(worker))
+
 def clean_up_clients_store():
     logger.debug("top of clean_up_clients_store")
     secret = os.environ.get('_abaco_secret')
     if not secret:
         logger.error("health.py not configured with _abaco_secret. exiting clean_up_clients_store.")
         return None
-    for k, client in clients_store.items():
+    for client in clients_store.items():
         wid = client.get('worker_id')
         if not wid:
             logger.error("client object in clients_store without worker_id. client: {}".format(client))
@@ -112,7 +181,7 @@ def clean_up_clients_store():
         # check to see if the wid is the id of an actual worker:
         worker = get_worker(wid)
         if not worker:
-            logger.info("worker {} is gone. deleting client {}.".format(wid, client))
+            logger.info(f"worker {wid} is gone. deleting client {client}.")
             clients_ch = ClientsChannel()
             msg = clients_ch.request_delete_client(tenant=tenant,
                                                    actor_id=actor_id,
@@ -120,44 +189,16 @@ def clean_up_clients_store():
                                                    client_id=client_key,
                                                    secret=secret)
             if msg['status'] == 'ok':
-                logger.info("Client delete request completed successfully for "
-                            "worker_id: {}, client_id: {}.".format(wid, client_key))
+                logger.info(f"Client delete request completed successfully for "
+                            "worker_id: {wid}, client_id: {client_key}.".format(wid, client_key))
             else:
-                logger.error("Error deleting client for "
-                             "worker_id: {}, client_id: {}. Message: {}".format(wid, msg['message'], client_key, msg))
+                logger.error(f"Error deleting client for "
+                             "worker_id: {wid}, client_id: {client_key}. Message: {msg}")
 
         else:
-            logger.info("worker {} still here. ignoring client {}.".format(wid, client))
+            logger.info(f"worker {wid} still here. ignoring client {client}.")
 
-def batch_executions(aid):
-    """
-    Batch the executions for a specific actor id, `aid`. Should be the database id.
-    :param aid:
-    :return:
-    """
-    # make a local copy of the executions -
-    d = executions_store[aid]
-    # fix an ordering of keys -
-    ld = list(d)
-    if len(d) <= MAX_EXECUTIONS_PER_MONGO_DOC:
-        return
-    # split executions into two dicts -
-    d2 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if d[k].get('status') == 'COMPLETE'}
-    d3 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if not d[k].get('status') == 'COMPLETE'}
-    d3.update({k: d[k] for k in ld[MAX_EXECUTIONS_PER_MONGO_DOC: ]})
-    executions_store[aid] = d3
-    # get next index of historical docs -
-    i = 1
-    while True:
-        try:
-            executions_store['{}_HIST_{}'.format(aid, i)]
-            i = i + 1
-        except KeyError:
-            break
-    executions_store['{}_HIST_{}'.format(aid, i)] = d2
-
-
-def check_worker_health(actor_id, worker):
+def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
     worker_id = worker.get('id')
@@ -165,7 +206,7 @@ def check_worker_health(actor_id, worker):
     if not worker_id:
         logger.error("Corrupt data in the workers_store. Worker object without an id attribute. {}".format(worker))
         try:
-            workers_store.pop(actor_id)
+            workers_store.pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
@@ -178,11 +219,35 @@ def check_worker_health(actor_id, worker):
         try:
             # todo - removing worker objects from db can be problematic if other aspects of the worker are not cleaned
             # up properly. this code should be reviewed.
-            workers_store.pop(actor_id)
+            workers_store.pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
         return None
+
+def zero_out_workers_db():
+    """
+    Set all workers collections in the db to empty. Run this as part of a maintenance; steps:
+      1) remove all docker containers
+      2) run this function
+      3) run clean_up_apim_clients().
+      4) run zero_out_clients_db()
+    :return:
+    """
+    for worker in workers_store.items(proj_inp=None):
+        del workers_store[worker['_id']]
+
+def zero_out_clients_db():
+    """
+    Set all clients collections in the db to empty. Run this as part of a maintenance; steps:
+      1) remove all docker containers
+      2) run zero_out_workers_db()
+      3) run clean_up_apim_clients().
+      4) run this function
+    :return:
+    """
+    for client in clients_store.items():
+        clients_store[client['_id']] = {}
 
 
 def check_workers(actor_id, ttl):
@@ -196,7 +261,7 @@ def check_workers(actor_id, ttl):
     logger.debug("workers: {}".format(workers))
     host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
     logger.debug("host_id: {}".format(host_id))
-    for _, worker in workers.items():
+    for worker in workers:
         # if the worker has only been requested, it will not have a host_id.
         if 'host_id' not in worker:
             # @todo- we will skip for now, but we need something more robust in case the worker is never claimed.
@@ -247,33 +312,33 @@ def check_workers(actor_id, ttl):
             logger.info("Worker ok.")
 
         # now check if the worker has been idle beyond the ttl:
-        # if ttl < 0:
-        #     # ttl < 0 means infinite life
-        #     logger.info("Infinite ttl configured; leaving worker")
-        #     return
-        # # we don't shut down workers that are currently running:
-        # if not worker['status'] == codes.BUSY:
-        #     last_execution = int(float(worker.get('last_execution_time', 0)))
-        #     # if worker has made zero executions, use the create_time
-        #     if last_execution == 0:
-        #         last_execution = worker.get('create_time', 0)
-        #     logger.debug("using last_execution: {}".format(last_execution))
-        #     try:
-        #         last_execution = int(float(last_execution))
-        #     except:
-        #         logger.error("Could not case last_execution {} to int(float()".format(last_execution))
-        #         last_execution = 0
-        #     if last_execution + ttl < time.time():
-        #         # shutdown worker
-        #         logger.info("Shutting down worker beyond ttl.")
-        #         shutdown_worker(worker['id'])
-        #     else:
-        #         logger.info("Still time left for this worker.")
+        if ttl < 0:
+            # ttl < 0 means infinite life
+            logger.info("Infinite ttl configured; leaving worker")
+            return
+        # we don't shut down workers that are currently running:
+        if not worker['status'] == codes.BUSY:
+            last_execution = worker.get('last_execution_time', 0)
+            # if worker has made zero executions, use the create_time
+            if last_execution == 0:
+                last_execution = worker.get('create_time', datetime.datetime.min)
+            logger.debug("using last_execution: {}".format(last_execution))
+            try:
+                assert type(last_execution) == datetime.datetime
+            except:
+                logger.error("Time received for TTL measurements is not of type datetime.")
+                last_execution = datetime.datetime.min
+            if last_execution + datetime.timedelta(seconds=ttl) < datetime.datetime.utcnow():
+                # shutdown worker
+                logger.info("Shutting down worker beyond ttl.")
+                shutdown_worker(actor_id, worker['id'])
+            else:
+                logger.info("Still time left for this worker.")
 
         if worker['status'] == codes.ERROR:
             # shutdown worker
             logger.info("Shutting down worker in error status.")
-            shutdown_worker(worker['id'])
+            shutdown_worker(actor_id, worker['id'])
         # else:
         #     logger.debug("Worker not in READY status, will postpone.")
 
@@ -299,10 +364,21 @@ def start_spawner(queue, idx='0'):
     """
     command = 'python3 -u /actors/spawner.py'
     name = 'healthg_{}_spawner_{}'.format(queue, idx)
-    environment = os.environ
+
+    try:
+        environment = dict(os.environ)
+    except Exception as e:
+        environment = {}
+        logger.error("Unable to convert environment to dict; exception: {}".format(e))
+
     environment.update({'AE_IMAGE': AE_IMAGE.split(':')[0],
                         'queue': queue,
     })
+    if not '_abaco_secret' in environment:
+        msg = 'Error in health process trying to start spawner. Did not find an _abaco_secret. Aborting'
+        logger.critical(msg)
+        raise
+
     # check logging strategy to determine log file name:
     log_file = 'abaco.log'
     if get_log_file_strategy() == 'split':
@@ -345,6 +421,7 @@ def check_spawners():
     for queue in host_queues:
         check_spawner(queue)
 
+
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
     logger.info("Entering manage_workers for {}".format(actor_id))
@@ -354,6 +431,10 @@ def manage_workers(actor_id):
         logger.info("Did not find actor; returning.")
         return
     workers = Worker.get_workers(actor_id)
+    for worker in workers:
+        time_difference = time.time() - worker['create_time']
+        if worker['status'] == 'PROCESSING' and time_difference > 1:
+            logger.info("LOOK HERE - worker creation time {}".format(worker['create_time']))
     #TODO - implement policy
 
 def shutdown_all_workers():
@@ -362,13 +443,20 @@ def shutdown_all_workers():
     This function is useful when deploying a new version of the worker code.
     """
     # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
-    for actor_id, worker in workers_store.items():
-        # call check_workers with ttl = 0 so that all will be shut down:
+    logger.debug("Top of shutdown_all_workers.")
+    actors_with_workers = set()
+    for worker in workers_store.items():
+        actors_with_workers.add(worker['actor_id'])
+
+    for actor_id in actors_with_workers:
         check_workers(actor_id, 0)
 
 def main():
     logger.info("Running abaco health checks. Now: {}".format(time.time()))
-    check_spawners()
+    # TODO - turning off the check_spawners call in the health process for now as there seem to be some issues.
+    # the way the check works currently is to look for a spawner with a specific name. However, that check does not
+    # appear to be working currently.
+    # check_spawners()
     try:
         clean_up_ipc_dirs()
     except Exception as e:
@@ -385,8 +473,13 @@ def main():
     ids = get_actor_ids()
     logger.info("Found {} actor(s). Now checking status.".format(len(ids)))
     for id in ids:
-        check_workers(id, ttl)
         # manage_workers(id)
+        check_workers(id, ttl)
+    tenants = get_tenants()
+    for t in tenants:
+        logger.debug("health process cleaning up apim_clients for tenant: {}".format(t))
+        clean_up_apim_clients(t)
+
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
     # check_workers_store(ttl)
 

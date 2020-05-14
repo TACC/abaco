@@ -1,6 +1,257 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
+## 1.6.0 - 2020-04-30
+### Added
+- Added the `GET /actors/search/{search_type}?{search_terms}` endpoint for mongo database full-text search and matching
+- Added abaco_metrics_store to store long term information about actors executions
+- Added tests for search feature
+- Added developer docs for the new search endpoint and Mongo conversion.
+- Added ReadTheDoc docs for the new search endpoint and it's abilities.
+- Added search endpoint to Mongo specs.
+- Added testing (not complete) to the makefile
+- Added maxfails for pytest in entry.sh for testing. Configurable through Makefile and allows pytest end after
+set amount of fails for debugging.
+- Added tenant and actor_id fields to logs for better compatibility within search.
+- Added `total_actors_all_with_executions` and `total_actors_existing_with_executions` to reports.py to account
+for the fact that actors without executions are not account for in the executions_store after the flattening.
+
+### Changed
+- Converted Redis databases to Mongo for database simplification. This includes the actors_store,
+the workers_store, the alias_store, the nonce_store, and pregen_clients.
+- Changed all time instances in Mongo from unix strings to datetime objects.
+- Modified the Mongo store class to allow for missing features from Redis and allow for recursive use of any function
+that gets, sets, or deletes. Additionally added full_update, a function that allows for full use of the Mongo
+update_one function. Additionally added aggregation and indexing functions to use pymongo native functions.
+- Modified any functions that needed updating to new Mongo database structure.
+- Updated pymongo and other requirements for additional features.
+- Flattened the workers and execution stores in order for better search results. Also allows for
+uninterrupted execution documents without a actor size limit.
+- Modified the atomicity of some logic in abaco, namely setting worker status and setting nonce use. Rewritten
+to allow for atomic queries/sets without needing to implement transactions like when using Redis.
+- Modified the cleaning functions of the makefile.
+- Fixed abaco_core_test.py by deleting previously undeleted testing tenant.
+- Modified reports.py to work with new mongo conversion.
+
+### Removed
+- Eliminated any Redis calls, the Redis stores, Redis objects, any reference to Redis, Redis images, etc.
+- Batching executions. Previously meant to fix execution document from going over Mongo document size limits. No
+longer needed with the flattening of the executions_store.
+
+
+## 1.5.4 - 2020-04-20
+### Added
+- No change.
+
+### Changed
+- Actors are no longer put into ERROR state when OAuth (APIM) client generation fails.
+- The AgaveClientsService.create() method now tried to delete a "partially created" client for which credential generation 
+failed. 
+- Fixed bug in the Execution model class methods for updating an execution which could cause exceptions to be thrown if the 
+time to update the database exceeded certain pre-defined thresholds. 
+- Fixed an issue with workers not exiting cleanly when handling internal exceptions in the main thread.   
+
+### Removed
+- No change.
+
+
+## 1.5.3 - 2020-04-08
+### Added
+- No change.
+
+### Changed
+- Compiled with an update to agaveflask core lib which adds support for the portals-api and 3dem tenants. 
+
+### Removed
+- No change.
+
+
+## 1.5.2 - 2020-04-08
+### Added
+- No change.
+
+### Changed
+- Add second check of the globals.keep_running sentinel in the main worker thread (thread 1) to shrink the time 
+window between a worker receiving a shutdown signal (in thread 2) and relaying that to thread 1, particularl after a 
+new actor message was received (in thread 1). 
+The previous, larger time window resulted in a race condition that could cause an actor message to get 
+"partially" processed while the worker was being shut down. In particular, refreshing the token in thread 1 could fail if 
+thread 2 had already removed the oauth client.
+- Add retry logic to oauth client generation for a new worker; try up to 10 times before giving up and putting the actor 
+in an error state.
+
+### Removed
+- No change.
+
+
+## 1.5.1 - 2020-04-05
+### Added
+- No change.
+
+### Changed
+- Fixed a bug resulting in an exception and possibly setting an actor to ERROR state when truncating an execution log. 
+- Physically delete worker records from workers store in spawner when a previous or concurrent error prevents the spawner from ever creating/starting the worker containers.
+- Workers now try to refresh the access token up to 10 times (with a 2 second sleep between each attempt) before giving up and putting the actor into an ERROR state.
+- Fixed an exception (which previously was only logged and swallowed) in the metrics_utils module caused by trying to access a variable that had not been defined under a certain code path.
+- Added additional logging in spawner and worker modules.  
+
+### Removed
+- No change.
+
+
+## 1.5.0 - 2019-10-29
+### Added
+- Added an endpoint `PUT /actors/aliases/{alias}` for updating the 
+definition of an alias. Requires `UPDATE` permission for the alias as well as for the actor to which the alias should be defined. 
+
+### Changed
+- Fixed a bug where nonces defined for aliases would not be honored when using the alias in the URL (they were only honored when using the actor id assigned to the alias).   
+- Fixed issue where autoscaler did not properly scale down worker pools for actors with the `sync` hint. They are now scaled down to 1.
+- The permission check on all on all `/aliases/{alias}` endpoints has been updated to require UPDATE on the associated `actor_id`. 
+- Fixed issue where the actor's token attribute was not being processed correctly causing tokens to be generated even for actors for which the attribute was false.
+- Fixed issue where hypyerlinks in response model for executions were not generated correctly, showing the actor's internal database id instead of the human readable id. 
+- Fixed error messaging when using a nonce and the API endpoint+HTTP verb combination do not exist.
+- The admin role is now recognized when checking access to certain objects in some edge cases, including when a nonce is used. 
+
+### Removed
+- It is no longer possible to create an alias nonce for permission levels UPDATE. 
+
+
+## 1.4.0 - 2019-09-16
+### Added
+- Added `hints` attribute to the actor data model, a list of strings representing metadata about an actor. "Official"
+Abaco hints will be added over time to provide automatic configuration of actors.
+- Added support for the `sync` official hint: when an actor is registered with hint "sync", the Abaco autoscaler will
+leave at least one worker in the actor's worker pool up to a tenant-specific period of idle time. This idle time is
+configured using the `sync_max_idle_time` within the `[workers]` stanza of the `abaco.conf` file.
+- Added a "utilization" endpoint, `GET /actors/utilization`, which returns basic utilization data about the
+Abaco cluster.
+
+### Changed
+- Changed the way Abaco generates OAuth tokens that it injects into actors by prefixing the username associated with
+the token by its userstore's id. This change fixes an issue where other Tapis services (such as profiles) would not
+work properly when hit with the token because the associated JWT was not generated properly by WSO2. Otherwise,
+this change should be transparent to the end user.
+- Fixed an issue where the `PUT /actors/{actor_id}` endpoint did not default the actor's `token` attribute to the tenant
+default. Now, if the `token` attribute is missing from the `PUT` message body, Abaco will use the default value for the
+tenant or instance.
+- An actor's executions list is now initialized when the actor is created to prevent a race condition that can occur 
+when multiple client threads try to add the very first execution (i.e., send the first message).
+- The `DELETE /actors/aliases/{alias}` now returns a 404 not found if the alias `{alias}` does not exist. 
+- Fixed an issue with `GET /actors/{actor_id}/nonces` where nonces created before the 1.1.0 release (which introduced nonces
+associated with aliases) were not properly serialized in the response, causing random id's to be generated for the nonces
+instead of returning their actual id's. 
+
+### Removed
+- No change.
+
+
+## 1.3.0 - 2019-08-6
+### Added
+- Added a `token` Boolean attribute to the actor data model, indicating whether a token will be generated for an actor.
+When this attribute is False, Abaco will not generate an access token for the actor.
+
+### Changed
+- Fixed an issue where the results socket was not writeable by non-root accounts.
+- The Abaco API proxy (nginx) now returns properly formatted JSON messages for unhandled 400 and 500 level errors
+including bad gateway and timeout errors.
+- Fixed various issues associated with Abaco resources not being shut down correctly on actor delete. First, actors now
+enter a `SHUTTING_DOWN` status immediately upon receiving a delete request, and this status is recognized by the autoscaler
+to prevent workers from being started. Second, workers now enter first `SHUTDOWN_REQUESTED` followed by `SHUTTING_DOWN`
+when they have been requested (respectively, received the stop request) to shut down. Spawners now check if a worker is
+in `REQUESTED` or `SHUTDOWN_REQUESTED` status before proceeding with starting the worker. Finally, the actor DELETE
+API now waits up to 20 seconds for all workers to be shut down and if they have not yet, the delete still returns a 200
+but the response message indicates that not all resources were shut down.
+- Workers now force halt a running execution when an actor has been deleted; this allows resources to be cleaned up more
+efficiently.
+- Fixed a rare edge case issue where a worker container would not exit cleanly due to the the second worker_ch thread not checking
+the global keep_running boolean properly.
+- The abaco.conf file now accepts configurations of the form `{tenant}_default_token` and `default_token` within the `[web]` stanza to provide a
+default value for the actor token attribute for tenants, respectively, the global Abaco instance. When a tenant and global0
+configuration is set, actors in a given tenant will get the tenant's configuration.
+- The abaco.conf file now accepts a `{tenant}_generate_clients` configuration within the `[workers]` stanza that dictates
+whether client generation is available for a specific tenant.
+- Several log messages were cleaned up and improved.
+
+### Removed
+- No change.
+
+
+## 1.2.2 - 2019-07-28
+### Added
+- No change
+
+### Changed
+- Fixed an issue where in a certain edge case, workers were not exiting properly due to a bug trying to clean up a connection to RabbitMQ.
+
+### Removed
+- No change.
+
+
+## 1.2.1 - 2019-07-22
+### Added
+- No change
+
+### Changed
+- Fixed an issue where in a certain edge case, workers were getting shut down by the autoscaler before executions were getting processed.  
+- The abaco.conf now expects a `max_cmd_length` config within the `spawner` stanza which should be an integer and controls how many messages the autoscaler will send to the default command channel at a time.   
+
+### Removed
+- No change.
+
+
+## 1.2.0 - 2019-07-15
+### Added
+- Added actor events subsystem with events agent that reads from the events queue.
+- Added support for actor links to send an actor's events to another actor.
+- Added support for an actor webhook property for sending an actor's events as an HTTP POST to an endpoint.
+- Added timing data to messages POST processing.
+
+### Changed
+- Executions now change to status "RUNNING" as soon as a worker starts the corresponing actor container.
+- Force halting an execution fails if the status is not RUNNING.
+- Reading and managing nonces associated with aliases requires permissions on both the alias and the actor.
+- Spawner now sets actor to READY state before setting worker to READY state to prevent autoscaler from stopping worker before actor is update to READY. 
+- Updated ActorMsgQueue to use a new, simpler class, TaskQueue, removing dependency on channelpy.
+
+### Removed
+- No change.
+
+
+## 1.1.0 - 2019-06-18
+### Added
+- Added support for sending synchronous messages to an actor.
+- Added support for creating/managing nonces associated with aliases through a new API: `GET, POST /actors/aliases/{alias}/nonces`. 
+- Added support for halting a running execution through a new API endpoint: `DELETE /actors/{actor_id}/executions/{execution_id}`.
+- Added support for streaming logs back to the logs service during a running execution so that the user does not have to wait for an execution to complete before seeing logs.
+
+### Changed
+- The spawer management of workers has been greatly simplified with a significant reduction in messages between the two agents at start up. Worker status was updated to add additional worker states during start up. Worker state transitions are now validated at the model level.   
+- The `abacosamples/wc` word count image has been updated to now send a bytes result on the results channel.
+- Improved worker and client cleanup code when actor goes into an ERROR state. 
+- Updates to health agent to add additional checks/clean up of clients store.
+- Consolidated to a single docker-compose.yml file for local development and upgraded it to v3 docker-compose format.
+
+### Removed
+- No change.
+
+
+## 1.0.0 - 2019-03-18
+### Added
+- Final updates to the Abaco Autoscaler in preparation for its release.
+- Added "actor queues" feature to allow actors to be registered into a specific queue so that dedicated computing resources can be provided for specific groups of actors; updates to the controlers, spawner and health agents were made to support this feature.
+- Added a "description" field on nonce objects to ease user management of nonces.
+- Added a new "image classifier" sample, `abacosamples/binary_message_classifier`, that uses a pre-trained image classifier algorithm based on tensorflow to classify an image sent as a binary message.  
+
+### Changed
+- Aliases are now restricted to a whilelist of characters to prevent issues with the use of non-URL safe characters. 
+- Several modules were changed to improve handling of errors such as connection issues with RabbitMQ or socket level errors generated by the Docker daemon. 
+
+### Removed
+- No change.
+
+
 ## 0.12.0 - 2019-01-21
 ### Added
 - Add support for actor aliases allowing operators to refer to actors and associated endpoints via a self-defined identifier (alias) instead of the actor id.

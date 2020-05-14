@@ -11,7 +11,24 @@ import time
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
+
 class AgaveError(Exception):
+    pass
+
+
+class AgaveClientFailedCanRetry(AgaveError):
+    """
+    Thrown when client creation fails but the caller is free to retry the creation, as the library was able to
+    clean up after the failure.
+    """
+    pass
+
+
+class AgaveClientFailedDoNotRetry(AgaveError):
+    """
+    Thrown when client creation fails and caller should NOT retry the creation because the library was not able to
+    clean up after the failure.
+    """
     pass
 
 
@@ -41,7 +58,7 @@ class Token(object):
         logger.debug("top of _token")
         auth = requests.auth.HTTPBasicAuth(self.api_key, self.api_secret)
         logger.debug("about to make POST request for token; URL: {}; "
-                     "data: {}; auth: {}".format(self.token_url, data, auth))
+                     "data: {}; auth: {}:{}".format(self.token_url, data, self.api_key, self.api_secret))
         resp = requests.post(self.token_url, data=data, auth=auth,
                              verify=self.verify)
         logger.debug("made request for token; rsp: {}".format(resp))
@@ -148,14 +165,49 @@ class AgaveClientsService(object):
         if not body or not hasattr(body, 'get'):
             raise AgaveError('body dictionary required.')
         auth = requests.auth.HTTPBasicAuth(self.parent.username, self.parent.password)
+        client_name = body.get('clientName')
         try:
             rsp = requests.post(url='{}/clients/v2'.format(self.parent.api_server),
                                 auth=auth,
-                                data={'clientName': body.get('clientName')},
+                                data={'clientName': client_name},
                                 verify=self.parent.verify)
             result = rsp.json().get('result')
-            logger.debug("response from POST to create client: {}; content: {}".format(rsp, rsp.content))
-            logger.debug("result from POST to create client: {}".format(result))
+            logger.debug("response from POST to create client: {}; content: {}; client_name:".format(rsp,
+                                                                                                     rsp.content,
+                                                                                                     client_name))
+            logger.debug("result from POST to create client: {}; client_name: {}".format(result, client_name))
+            # there is a known issue with APIM where client creation fails due to failing to generate the client
+            # credentials. in this case, the result object returned by the clients API is {} and the error message
+            # returned is: "Unable to generate credentials for <client_name>"
+            # we want to detect that situation and try to delete the client in this case (the fact that
+            if not result:
+                logger.debug(f"clientg got an empty result back from clients API. client_nane: {client_name}")
+                need_to_delete = False
+                if 'Unable to generate credentials' in rsp.json().get('message'):
+                    logger.debug(f"clientg got Unable to generate credentials from clients. "
+                                 f"will try to delete client. client_name: {client_name}")
+                    need_to_delete = True
+                    delete_attempts = 0
+                    # try 5 times to delete:
+                    while need_to_delete and delete_attempts < 5:
+                        delete_attempts = delete_attempts + 1
+                        logger.debug(f"attempting attempt #{delete_attempts} to delete client {client_name}.")
+                        try:
+                            self.delete(clientName=body.get('clientName'))
+                            logger.debug(f"client {client_name} deleted successfully.")
+                            need_to_delete = False
+                        except Exception as e:
+                            logger.debug(f"got an Exception trying to delete client. e: {e}")
+                    if need_to_delete:
+                        logger.debug(f"tried 5 times to delete client {client_name}. giving up...")
+                # regardless of whether we were able to delete the client, we need to raise an exception because
+                # we did not successfully generate the client:
+                err = AgaveClientFailedCanRetry()
+                # however, we indicate if delete was successful via the Exception type -- if we were able to delete,
+                # the caller can try to create the client again:
+                if need_to_delete:
+                    err = AgaveClientFailedDoNotRetry()
+                raise err
             self.parent.set_client(result['consumerKey'], result['consumerSecret'])
             logger.debug("set_client in parent, returning result.")
             return result
@@ -178,3 +230,13 @@ class AgaveClientsService(object):
             return {}
         except Exception as e:
             raise AgaveError('Error creating client: {}'.format(e))
+
+    def list(self):
+        """List all Agave OAuth2 clients."""
+        auth = requests.auth.HTTPBasicAuth(self.parent.username, self.parent.password)
+        try:
+            rsp = requests.get(url='{}/clients/v2'.format(self.parent.api_server), auth=auth)
+            rsp.raise_for_status()
+            return rsp
+        except Exception as e:
+            raise AgaveError('Error listing clients: {}'.format(e))

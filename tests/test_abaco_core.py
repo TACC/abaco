@@ -1,6 +1,6 @@
 # Functional test suite for abaco.
 # This test suite now runs in its own docker container. To build the image, run
-#     docker build -f Dockerfile-test -t jstubbs/abaco_testsuite .
+#     docker build -f Dockerfile-test -t abaco/testsuite .
 # from within the tests directory.
 #
 # To run the tests execute, first start the development stack using:
@@ -10,8 +10,45 @@
 # Then, also from the root directory, execute:
 #     docker run -e base_url=http://172.17.0.1:8000 -e case=camel -v $(pwd)/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$TAG
 # Change the -e case=camel to -e case=snake depending on the functionality you want to test.
-
 #
+#
+# Test Suite Outline
+# I_ non-http tests
+# II) actor registrations
+# III) invlaid http endpoint tests
+# IV) check actors are ready
+# V) execution tests
+# VI) update actor tests
+# VII) custom queue tests (WIP)
+# VIII) alias tests
+# IX) nonce tests
+# X) workers tests
+# XI) roles and authorization tests
+# XII) search and search authorization tests
+# XIII) tenancy tests
+# XV) events tests
+
+# Design Notes
+# 1. The *headers() functions in the util.py module provides the JWTs used for the tests. The plain headers() returns a
+#    JWT for a user with the Abaco admin role (username='testuser'), but there is also limited_headers() and
+#    priv_headers()
+#    for getting JWTs for other users.
+# 2. The get_actor_id() function by default returns the abaco_test_suite actor_id but takes an optional name parameter
+#     for getting the id of a different actor.
+#
+# 3. Actors registered and owned by testuser:
+# abaco_test_suite -- a stateful actor
+# abaco_test_suite_alias  -- add "jane" and "doe" aliases to this actor; same user.
+# abaco_test_suite_statelesss
+# abaco_test_suite_hints
+# abaco_test_suite_default_env
+# abaco_test_suite_func
+# abaco_test_suite_sleep_loop
+#
+# 4. Actors registered and owned by testotheruser user (limited):
+# abaco_test_suite_limited_user
+#
+
 # # --- Original notes for running natively ------
 # Start the local development abaco stack (docker-compose-local.yml) and run these tests with py.test from the cwd.
 #     $ py.test test_abaco_core.py
@@ -43,7 +80,7 @@ import requests
 import json
 import pytest
 
-from actors import health, models, codes, stores, spawner
+from actors import controllers, health, models, codes, stores, spawner
 from channels import ActorMsgChannel, CommandChannel
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
@@ -157,7 +194,7 @@ def test_register_actor(headers):
     assert result['id'] is not None
 
 
-@pytest.mark.regapi
+@pytest.mark.aliastest
 def test_register_alias_actor(headers):
     url = '{}/{}'.format(base_url, '/actors')
     data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_alias'}
@@ -183,6 +220,19 @@ def test_register_stateless_actor(headers):
     assert result['owner'] == 'testuser'
     assert result['image'] == 'jstubbs/abaco_test'
     assert result['name'] == 'abaco_test_suite_statelesss'
+    assert result['id'] is not None
+
+@pytest.mark.regapi
+def test_register_hints_actor(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/wc', 'name': 'abaco_test_suite_hints', 'hints': ['sync', 'test', 'hint_1']}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testuser'
+    assert result['image'] == 'abacosamples/wc'
+    assert result['name'] == 'abaco_test_suite_hints'
     assert result['id'] is not None
 
 
@@ -222,6 +272,32 @@ def test_register_actor_func(headers):
     assert result['name'] == 'abaco_test_suite_func'
     assert result['id'] is not None
 
+@pytest.mark.regapi
+def test_register_actor_limited_user(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/test', 'name': 'abaco_test_suite_limited_user'}
+    rsp = requests.post(url, data=data, headers=limited_headers())
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testotheruser'
+    assert result['image'] == 'abacosamples/test'
+    assert result['name'] == 'abaco_test_suite_limited_user'
+    assert result['id'] is not None
+
+
+@pytest.mark.regapi
+def test_register_actor_sleep_loop(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'abacosamples/sleep_loop', 'name': 'abaco_test_suite_sleep_loop'}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == 'testuser'
+    assert result['image'] == 'abacosamples/sleep_loop'
+    assert result['name'] == 'abaco_test_suite_sleep_loop'
+    assert result['id'] is not None
 
 @pytest.mark.regapi
 def test_invalid_method_get_actor(headers):
@@ -444,31 +520,35 @@ def check_actor_is_ready(headers, actor_id=None):
 def test_basic_actor_is_ready(headers):
     check_actor_is_ready(headers)
 
-
-@pytest.mark.regapi
+@pytest.mark.aliastest
 def test_alias_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
     check_actor_is_ready(headers, actor_id)
 
+@pytest.mark.regapi
+def test_hints_actor_is_ready(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_hints')
+    check_actor_is_ready(headers, actor_id)
 
 @pytest.mark.regapi
 def test_stateless_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_statelesss')
     check_actor_is_ready(headers, actor_id)
 
-
-
 @pytest.mark.regapi
 def test_default_env_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_default_env')
     check_actor_is_ready(headers, actor_id)
-
 
 @pytest.mark.regapi
 def test_func_actor_is_ready(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_func')
     check_actor_is_ready(headers, actor_id)
 
+@pytest.mark.regapi
+def test_sleep_loop_actor_is_ready(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_sleep_loop')
+    check_actor_is_ready(headers, actor_id)
 
 @pytest.mark.regapi
 def test_executions_empty_list(headers):
@@ -593,6 +673,61 @@ def test_execute_func_actor(headers):
     result = cloudpickle.loads(rsp.content)
     assert result == 17
 
+def test_execute_and_delete_sleep_loop_actor(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_sleep_loop')
+    url = '{}/actors/{}/messages'.format(base_url, actor_id)
+    # send the sleep loop actor a very long execution so that we can delete it before it ends.
+    data = {"sleep": 1, "iterations": 999}
+
+    rsp = requests.post(url, json=data, headers=headers)
+    # get the execution id -
+    rsp_data = json.loads(rsp.content.decode('utf-8'))
+    result = rsp_data['result']
+    if case == 'snake':
+        assert result.get('execution_id')
+        exc_id = result.get('execution_id')
+    else:
+        assert result.get('executionId')
+        exc_id = result.get('executionId')
+    # wait for a worker to take the execution -
+    url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exc_id)
+    worker_id = None
+    idx = 0
+    while not worker_id:
+        rsp = requests.get(url, headers=headers).json().get('result')
+        if case == 'snake':
+            worker_id = rsp.get('worker_id')
+        else:
+            worker_id = rsp.get('workerId')
+        idx += 1
+        time.sleep(1)
+        if idx > 15:
+            print("worker never got sleep_loop execution. "
+                  "actor: {}; execution: {}; idx:{}".format(actor_id, exc_id, idx))
+            assert False
+    # now let's kill the execution -
+    time.sleep(1)
+    url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exc_id)
+    rsp = requests.delete(url, headers=headers)
+    assert rsp.status_code in [200, 201, 202, 203, 204]
+    assert 'Issued force quit command for execution' in rsp.json().get('message')
+    # make sure execution is stopped in a timely manner
+    i = 0
+    stopped = False
+    status = None
+    while i < 20:
+        rsp = requests.get(url, headers=headers)
+        rsp_data = json.loads(rsp.content.decode('utf-8'))
+        status = rsp_data['result']['status']
+        if status == 'COMPLETE':
+            stopped = True
+            break
+        time.sleep(1)
+        i += 1
+    print("Execution never stopped. Last status of execution: {}; "
+          "actor_id: {}; execution_id: {}".format(status, actor_id, exc_id))
+    assert stopped
+
 def test_list_execution_details(headers):
     actor_id = get_actor_id(headers)
     # get execution id
@@ -665,6 +800,16 @@ def test_execute_actor_json(headers):
     data = {'key1': 'value1', 'key2': 'value2'}
     execute_actor(headers, actor_id=actor_id, json_data=data)
 
+def test_execute_basic_actor_synchronous(headers):
+    actor_id = get_actor_id(headers)
+    data = {'message': 'testing execution'}
+    execute_actor(headers, actor_id, data=data, synchronous=True)
+
+
+# ##################
+# updates to actors
+# ##################
+
 def test_update_actor(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}'.format(base_url, actor_id)
@@ -706,15 +851,14 @@ def test_update_actor_other_user(headers):
     else:
         assert not result['lastUpdateTime'] == orig_actor['lastUpdateTime']
 
+
 ###############
 # actor queue
 #     tests
 ###############
 
-
 CH_NAME_1 = 'special'
 CH_NAME_2 = 'default'
-
 
 @pytest.mark.queuetest
 def test_create_actor_with_custom_queue_name(headers):
@@ -733,7 +877,7 @@ def test_create_actor_with_custom_queue_name(headers):
 @pytest.mark.queuetest
 def test_actor_uses_custom_queue(headers):
     url = '{}/actors'.format(base_url)
-    # get the actor id of an actor registered on the defaul queue:
+    # get the actor id of an actor registered on the default queue:
     default_queue_actor_id = get_actor_id(headers, name='abaco_test_suite_statelesss')
     # and the actor id for the actor on the special queue:
     special_queue_actor_id = get_actor_id(headers, name='abaco_test_suite_queue1_actor1')
@@ -833,6 +977,7 @@ def test_actor_with_default_queue(headers):
 def test_2_actors_with_different_queues(headers):
     pass
 
+
 # ##########
 # alias API
 # ##########
@@ -931,6 +1076,28 @@ def test_list_alias_permission(headers):
 
 
 @pytest.mark.aliastest
+def test_update_alias(headers):
+    # alias UPDATE permissions alone are not sufficient to change the definition of the alias to an actor -
+    # the user must have UPDATE access to the underlying actor_id as well.
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    # change the alias to point to the "abaco_test_suite" actor:
+    actor_id = get_actor_id(headers)
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    data = {field: actor_id}
+    rsp = requests.put(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert field in result
+    assert result[field] == actor_id
+    # now, change the alias back to point to the original "abaco_test_suite_alias" actor:
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    data = {field: actor_id}
+    rsp = requests.put(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+
+
+@pytest.mark.aliastest
 def test_other_user_cant_list_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
     rsp = requests.get(url, headers=priv_headers())
@@ -967,6 +1134,32 @@ def test_other_user_still_cant_list_actor(headers):
     data = response_format(rsp)
     assert 'you do not have access to this actor' in data['message']
 
+@pytest.mark.aliastest
+def test_other_user_still_cant_update_alias_wo_actor(headers):
+    # alias UPDATE permissions alone are not sufficient to change the definition of the alias to an actor -
+    # the user must have UPDATE access to the underlying actor_id as well.
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
+    # priv user does not have access to the abaco_test_suite_alias actor
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    data = {field: get_actor_id(headers, name="abaco_test_suite_alias")}
+
+    rsp = requests.put(url, data=data, headers=priv_headers())
+    assert rsp.status_code == 400
+    data = response_format(rsp)
+    assert 'ou do not have UPDATE access to the actor you want to associate with this alias' in data['message']
+
+@pytest.mark.aliastest
+def test_other_user_still_cant_create_alias_nonce(headers):
+    # alias permissions do not confer access to the actor itself, and alias nonces require BOTH
+    # permissions on the alias AND on the actor
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=priv_headers())
+    assert rsp.status_code == 400
+    data = response_format(rsp)
+    assert 'you do not have access to this alias and actor' in data['message']
+
 
 @pytest.mark.aliastest
 def test_get_actor_with_alias(headers):
@@ -996,6 +1189,31 @@ def test_get_actor_executions_with_alias(headers):
     assert actor_id in result['_links']['self']
     assert 'executions' in result
 
+@pytest.mark.aliastest
+def test_create_unlimited_alias_nonce(headers):
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
+    # passing no data to the POST should use the defaults for a nonce:
+    # unlimited uses and EXECUTE level
+    rsp = requests.post(url, headers=headers)
+    result = basic_response_checks(rsp)
+    check_nonce_fields(result, alias=ALIAS_1, level='EXECUTE', max_uses=-1, current_uses=0, remaining_uses=-1)
+
+@pytest.mark.aliastest
+def test_redeem_unlimited_alias_nonce(headers):
+    # first, get the nonce id:
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    nonce_id = result[0].get('id')
+    # sanity check that alias can be used to get the actor
+    url = '{}/actors/{}'.format(base_url, ALIAS_1)
+    rsp = requests.get(url, headers=headers)
+    basic_response_checks(rsp)
+    # use the nonce-id and the alias to list the actor
+    url = '{}/actors/{}?x-nonce={}'.format(base_url, ALIAS_1, nonce_id)
+    # no JWT header -- we're using the nonce
+    rsp = requests.get(url)
+    basic_response_checks(rsp)
 
 @pytest.mark.aliastest
 def test_owner_can_delete_alias(headers):
@@ -1029,7 +1247,7 @@ def test_other_user_can_delete_shared_alias(headers):
 # nonce API
 # ################
 
-def check_nonce_fields(nonce, actor_id=None, nonce_id=None,
+def check_nonce_fields(nonce, actor_id=None, alias=None, nonce_id=None,
                        current_uses=None, max_uses=None, remaining_uses=None, level=None, owner=None):
     """Basic checks of the nonce object returned from the API."""
     nid = nonce.get('id')
@@ -1045,11 +1263,13 @@ def check_nonce_fields(nonce, actor_id=None, nonce_id=None,
     if level:
         assert nonce.get('level') == level
     assert nonce.get('roles')
+    if alias:
+        assert nonce.get('alias') == alias
 
     # case-specific checks:
     if case == 'snake':
-        assert nonce.get('actor_id')
         if actor_id:
+            assert nonce.get('actor_id')
             assert nonce.get('actor_id') == actor_id
         assert nonce.get('api_server')
         assert nonce.get('create_time')
@@ -1064,8 +1284,8 @@ def check_nonce_fields(nonce, actor_id=None, nonce_id=None,
         if remaining_uses:
             assert nonce.get('remaining_uses') == remaining_uses
     else:
-        assert nonce.get('actorId')
         if actor_id:
+            assert nonce.get('actorId')
             assert nonce.get('actorId') == actor_id
         assert nonce.get('apiServer')
         assert nonce.get('createTime')
@@ -1233,7 +1453,6 @@ def test_invalid_method_get_nonce(headers):
     response_format(rsp)
 
 
-
 # ################
 # admin API
 # ################
@@ -1338,9 +1557,9 @@ def test_delete_worker(headers):
 
     # check the workers store:
     dbid = models.Actor.get_dbid(get_tenant(headers), actor_id)
-    workers = stores.workers_store.get(dbid)
-    for k,v in workers.items():
-        assert not k == id
+    workers = stores.workers_store.items({'actor_id': dbid})
+    for worker in workers:
+        assert not worker['id'] == id
 
 def test_list_permissions(headers):
     actor_id = get_actor_id(headers)
@@ -1451,6 +1670,345 @@ def test_priv_user_can_create_priv_actor():
     rsp = requests.delete(url, headers=headers)
     basic_response_checks(rsp)
 
+
+# #####################################
+# search and search authorization tests
+# #####################################
+# Checking that search is performing correctly for each database and returning correct projections.
+# Also checking that permissions work correctly; one user can't read anothers information and 
+# admins can read everything. These tests do no work without prior tests.
+
+def test_search_logs_details(headers):
+    url = '{}/actors/search/logs'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 7
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 7
+        assert len(result['search']) == result['_metadata']['count_returned']
+    else:
+        assert result['_metadata']['countReturned'] == 7
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 7
+        assert len(result['search']) == result['_metadata']['countReturned']
+    assert '_links' in result['search'][0]
+    assert 'logs' in result['search'][0]
+    assert not '_id' in result['search'][0]
+    assert not 'permissions' in result['search'][0]
+    assert not 'tenant' in result['search'][0]
+    assert not 'exp' in result['search'][0]
+
+def test_search_executions_details(headers):
+    url = '{}/actors/search/executions'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 7
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 7
+        assert len(result['search']) == result['_metadata']['count_returned']
+    else:
+        assert result['_metadata']['countReturned'] == 7
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 7
+        assert len(result['search']) == result['_metadata']['countReturned']
+    assert '_links' in result['search'][0]
+    assert 'executor' in result['search'][0]
+    assert 'id' in result['search'][0]
+    assert 'io' in result['search'][0]
+    assert 'runtime' in result['search'][0]
+    assert 'status' in result['search'][0]
+    assert result['search'][0]['status'] == 'COMPLETE'
+    assert not '_id' in result['search'][0]
+    assert not 'permissions' in result['search'][0]
+    assert not 'api_server' in result['search'][0]
+    assert not 'tenant' in result['search'][0]
+
+def test_search_actors_details(headers):
+    url = '{}/actors/search/actors'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 8
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 8
+        assert len(result['search']) == result['_metadata']['count_returned']
+    else:
+        assert result['_metadata']['countReturned'] == 8
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 8
+        assert len(result['search']) == result['_metadata']['countReturned']
+    assert '_links' in result['search'][0]
+    assert 'description' in result['search'][0]
+    assert 'gid' in result['search'][0]
+    assert 'hints' in result['search'][0]
+    assert 'link' in result['search'][0]
+    assert 'mounts' in result['search'][0]
+    assert 'name' in result['search'][0]
+    assert 'owner' in result['search'][0]
+    assert 'privileged' in result['search'][0]
+    assert 'status' in result['search'][0]
+    assert result['search'][0]['token'] == 'false'
+    assert not '_id' in result['search'][0]
+    assert not 'permissions' in result['search'][0]
+    assert not 'api_server' in result['search'][0]
+    assert not 'executions' in result['search'][0]
+    assert not 'tenant' in result['search'][0]
+    assert not 'db_id' in result['search'][0]
+
+def test_search_workers_details(headers):
+    url = '{}/actors/search/workers'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 13
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 13
+        assert len(result['search']) == result['_metadata']['count_returned']
+    else:
+        assert result['_metadata']['countReturned'] == 13
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 13
+        assert len(result['search']) == result['_metadata']['countReturned']
+    assert 'status' in result['search'][0]
+    assert 'id' in result['search'][0]
+    assert not '_id' in result['search'][0]
+    assert not 'permissions' in result['search'][0]
+    assert not 'tenant' in result['search'][0]
+
+# privileged role
+def test_search_permissions_priv(headers):
+    # Logs
+    url = '{}/actors/search/logs'.format(base_url)
+    rsp = requests.get(url, headers=priv_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 4
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 4
+    else:
+        assert result['_metadata']['countReturned'] == 4
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 4
+    
+    # Executions
+    url = '{}/actors/search/executions'.format(base_url)
+    rsp = requests.get(url, headers=priv_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 4
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 4
+    else:
+        assert result['_metadata']['countReturned'] == 4
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 4
+
+    # Actors
+    url = '{}/actors/search/actors'.format(base_url)
+    rsp = requests.get(url, headers=priv_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 1
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 1
+    else:
+        assert result['_metadata']['countReturned'] == 1
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 1
+
+    # Workers
+    url = '{}/actors/search/workers'.format(base_url)
+    rsp = requests.get(url, headers=priv_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 1
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 1
+    else:
+        assert result['_metadata']['countReturned'] == 1
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 1
+
+# limited role
+def test_search_permissions_limited(headers):
+    # Logs
+    url = '{}/actors/search/logs'.format(base_url)
+    rsp = requests.get(url, headers=limited_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 0
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 0
+    else:
+        assert result['_metadata']['countReturned'] == 0
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 0
+    
+    # Executions
+    url = '{}/actors/search/executions'.format(base_url)
+    rsp = requests.get(url, headers=limited_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 0
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 0
+    else:
+        assert result['_metadata']['countReturned'] == 0
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 0
+
+    # Actors
+    url = '{}/actors/search/actors'.format(base_url)
+    rsp = requests.get(url, headers=limited_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 1
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 1
+    else:
+        assert result['_metadata']['countReturned'] == 1
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 1
+
+    # Workers
+    url = '{}/actors/search/workers'.format(base_url)
+    rsp = requests.get(url, headers=limited_headers())
+    result = basic_response_checks(rsp)
+    print(result['_metadata'])
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 1
+        assert result['_metadata']['record_limit'] == 100
+        assert result['_metadata']['records_skipped'] == 0
+        assert result['_metadata']['total_count'] == 1
+    else:
+        assert result['_metadata']['countReturned'] == 1
+        assert result['_metadata']['recordLimit'] == 100
+        assert result['_metadata']['recordsSkipped'] == 0
+        assert result['_metadata']['totalCount'] == 1
+
+def test_search_datetime(headers):
+    url = '{}/actors/search/executions?final_state.StartedAt.gt=2000-05:00'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    print(result)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/executions?final_state.StartedAt.gt=2000-01-01T01:00:00.000Z'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/executions?final_state.StartedAt.lt=2000-01-01T01:00'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 0
+
+    url = '{}/actors/search/executions?message_received_time.between=2000-01-01T01:00,2200-12-30T23:59:59.999Z'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/actors?create_time.between=2000-01-01,2200-01-01'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 8
+
+def test_search_exactsearch_search(headers):
+    url = '{}/actors/search/actors?exactsearch=abacosamples/sleep_loop'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 1
+
+    url = '{}/actors/search/actors?search=sleep_loop'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['search'][0]['image'] == 'abacosamples/sleep_loop'
+
+    url = '{}/actors/search/actors?exactsearch=NOTATHINGWORD'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 0
+
+def test_search_in_nin(headers):
+    url = '{}/actors/search/executions?status.in=["COMPLETE", "READY"]'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+    url = '{}/actors/search/executions?status.nin=["COMPLETE", "READY"]'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 0
+
+def test_search_eq_neq(headers):
+    url = '{}/actors/search/actors?image=abacosamples/py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 1
+
+    url = '{}/actors/search/actors?image.neq=abacosamples/py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+def test_search_like_nlike(headers):
+    url = '{}/actors/search/actors?image.like=py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 1
+    
+    url = '{}/actors/search/actors?image.nlike=py3_func'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert len(result['search']) == 7
+
+def test_search_skip_limit(headers):
+    url = '{}/actors/search/actors?skip=4&limit=23'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    if case == 'snake':
+        assert result['_metadata']['count_returned'] == 4
+        assert result['_metadata']['record_limit'] == 23
+        assert result['_metadata']['records_skipped'] == 4
+        assert result['_metadata']['total_count'] == 8
+    else:
+        assert result['_metadata']['countReturned'] == 4
+        assert result['_metadata']['recordLimit'] == 23
+        assert result['_metadata']['recordsSkipped'] == 4
+        assert result['_metadata']['totalCount'] == 8
+
+
 # ##############################
 # tenancy - tests for bleed over
 # ##############################
@@ -1459,7 +2017,7 @@ def switch_tenant_in_header(headers):
     jwt = headers.get('X-Jwt-Assertion-DEV-DEVELOP')
     return {'X-Jwt-Assertion-DEV-STAGING': jwt}
 
-
+@pytest.mark.tenant
 def test_tenant_list_actors(headers):
     # passing another tenant should result in 0 actors.
     headers = switch_tenant_in_header(headers)
@@ -1468,17 +2026,19 @@ def test_tenant_list_actors(headers):
     result = basic_response_checks(rsp)
     assert len(result) == 0
 
+@pytest.mark.tenant
 def test_tenant_register_actor(headers):
     headers = switch_tenant_in_header(headers)
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant'}
-    rsp = requests.post(url, data=data, headers=headers)
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant', 'stateless': False}
+    rsp = requests.post(url, json=data, headers=headers)
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert result['image'] == 'jstubbs/abaco_test'
     assert result['name'] == 'abaco_test_suite_other_tenant'
     assert result['id'] is not None
 
+@pytest.mark.tenant
 def test_tenant_actor_is_ready(headers):
     headers = switch_tenant_in_header(headers)
     count = 0
@@ -1493,6 +2053,7 @@ def test_tenant_actor_is_ready(headers):
         count += 1
     assert False
 
+@pytest.mark.tenant
 def test_tenant_list_registered_actors(headers):
     # passing another tenant should result in 1 actor.
     headers = switch_tenant_in_header(headers)
@@ -1501,6 +2062,7 @@ def test_tenant_list_registered_actors(headers):
     result = basic_response_checks(rsp)
     assert len(result) == 1
 
+@pytest.mark.tenant
 def test_tenant_list_actor(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1512,6 +2074,7 @@ def test_tenant_list_actor(headers):
     assert result['name'] == 'abaco_test_suite_other_tenant'
     assert result['id'] is not None
 
+@pytest.mark.tenant
 def test_tenant_list_executions(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1520,6 +2083,7 @@ def test_tenant_list_executions(headers):
     result = basic_response_checks(rsp)
     assert len(result.get('executions')) == 0
 
+@pytest.mark.tenant
 def test_tenant_list_messages(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1528,6 +2092,7 @@ def test_tenant_list_messages(headers):
     result = basic_response_checks(rsp)
     assert result.get('messages') == 0
 
+@pytest.mark.tenant
 def test_tenant_list_workers(headers):
     headers = switch_tenant_in_header(headers)
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
@@ -1542,10 +2107,259 @@ def test_tenant_list_workers(headers):
 
 
 ##############
+# events tests
+##############
+
+REQUEST_BIN_URL = 'https://enqjwyug892gl.x.pipedream.net'
+
+
+def check_event_logs(logs):
+    assert 'event_time_utc' in logs
+    assert 'event_time_display' in logs
+    assert 'actor_id' in logs
+
+def test_has_cycles_1():
+    links = {'A': 'B',
+             'B': 'C',
+             'C': 'D'}
+    assert not controllers.has_cycles(links)
+
+def test_has_cycles_2():
+    links = {'A': 'B',
+             'B': 'A',
+             'C': 'D'}
+    assert controllers.has_cycles(links)
+
+def test_has_cycles_3():
+    links = {'A': 'B',
+             'B': 'C',
+             'C': 'D',
+             'D': 'E',
+             'E': 'H',
+             'H': 'B'}
+    assert controllers.has_cycles(links)
+
+def test_has_cycles_4():
+    links = {'A': 'B',
+             'B': 'C',
+             'D': 'E',
+             'E': 'H',
+             'H': 'J',
+             'I': 'J',
+             'K': 'J',
+             'L': 'M',
+             'M': 'J'}
+    assert not controllers.has_cycles(links)
+
+def test_has_cycles_5():
+    links = {'A': 'B',
+             'B': 'C',
+             'C': 'C'}
+    assert controllers.has_cycles(links)
+
+def test_create_event_link_actor(headers):
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_event-link', 'stateless': False}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+
+def test_create_actor_with_link(headers):
+    # first, get the actor id of the event_link actor:
+    link_actor_id = get_actor_id(headers, name='abaco_test_suite_event-link')
+    # register a new actor with link to event_link actor
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_event',
+            'link': link_actor_id}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+
+def test_create_actor_with_webhook(headers):
+    # register an actor to serve as the webhook target
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_event-webhook', 'stateless': False}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    aid = get_actor_id(headers, name='abaco_test_suite_event-webhook')
+    # create a nonce for this actor
+    url = '{}/actors/{}/nonces'.format(base_url, aid)
+    rsp = requests.post(url, headers=headers)
+    result = basic_response_checks(rsp)
+    nonce = result['id']
+    # in practice, no one should ever do this - the built in link property should be used instead;
+    # but this illustrates the use of the webhook feature without relying on external APIs.
+    webhook = '{}/actors/{}/messages?x-nonce={}'.format(base_url, aid, nonce)
+    # make a new actor with a webhook property that points to the above messages endpoint -
+    url = '{}/actors'.format(base_url)
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_event-2',
+            'webhook': webhook}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    event_aid = result['id']
+    # once the new actor is READY, the webhook actor should have gotten a message to
+    url = '{}/actors/{}/executions'.format(base_url, aid)
+    webhook_ready_ex_id = None
+    idx = 0
+    while not webhook_ready_ex_id and idx < 55:
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data and len(ex_data) > 0:
+            webhook_ready_ex_id = ex_data[0]['id']
+            break
+        else:
+            idx = idx + 1
+            time.sleep(1)
+    if not webhook_ready_ex_id:
+        print("webhook actor never executed. actor_id: {}; webhook_actor_id: {}".format(event_aid, aid))
+        assert False
+        # wait for linked execution to complete and get logs
+    idx = 0
+    done = False
+    while not done and idx < 20:
+        # get executions for linked actor and check status of each
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data[0].get('status') == 'COMPLETE':
+            done = True
+            break
+        else:
+            time.sleep(1)
+            idx = idx + 1
+    if not done:
+        print("webhook actor executions never completed. actor: {}; "
+              "actor: {}; Final execution data: {}".format(event_aid, aid, ex_data))
+        assert False
+    # now check the logs from the two executions --
+    # first one should be the actor READY message:
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, aid, webhook_ready_ex_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    logs = result.get('logs')
+    assert "'event_type': 'ACTOR_READY'" in logs
+    check_event_logs(logs)
+
+
+def test_execute_event_actor(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_event')
+    data = {'message': 'testing events execution'}
+    result = execute_actor(headers, actor_id, data=data)
+    exec_id = result['id']
+    # now that this execution has completed, check that the linked actor also executed:
+    idx = 0
+    link_execution_ex_id = None
+    link_actor_id = get_actor_id(headers, name='abaco_test_suite_event-link')
+    url = '{}/actors/{}/executions'.format(base_url, link_actor_id)
+    # the linked actor should get 2 messages - one for the original actor initially being set to READY
+    # and a second when the execution sent above completes.
+    while not link_execution_ex_id and idx < 55:
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data and len(ex_data) > 1:
+            link_ready_ex_id = ex_data[0]['id']
+            link_execution_ex_id = ex_data[1]['id']
+            break
+        else:
+            idx = idx + 1
+            time.sleep(1)
+    if not link_execution_ex_id:
+        print("linked actor never executed. actor_id: {}; link_actor_id: {}".format(actor_id, link_actor_id))
+        assert False
+    # wait for linked execution to complete and get logs
+    idx = 0
+    done = False
+    while not done and idx < 20:
+        # get executions for linked actor and check status of each
+        rsp = requests.get(url, headers=headers)
+        ex_data = rsp.json().get('result').get('executions')
+        if ex_data[0].get('status') == 'COMPLETE' and ex_data[1].get('status') == 'COMPLETE':
+            done = True
+            break
+        else:
+            time.sleep(1)
+            idx = idx + 1
+    if not done:
+        print("linked actor executions never completed. actor: {}; "
+              "linked_actor: {}; Final execution data: {}".format(actor_id, link_actor_id, ex_data))
+        assert False
+    # now check the logs from the two executions --
+    # first one should be the actor READY message:
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, link_actor_id, link_ready_ex_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    logs = result.get('logs')
+    assert "'event_type': 'ACTOR_READY'" in logs
+    check_event_logs(logs)
+
+    # second one should be the actor execution COMPLETE message:
+    url = '{}/actors/{}/executions/{}/logs'.format(base_url, link_actor_id, link_execution_ex_id)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    logs = result.get('logs')
+    assert "'event_type': 'EXECUTION_COMPLETE'" in logs
+    assert 'execution_id' in logs
+    check_event_logs(logs)
+
+def test_cant_create_link_with_cycle(headers):
+    # this test checks that adding a link to an actor that did not have one that creates a cycle
+    # is not allowed.
+    # register a new actor with no link
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_create_link',}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    new_actor_id = result['id']
+    # create 5 new actors, each with a link to the one created previously:
+    new_actor_ids = []
+    for i in range(5):
+        data['link'] = new_actor_id
+        rsp = requests.post(url, data=data, headers=headers)
+        result = basic_response_checks(rsp)
+        new_actor_id = result['id']
+        new_actor_ids.append(new_actor_id)
+    # now, update the first created actor with a link that would create a cycle
+    first_aid = new_actor_ids[0]
+    data['link'] = new_actor_ids[4]
+    url = '{}/actors/{}'.format(base_url, first_aid)
+    print("url: {}; data: {}".format(url, data))
+    rsp = requests.put(url, data=data, headers=headers)
+    assert rsp.status_code == 400
+    assert 'this update would result in a cycle of linked actors' in rsp.json().get('message')
+
+def test_cant_update_link_with_cycle(headers):
+    # this test checks that an update to a link that would create a cycle is not allowed
+    link_actor_id = get_actor_id(headers, name='abaco_test_suite_event-link')
+    # register a new actor with link to event_link actor
+    url = '{}/{}'.format(base_url, '/actors')
+    data = {'image': 'jstubbs/abaco_test',
+            'name': 'abaco_test_suite_event',
+            'link': link_actor_id}
+    # create 5 new actors, each with a link to the one created previously:
+    new_actor_ids = []
+    for i in range(5):
+        rsp = requests.post(url, data=data, headers=headers)
+        result = basic_response_checks(rsp)
+        new_actor_id = result['id']
+        data['link'] = new_actor_id
+        new_actor_ids.append(new_actor_id)
+    # now, update the first created actor with a link that would great a cycle
+    first_aid = new_actor_ids[0]
+    data['link'] = new_actor_ids[4]
+    url = '{}/actors/{}'.format(base_url, first_aid)
+    print("url: {}; data: {}".format(url, data))
+
+    rsp = requests.put(url, data=data, headers=headers)
+    assert rsp.status_code == 400
+    assert 'this update would result in a cycle of linked actors' in rsp.json().get('message')
+
+
+##############
 # Clean up
 ##############
 
 def test_remove_final_actors(headers):
+    time.sleep(60)
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -1556,6 +2370,17 @@ def test_remove_final_actors(headers):
 
 def test_tenant_remove_final_actors(headers):
     headers = switch_tenant_in_header(headers)
+    url = '{}/actors'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    for act in result:
+        url = '{}/actors/{}'.format(base_url, act.get('id'))
+        rsp = requests.delete(url, headers=headers)
+        result = basic_response_checks(rsp)
+
+def test_limited_remove_final_actors(headers):
+    headers = limited_headers()
+    #headers = switch_tenant_in_header(headers)
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)

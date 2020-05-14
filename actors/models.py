@@ -1,26 +1,33 @@
 from copy import deepcopy
 import datetime
 import json
-import time
+import timeit
 import uuid
+import re
+import time
 
 from flask_restful import inputs
 from hashids import Hashids
 
 from agaveflask.utils import RequestParser
 
-from channels import CommandChannel
-from codes import REQUESTED, SUBMITTED, EXECUTE, PermissionLevel
+from channels import CommandChannel, EventsChannel
+from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
+    SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from config import Config
-import errors
+from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
-from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, permissions_store, workers_store
+from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
+    permissions_store, workers_store, abaco_metrics_store
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 
 HASH_SALT = 'eJa5wZlEX4eWU'
+
+# default max length for an actor execution log - 1MB
+DEFAULT_MAX_LOG_LENGTH = 1000000
 
 def is_hashid(identifier):
     """ 
@@ -56,25 +63,535 @@ def dict_to_camel(d):
         d2[under_to_camel(k)] = v
     return d2
 
+def camel_to_under(value):
+    return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
+
+def dict_to_under(d):
+    """Convert all keys in a dictionary to camel case."""
+    d2 = {}
+    for k,v in d.items():
+        k = k.split(".")
+        k[0] = camel_to_under(k[0])
+        k = ".".join(k)
+        d2[k] = v
+    return d2
+
 def get_current_utc_time():
     """Return string representation of current time in UTC."""
-    utcnow = datetime.datetime.utcnow()
-    return str(utcnow.timestamp())
+    return datetime.datetime.utcnow()
 
 def display_time(t):
     """ Convert a string representation of a UTC timestamp to a display string."""
     if not t:
         return "None"
     try:
-        time_f = float(t)
-        dt = datetime.datetime.fromtimestamp(time_f)
-    except ValueError as e:
-        logger.error("Invalid time data. Could not cast {} to float. Exception: {}".format(t, e))
-        raise errors.DAOError("Error retrieving time data.")
-    except TypeError as e:
-        logger.error("Invalid time data. Could not convert float to datetime. t: {}. Exception: {}".format(t, e))
-        raise errors.DAOError("Error retrieving time data.")
-    return str(dt)
+        dt = t.isoformat().replace('000', 'Z')
+    except AttributeError as e:
+        logger.error(f"Did not receive datetime object. Received object of type {type(t)}. Object: {t}. Exception: {e}")
+        raise DAOError("Error retrieving time data.")
+    except Exception as e:
+        logger.error(f"Error in formatting display time. Exception: {e}")
+
+        raise DAOError("Error retrieving time data.")
+    return dt
+
+
+class Search():
+    def __init__(self, args, search_type, tenant, user):
+        self.args = args
+        self.search_type = search_type.lower()
+        self.tenant = tenant
+        self.user = user
+
+    def search(self):
+        """
+        Does a search on one of four selected Mongo databases. Workers,
+        executions, actors, and logs. Uses the Mongo aggregation function
+        to first perform a full-text search. Following that permissions are
+        checked, variable matching is attempted, logical operators are attempted,
+        and truncation is performed.
+        """
+        logger.info(f'Received a request to search. Search type: {self.search_type}')
+
+        queried_store, security = self.get_db_specific_sections()
+        search, query, skip, limit = self.arg_parser()
+
+        # Pipeline initially made use of 'project', I've opted to instead
+        # do all post processing in 'post_processing()' for simplicity.
+        pipeline = search + query + security
+        start = time.time()
+        full_search_res = list(queried_store.aggregate(pipeline))
+        logger.info(f'Got search response in {time.time() - start} seconds.'\
+                    f'Pipeline: {pipeline} First two results: {full_search_res[0:1]}')
+        final_result = self.post_processing(full_search_res, skip, limit)
+        return final_result
+
+    def get_db_specific_sections(self):
+        """
+        Takes in the search_type and gives the correct store to query.
+        Also figures out the permission pipeline sections for the specified
+        search_type. The actors_store is the only store that require a
+        different permission type. Permissions are done by matching tenant,
+        but also joining the permissions store based on actor dbid and matching
+        user to allow for shared permissions.
+        """
+        store_dict = {'executions': executions_store,
+                      'workers': workers_store,
+                      'actors': actors_store,
+                      'logs': logs_store}
+        try:
+            queried_store = store_dict[self.search_type]
+        except KeyError:
+            raise KeyError(f"Inputted search_type is invalid, must"\
+                            " be one of {list(store_dict.keys())}.")
+        
+        localField = 'actor_id'
+        if self.search_type =='actors':
+            localField = '_id'
+        security = [{'$match': {'tenant': self.tenant}},
+                    {'$lookup':
+                        {'from' : '2',
+                        'localField' : localField,
+                        'foreignField' : '_id',
+                        'as' : 'permissions'}},
+                    {'$unwind': '$permissions'},
+                    {'$match': {'permissions.' + self.user: {'$exists': True}}}]
+
+        return queried_store, security
+
+    def arg_parser(self):
+        """
+        Arg parser parses the query parameters of the url. Allows for specified
+        Mongo logical operators, also for fuzzy or exact full-text search.
+        Skip and limit parameters are defined here. If the given parameter
+        matches none of the above, the function attempts to match a key to
+        a value. When trying to reach a nested value, the exact key must be
+        specified. For example, '_links.owner'.
+        """
+        query = []
+        # Always searches by tenant to increase speed of search
+        search = f'"{self.tenant}"'
+        # Initial paging settings
+        skip_amo = 0
+        limit_amo = 100
+
+        # Converts everything to snake case as that's what Mongo holds.
+        # This means that snake case input will always work, but not camel case.
+        case = Config.get('web', 'case')
+        if case == 'camel':
+            self.args = dict_to_under(self.args)
+
+        # Args are passed in as a dictionary. A list of values if there are
+        # multiple of the same key, one value if not.
+        # Checks each key given by the requests query parameters.
+        for key, val in self.args.items():
+            # Ignores x-nonce and that for Abaco authentication, not search.
+            if key == "x-nonce":
+                pass
+            # Adds vals matched to 'search' to the 'search' string which will
+            # later be added to the pipeline
+            elif key == "search":
+                if isinstance(val, list):
+                    joined_val = ' '.join(val)
+                    search = search + f' {joined_val}'
+                else:
+                    search = search + f' {val}'
+            # Same as 'search', but with double quotation around the value
+            elif key == "exactsearch":
+                if isinstance(val, list):
+                    joined_val = '" "'.join(val)
+                    search = search + f' "{joined_val}"'
+                else:
+                    search = search + f' "{val}"'
+            # Checks for only one limit and skip, sets. Raises errors.
+            elif key == "skip" or key == "limit":
+                try:
+                    val = int(val)
+                except ValueError:
+                    raise ValueError(f'Inputted "{key}" paramater must be an int. Received: {val}')
+                if val < 0:
+                    raise ValueError(f'Inputted "{key}" must be positive. Received: {val}')
+                if key == "skip":
+                    skip_amo = val
+                if key == "limit":
+                    limit_amo = val
+            else:
+                # Keys in the mongo db that should neccessitate datetime objects.
+                time_keys = ['start_time', 'message_received_time', 'last_execution_time',
+                            'last_update_time', 'StartedAt', 'FinishedAt', 'create_time',
+                            'last_health_check_time']
+                # Trying lots of types to parse inputted strings.
+                # Boolean check
+                if val.lower() == 'false':
+                    val = False
+                elif val.lower() == 'true':
+                    val = True
+                # None check
+                elif val.lower() == 'none':
+                    val = None
+                # Datetime check - Checks for keys that correspond to datetime objects,
+                # if there is a match, the value is converted to a datetime object.
+                # '.between' gets special parsing due to the comma delimination.
+                elif any(time_key in key for time_key in time_keys):
+                    if '.between' in key:
+                        if not ',' in val:
+                            raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                        time1, time2 = val.split(',')
+                        time1 = self.broad_ISO_to_datetime(time1)
+                        time2 = self.broad_ISO_to_datetime(time2)
+                        val = [time1, time2]
+                    else:
+                        val = self.broad_ISO_to_datetime(val)
+                else:
+                    # Number check (floats are fine for all comparisons)
+                    try: 
+                        val = float(val)
+                    except (ValueError, TypeError):
+                        # List check/Other JSON check
+                        try:
+                            val = json.loads(val.replace("'", '"'))
+                        except json.JSONDecodeError:
+                            # Checks if list had the wrong quotes
+                            try:
+                                val = json.loads(val.replace('"', "'"))
+                            except json.JSONDecodeError:
+                                pass
+
+                used_oper = False
+                # Alias of mongo operators to expected operators to match TACC
+                # schema of search operators.
+                oper_aliases = {'.neq': '$ne', '.eq': '$eq', '.lte': '$lte', '.lt': '$lt',
+                                '.gte': '$gte', '.gt': '$gt', '.nin': '$nin', '.in': '$in'}
+                # Checks for search operators, if one is found
+                for oper_alias, mongo_oper in oper_aliases.items():
+                    if oper_alias in key:
+                        key = key.split(oper_alias)[0]
+                        query += [{'$match': {key: {mongo_oper: val}}}]
+                        used_oper = True
+                        break
+                if not used_oper:
+                    # Now we check for operators that require extra parsing
+                    # '.between' needs to parse out the comma and check for datetime or float
+                    if '.between' in key:
+                        if isinstance(val, list):
+                            if isinstance(val[0], datetime.datetime) and isinstance(val[1], datetime.datetime):
+                                key = key.split('.between')[0]
+                                query += [{'$match': {key: {'$gte': val[0], '$lte': val[1]}}}]
+                            else:
+                                raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
+                        else:
+                            if not ',' in val:
+                                raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                            key = key.split('.between')[0]
+                            val1, val2 = val.split(',')
+                            try:
+                                val1 = float(val1)
+                                val2 = float(val2)
+                            except ValueError:
+                                raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
+                            query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
+                    # '.nlike' requires some regex magic to attempt parity with SQL "nlike"
+                    elif '.nlike' in key:
+                        key = key.split('.nlike')[0]
+                        query += [{'$match': {key: {'$not': {'$regex': f"{val}"}}}}]
+                    # '.like' requires some regex magic to attempt parity with SQL "like"
+                    elif '.like' in key:
+                        key = key.split('.like')[0]
+                        query += [{'$match': {key: {'$regex': f"{val}"}}}]
+                    # If no operators match, a simple equality search is done.
+                    else:
+                        query += [{'$match': {key: val}}]
+        
+        # As mentioned, search gets added to the stanza and sort is done by
+        # textScore. Always is done as search always include tenant for speed.
+        search = [{'$match': {'$text': {'$search': search}}},
+                  {'$sort': {'score': {'$meta': 'textScore'}}}]
+        return search, query, skip_amo, limit_amo
+
+    def post_processing(self, search_list, skip, limit):
+        """
+        This function performs post processing on the results. Post processing
+        entails fixing times to display_times, changing case, eliminated
+        variables, adding '_links', and fixing specific fields. Processing type
+        is dependent on the search_type performed.
+        """
+        logger.info(f'Starting post_processing for search with search_type: {self.search_type}')
+
+        total_count = len(search_list)
+        search_list = search_list[skip: skip + limit]
+
+        # Does post processing on execution db searches.
+        if self.search_type == 'executions':
+            for i, result in enumerate(search_list):
+                if result.get('tenant') and result.get('actor_id'):
+                    aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                    search_list[i]['actor_id'] = aid
+                    try:
+                        api_server = result['api_server']
+                        id = result['id']
+                        executor = result['executor']
+                        search_list[i]['_links'] = {
+                            'self': f'{api_server}/actors/v2/{aid}/executions/{id}',
+                            'owner': f'{api_server}/profiles/v2/{executor}',
+                            'logs': f'{api_server}/actors/v2/{aid}/logs'}
+                        search_list[i].pop('api_server')
+                    except KeyError:
+                        pass
+                if result.get('start_time'):
+                    search_list[i]['start_time'] = display_time(result['start_time'])
+                if result.get('finish_time'):
+                    search_list[i]['finish_time'] = display_time(result['finish_time'])
+                if result.get('message_received_time'):
+                    search_list[i]['message_received_time'] = display_time(result['message_received_time'])
+                if result.get('final_state'):
+                    if result['final_state'].get('StartedAt'):
+                        search_list[i]['final_state']['StartedAt'] = display_time(result['final_state']['StartedAt'])
+                    if result['final_state'].get('FinishedAt'):
+                        search_list[i]['final_state']['FinishedAt'] = display_time(result['final_state']['FinishedAt'])
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('tenant', None)
+
+        # Does post processing on workers db searches.
+        elif self.search_type == 'workers':
+            for i, result in enumerate(search_list):
+                if result.get('tenant') and result.get('actor_id'):
+                    aid = Actor.get_display_id(result['tenant'], result['actor_id'])
+                    search_list[i]['actor_id'] = aid
+                if result.get('last_execution_time'):
+                    search_list[i]['last_execution_time'] = display_time(result['last_execution_time'])
+                if result.get('last_health_check_time'):
+                    search_list[i]['last_health_check_time'] = display_time(result['last_health_check_time'])
+                if result.get('create_time'):
+                    search_list[i]['create_time'] = display_time(result['create_time'])
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('tenant', None)
+
+        # Does post processing on actor db searches.
+        elif self.search_type == 'actors':
+            for i, result in enumerate(search_list):
+                try:
+                    api_server = result['api_server']
+                    owner = result['owner']
+                    id = result['id']
+                    search_list[i]['_links'] = {
+                        'self': f'{api_server}/actors/v2/{id}',
+                        'owner': f'{api_server}/profiles/v2/{owner}',
+                        'executions': f'{api_server}/actors/v2/{id}/executions'}
+                    search_list[i].pop('api_server')
+                except KeyError:
+                    pass
+                if result.get('create_time'):
+                    search_list[i]['create_time'] = display_time(result['create_time'])
+                if result.get('last_update_time'):
+                    search_list[i]['last_update_time'] = display_time(result['last_update_time'])
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('api_server', None)
+                search_list[i].pop('executions', None)
+                search_list[i].pop('tenant', None)
+                search_list[i].pop('db_id', None)
+
+        # Does post processing on logs db searches.
+        elif self.search_type == 'logs':
+            for i, result in enumerate(search_list):
+                try:
+                    actor_id = result['actor_id']
+                    exec_id = result['_id']
+                    actor = Actor.from_db(actors_store[actor_id])
+                    search_list[i]['_links'] = {
+                        'self': f'{actor.api_server}/actors/v2/{actor.id}/executions/{exec_id}/logs',
+                        'owner': f'{actor.api_server}/profiles/v2/{actor.owner}',
+                        'execution': f'{actor.api_server}/actors/v2/{actor.id}/executions/{exec_id}'}
+                except KeyError:
+                    pass
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('exp', None)
+                search_list[i].pop('actor_id', None)
+                search_list[i].pop('tenant', None)
+
+        # Adjusts case of the response to match expected case.
+        case = Config.get('web', 'case')
+        logger.info(f'Adjusting search response case')
+        case_corrected_list = []
+        for dictionary in search_list:
+            if case == 'camel':
+                case_corrected_list.append(dict_to_camel(dictionary))
+            else:
+                case_corrected_list = search_list
+
+        # Creating a metadata object with paging information
+        # and then adjusting for case as well.
+        metadata = {"total_count": total_count,
+                    "records_skipped": skip,
+                    "record_limit": limit,
+                    "count_returned": len(search_list)}
+        if case == 'camel':
+            case_corrected_metadata = dict_to_camel(metadata)
+        else:
+            case_corrected_metadata = metadata
+
+        # Returning the final result which is an object with
+        # _metadata and search for the search results.
+        final_result = {"_metadata": case_corrected_metadata,
+                        "search": case_corrected_list}
+        return final_result
+
+    def broad_ISO_to_datetime(self, dt_str):
+        """
+        Parses a broadly conforming ISO 8601 string.
+        """
+        dt_str = dt_str.replace('Z', '')
+        datetime_strs = ['%Y-%m-%dT%H:%M:%S.%f%z', #0 
+                        '%Y-%m-%dT%H:%M:%S.%f',
+                        '%Y-%m-%dT%H:%M:%S%z',
+                        '%Y-%m-%dT%H:%M:%S', 
+                        '%Y-%m-%dT%H:%M%z', #4
+                        '%Y-%m-%dT%H:%M',
+                        '%Y-%m-%dT%H%z', #6
+                        '%Y-%m-%dT%H',
+                        '%Y-%m-%dT%z',
+                        '%Y-%m-%dT', #9
+                        '%Y-%m-%d%z',
+                        '%Y-%m-%d',
+                        '%Y-%m%z',
+                        '%Y-%m',
+                        '%Y%z',
+                        '%Y']
+        # Try each parse for each datetime str
+        for i, datetime_try in enumerate(datetime_strs):
+            # Fixing the datetime_str input's timezone. ISO has ":" in the timezone,
+            # the parser does not want that, so conditionally we delete tz ":".
+            if i <= 4:
+                dt_tz_ready = dt_str[:19] + dt_str[19:].replace(':', '')
+            elif i <= 6:
+                dt_tz_ready = dt_str[:16] + dt_str[16:].replace(':', '')
+            elif i <= 9:
+                dt_tz_ready = dt_str[:13] + dt_str[13:].replace(':', '')
+            else:
+                dt_tz_ready = dt_str.replace(':', '')
+            try:
+                dt = datetime.datetime.strptime(dt_tz_ready, datetime_try)
+                return dt
+            except:
+                pass
+        # If no parse was successful, error!
+        raise ValueError("Inputted datetime was in an incorrect format."\
+                        " Please refer to docs and follow ISO 8601 formatting."\
+                        " e.g. '2020-05-01T14:45:41.591Z'")
+
+
+class Event(object):
+    """
+    Base event class for all Abaco events.
+    """
+
+    def __init__(self, dbid: str, event_type: str, data: dict):
+        """
+        Create a new event object
+        """
+        self.db_id = dbid
+        self.tenant_id = dbid.split('_')[0]
+        self.actor_id = Actor.get_display_id(self.tenant_id, dbid)
+        self.event_type = event_type
+        data['tenant_id'] = self.tenant_id
+        data['event_type'] = event_type
+        data['event_time_utc'] = get_current_utc_time().isoformat()[:23] + 'Z'
+        data['event_time_display'] = data['event_time_utc']
+        data['actor_id'] = self.actor_id
+        data['actor_dbid'] = dbid
+        self._get_events_attrs()
+        data['_abaco_link'] = self.link
+        data['_abaco_webhook'] = self.webhook
+        data['event_type'] = event_type
+        self.data = data
+
+    def _get_events_attrs(self) -> str:
+        """
+        Check if the event is for an actor that has an event property defined (like, webhook, socket), 
+        and return the actor db_id if so. Otherwise, returns an empty string.
+        :return: the db_id associated with the link, if it exists, or '' otherwise.
+        """
+        try:
+            actor = Actor.from_db(actors_store[self.db_id])
+        except KeyError:
+            logger.debug("did not find actor with id: {}".format(self.actor_id))
+            raise ResourceError("No actor found with identifier: {}.".format(self.actor_id), 404)
+        # the link and webhook attributes were added in 1.2.0; actors registered before 1.2.0 will not have
+        # have these attributed defined so we use the .get() method below --
+        # if the webhook exists, we always try it.
+        self.webhook = actor.get('webhook') or ''
+
+        # the actor link might not exist
+        link = actor.get('link') or ''
+        # if the actor link exists, it could be an actor id (not a dbid) or an alias.
+        # the following code resolves the link data to an actor dbid
+        if link:
+            try:
+                link_id = Actor.get_actor_id(self.tenant_id, link)
+                self.link = Actor.get_dbid(self.tenant_id, link_id)
+            except Exception as e:
+                self.link = ''
+                logger.error("Got exception: {} calling get_actor_id to set the event link.".format(e))
+        else:
+            self.link = ''
+
+    def publish(self):
+        """
+        External API for publishing events; handles all logic associated with event publishing including
+        checking for actor links and pushing messages to the EventsExchange.
+        :return: None 
+        """
+        logger.debug("top of publish for event: {}".format(self.data))
+        logger.info(self.data)
+        if not self.link and not self.webhook:
+            logger.debug("No link or webhook supplied for this event. Not publishing to the EventsChannel.")
+            return None
+        ch = EventsChannel()
+        ch.put_event(self.data)
+
+
+class ActorEvent(Event):
+    """
+    Data access object class for creating and working with actor event objects.
+    """
+    event_types = ('ACTOR_READY',
+                  'ACTOR_ERROR',
+                  )
+
+    def __init__(self, dbid: str, event_type: str, data: dict):
+        """
+        Create a new even object
+        """
+        super().__init__(dbid, event_type, data)
+        if not event_type.upper() in ActorEvent.event_types:
+            logger.error("Invalid actor event type passed to the ActorEvent constructor. "
+                         "event type: {}".format(event_type))
+            raise DAOError("Invalid actor event type {}.".format(event_type))
+
+
+class ActorExecutionEvent(Event):
+    """
+    Data access object class for creating and working with actor execution event objects.
+    """
+    event_types = ('EXECUTION_STARTED',
+                  'EXECUTION_COMPLETE',
+                  )
+
+    def __init__(self, dbid: str, execution_id: str, event_type: str, data: dict):
+        """
+        Create a new even object
+        """
+        super().__init__(dbid, event_type, data)
+        if not event_type.upper() in ActorExecutionEvent.event_types:
+            logger.error("Invalid actor event type passed to the ActorExecutionEvent constructor. "
+                         "event type: {}".format(event_type))
+            raise DAOError("Invalid actor execution event type {}.".format(event_type))
+
+        self.execution_id = execution_id
+        self.data['execution_id'] = execution_id
 
 
 class DbDict(dict):
@@ -115,16 +632,26 @@ class AbacoDAO(DbDict):
     @classmethod
     def request_parser(cls):
         """Return a flask RequestParser object that can be used in post/put processing."""
+        logger.debug("Top of request_parser().")
         parser = RequestParser()
+        config_case = Config.get('web', 'case')
+        if config_case == 'camel':
+            logger.debug("request_parser() using 'camel' case.")
+        else:
+            logger.debug("request_parser() using 'snake' case.")
         for name, source, attr, typ, help, default in cls.PARAMS:
             if source == 'derived':
                 continue
             required = source == 'required'
-            if Config.get('web', 'case') == 'camel':
+            if config_case == 'camel':
                 param_name = under_to_camel(name)
             else:
                 param_name = name
-            parser.add_argument(param_name, type=typ, required=required, help=help, default=default)
+            if param_name == 'hints':
+                action='append'
+            else:
+                action='store'
+            parser.add_argument(param_name, type=typ, required=required, help=help, default=default, action=action)
         return parser
 
     @classmethod
@@ -150,15 +677,18 @@ class AbacoDAO(DbDict):
                     value = kwargs[pname]
                 except KeyError:
                     logger.debug("required missing field: {}. ".format(pname))
-                    raise errors.DAOError("Required field {} missing.".format(pname))
+                    raise DAOError("Required field {} missing.".format(pname))
             elif source == 'optional':
-                value = kwargs.get(pname, default)
+                try:
+                    value = kwargs[pname]
+                except KeyError:
+                    value = kwargs.get(pname, default)
             elif source == 'provided':
                 try:
                     value = kwargs[pname]
                 except KeyError:
                     logger.debug("provided field missing: {}.".format(pname))
-                    raise errors.DAOError("Required field {} missing.".format(pname))
+                    raise DAOError("Required field {} missing.".format(pname))
             else:
                 # derived value - check to see if already computed
                 if hasattr(self, pname):
@@ -203,6 +733,10 @@ class Actor(AbacoDAO):
 
         ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the actor stores private state.', True),
         ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this actor. Default is none.', 'none'),
+        ('link', 'optional', 'link', str, "Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.", ''),
+        ('token', 'optional', 'token', inputs.boolean, 'Whether this actor requires an OAuth access token.', None),
+        ('webhook', 'optional', 'webhook', str, "URL to publish this actor's events to.", ''),
+        ('hints', 'optional', 'hints', str, 'Hints for personal tagging or Abaco special hints', []),
         ('description', 'optional', 'description', str,  'Description of this actor', ''),
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this actor runs in privileged mode.', False),
         ('max_workers', 'optional', 'max_workers', int, 'How many workers this actor is allowed at the same time.', None),
@@ -230,6 +764,8 @@ class Actor(AbacoDAO):
         ('id', 'derived', 'id', str, 'Human readable id for this actor.', None),
         ]
 
+    SYNC_HINT = 'sync'
+
     def get_derived_value(self, name, d):
         """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
         # first, see if the attribute is already in the object:
@@ -245,7 +781,7 @@ class Actor(AbacoDAO):
             actor_id, db_id = self.generate_id(d['name'], d['tenant'])
         except KeyError:
             logger.debug("name or tenant missing from actor dict: {}.".format(d))
-            raise errors.DAOError("Required field name or tenant missing")
+            raise DAOError("Required field name or tenant missing")
         # id fields:
         self.id = actor_id
         self.db_id = db_id
@@ -264,9 +800,9 @@ class Actor(AbacoDAO):
     @classmethod
     def get_actor_id(cls, tenant, identifier):
         """
-        Return the db_id associated with the identifier 
+        Return the human readable actor_id associated with the identifier 
         :param identifier (str): either an actor_id or an alias. 
-        :return: The actor_id; rasies a KeyError if no actor suc exists. 
+        :return: The actor_id; raises a KeyError if no actor exists. 
         """
         if is_hashid(identifier):
             return identifier
@@ -330,25 +866,23 @@ class Actor(AbacoDAO):
         worker_id = Worker.ensure_one_worker(self.db_id, self.tenant)
         logger.debug("Worker.ensure_one_worker returned worker_id: {}".format(worker_id))
         if worker_id:
-            worker_ids = [worker_id]
-            logger.info("Actor.ensure_one_worker() putting message on command channel for worker_id: {}".format(
-                worker_id))
+            logger.info("Actor.ensure_one_worker() putting message on command "
+                        "channel for worker_id: {}".format(worker_id))
             ch = CommandChannel(name=self.queue)
             ch.put_cmd(actor_id=self.db_id,
-                       worker_ids=worker_ids,
+                       worker_id=worker_id,
                        image=self.image,
                        tenant=self.tenant,
-                       num=1,
                        stop_existing=False)
             ch.close()
-            return worker_ids
+            return worker_id
         else:
             logger.debug("Actor.ensure_one_worker() returning None.")
             return None
 
     @classmethod
     def get_dbid(cls, tenant, id):
-        """Return the key used in redis from the "display_id" and tenant. """
+        """Return the key used in mongo from the "display_id" and tenant. """
         return str('{}_{}'.format(tenant, id))
 
     @classmethod
@@ -361,11 +895,22 @@ class Actor(AbacoDAO):
 
     @classmethod
     def set_status(cls, actor_id, status, status_message=None):
-        """Update the status of an actor"""
+        """Update the status of an actor.
+        actor_id (str) should be the actor db_id.
+        """
         logger.debug("top of set_status for status: {}".format(status))
-        actors_store.update(actor_id, 'status', status)
+        actors_store[actor_id, 'status'] = status
+        # we currently publish status change events for actors when the status is changing to ERROR or READY:
+        if status == ERROR or status == READY:
+            try:
+                event_type = 'ACTOR_{}'.format(status).upper()
+                event = ActorEvent(actor_id, event_type, {'status_message': status_message})
+                event.publish()
+            except Exception as e:
+                logger.error("Got exception trying to publish an actor status event. "
+                             "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
         if status_message:
-            actors_store.update(actor_id, 'status_message', status_message)
+            actors_store[actor_id, 'status_message'] = status_message
 
 
 class Alias(AbacoDAO):
@@ -393,16 +938,23 @@ class Alias(AbacoDAO):
         """Generate the alias id from the alias name and tenant."""
         return '{}_{}'.format(tenant, alias)
 
+    @classmethod
+    def generate_alias_from_id(cls, alias_id):
+        """Generate the alias id from the alias name and tenant."""
+        # assumes the format of the alias_id is {tenant}_{alias} where {tenant} does NOT have an underscore (_) char
+        # in it -
+        return alias_id[alias_id.find('_')+1:]
+
     def check_reserved_words(self):
         if self.alias in Alias.RESERVED_WORDS:
-            raise errors.DAOError("{} is a reserved word. "
+            raise DAOError("{} is a reserved word. "
                                   "The following reserved words cannot be used "
                                   "for an alias: {}.".format(self.alias, Alias.RESERVED_WORDS))
 
     def check_forbidden_char(self):
         for char in Alias.FORBIDDEN_CHAR:
             if char in self.alias:
-                raise errors.DAOError("'{}' is a forbidden character. "
+                raise DAOError("'{}' is a forbidden character. "
                                       "The following characters cannot be used "
                                       "for an alias: ['{}'].".format(char, "', '".join(Alias.FORBIDDEN_CHAR)))
 
@@ -414,9 +966,9 @@ class Alias(AbacoDAO):
         # second, make sure alias is not using a forbidden char:
         self.check_forbidden_char()
         # attempt to create the alias within a transaction
-        obj = alias_store.add_key_val_if_empty(self.alias_id, self)
+        obj = alias_store.add_if_empty([self.alias_id], self)
         if not obj:
-            raise errors.DAOError("Alias {} already exists.".format(self.alias))
+            raise DAOError("Alias {} already exists.".format(self.alias))
         return obj
 
     @classmethod
@@ -463,6 +1015,7 @@ class Nonce(AbacoDAO):
         ('id', 'derived', 'id', str, 'Unique id for this nonce.', None),
         ('actor_id', 'derived', 'actor_id', str, 'The human readable id for the actor associated with this nonce.',
          None),
+        ('alias', 'derived', 'alias', str, 'The alias id associated with this nonce.', None),
         ('create_time', 'derived', 'create_time', str, 'Time stamp (UTC) when this nonce was created.', None),
         ('last_use_time', 'derived', 'last_use_time', str, 'Time stamp (UTC) when thic nonce was last redeemed.', None),
         ('current_uses', 'derived', 'current_uses', int, 'Number of times this nonce has been redeemed.', 0),
@@ -485,33 +1038,52 @@ class Nonce(AbacoDAO):
             self.tenant = d['tenant']
         except KeyError:
             logger.error("The nonce controller did not pass tenant to the Nonce model.")
-            raise errors.DAOError("Could not instantiate nonce: tenant parameter missing.")
+            raise DAOError("Could not instantiate nonce: tenant parameter missing.")
         try:
             self.api_server = d['api_server']
         except KeyError:
             logger.error("The nonce controller did not pass api_server to the Nonce model.")
-            raise errors.DAOError("Could not instantiate nonce: api_server parameter missing.")
+            raise DAOError("Could not instantiate nonce: api_server parameter missing.")
+        # either an alias or a db_id must be passed, but not both -
         try:
             self.db_id = d['db_id']
+            self.alias = None
         except KeyError:
-            logger.error("The nonce controller did not pass db_id to the Nonce model.")
-            raise errors.DAOError("Could not instantiate nonce: db_id parameter missing.")
+            try:
+                self.alias = d['alias']
+                self.db_id = None
+                self.actor_id = None
+            except KeyError:
+                logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
+                raise DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+        if not self.db_id:
+            try:
+                self.alias = d['alias']
+                self.actor_id = None
+            except KeyError:
+                logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
+                raise DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+        if self.alias and self.db_id:
+            raise DAOError("Could not instantiate nonce: both db_id and alias parameters present.")
         try:
             self.owner = d['owner']
         except KeyError:
             logger.error("The nonce controller did not pass owner to the Nonce model.")
-            raise errors.DAOError("Could not instantiate nonce: owner parameter missing.")
+            raise DAOError("Could not instantiate nonce: owner parameter missing.")
         try:
             self.roles = d['roles']
         except KeyError:
             logger.error("The nonce controller did not pass roles to the Nonce model.")
-            raise errors.DAOError("Could not instantiate nonce: roles parameter missing.")
+            raise DAOError("Could not instantiate nonce: roles parameter missing.")
 
         # generate a nonce id:
-        self.id = self.get_nonce_id(self.tenant, self.get_uuid())
+        if not hasattr(self, 'id') or not self.id:
+            self.id = self.get_nonce_id(self.tenant, self.get_uuid())
 
-        # derive the actor_id from the db_id
-        self.actor_id = Actor.get_display_id(self.tenant, self.db_id)
+        # derive the actor_id from the db_id if this is an actor nonce:
+        logger.debug("inside get_derived_value for nonce; name={}; d={}; self={}".format(name, d, self))
+        if self.db_id:
+            self.actor_id = Actor.get_display_id(self.tenant, self.db_id)
 
         # time fields
         time_str = get_current_utc_time()
@@ -541,11 +1113,25 @@ class Nonce(AbacoDAO):
         self.update(self.get_hypermedia())
         self.pop('db_id')
         self.pop('tenant')
+        alias_id = self.pop('alias')
+        if alias_id:
+            alias_st = Alias.generate_alias_from_id(alias_id=alias_id)
+            self['alias'] = alias_st
         time_str = self.pop('create_time')
         self['create_time'] = display_time(time_str)
         time_str = self.pop('last_use_time')
         self['last_use_time'] = display_time(time_str)
         return self.case()
+
+    @classmethod
+    def get_validate_nonce_key(cls, actor_id, alias):
+        if not actor_id and not alias:
+            raise DAOError('add_nonce did not receive an alias or an actor_id')
+        if actor_id and alias:
+            raise DAOError('add_nonce received both an alias and an actor_id')
+        if actor_id:
+            return actor_id
+        return alias
 
     @classmethod
     def get_tenant_from_nonce_id(cls, nonce_id):
@@ -555,95 +1141,94 @@ class Nonce(AbacoDAO):
         return nonce_id.rsplit('_', 1)[0]
 
     @classmethod
-    def get_nonces(cls, actor_id):
+    def get_nonces(cls, actor_id, alias):
         """Retrieve all nonces for an actor. Pass db_id as `actor_id` parameter."""
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonces = nonce_store[actor_id]
+            nonces = nonce_store[nonce_key]
         except KeyError:
             # return an empty Abaco dict if not found
             return AbacoDAO()
         return [Nonce(**nonce) for _, nonce in nonces.items()]
 
     @classmethod
-    def get_nonce(cls, actor_id, nonce_id):
+    def get_nonce(cls, actor_id, alias, nonce_id):
         """Retrieve a nonce for an actor. Pass db_id as `actor_id` parameter."""
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce = nonce_store[actor_id][nonce_id]
+            nonce = nonce_store[nonce_key][nonce_id]
             return Nonce(**nonce)
         except KeyError:
-            raise errors.DAOError("Nonce not found.")
+            raise DAOError("Nonce not found.")
 
     @classmethod
-    def add_nonce(cls, actor_id, nonce):
+    def add_nonce(cls, actor_id, alias, nonce):
         """
         Atomically append a new nonce to the nonce_store for an actor. 
         The actor_id parameter should be the db_id and the nonce parameter should be a nonce object
         created from the contructor.
         """
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce_store.update(actor_id, nonce.id, nonce)
-            logger.debug("nonce {} appended to nonces for actor {}".format(nonce.id, actor_id))
+            nonce_store[nonce_key, nonce.id] = nonce
+            logger.debug("nonce {} appended to nonces for actor/alias {}".format(nonce.id, nonce_key))
         except KeyError:
-            nonce_store[actor_id] = {nonce.id: nonce}
-            logger.debug("nonce {} added for actor {}".format(nonce.id, actor_id))
+            nonce_store.add_if_empty([nonce_key, nonce.id], nonce)
+            logger.debug("nonce {} added for actor/alias {}".format(nonce.id, nonce_key))
 
     @classmethod
-    def delete_nonce(cls, actor_id, nonce_id):
+    def delete_nonce(cls, actor_id, alias, nonce_id):
         """Delete a nonce from the nonce_store."""
-        nonce_store.pop_field(actor_id, nonce_id)
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
+        nonce_store.pop_field([nonce_key, nonce_id])
 
     @classmethod
-    def check_and_redeem_nonce(cls, actor_id, nonce_id, level):
+    def check_and_redeem_nonce(cls, actor_id, alias, nonce_id, level):
         """
         Atomically, check for the existence of a nonce for a given actor_id and redeem it if it
         has not expired. Otherwise, raises PermissionsError. 
         """
-        def _transaction(nonces):
-            """
-            This function can be passed to nonce_store.within_transaction() to atomically check 
-            whether a nonce is expired and, if not, redeem a use. The parameter, nonces, should
-            be the value under the key `actor_id` associated with the nonce.
-            """
-            # first pull the nonce from the nonces parameter
-            try:
-                nonce = nonces[nonce_id]
-            except KeyError:
-                raise errors.PermissionsException("Nonce does not exist.")
-            # check if the nonce level is sufficient
-            try:
-                if PermissionLevel(nonce['level']) < level:
-                    raise errors.PermissionsException("Nonce does not have sufficient permissions level.")
-            except KeyError:
-                raise errors.PermissionsException("Nonce did not have an associated level.")
-
-            # check if there are remaining uses
-            try:
-                if nonce['remaining_uses'] == -1:
-                    logger.debug("nonce has infinite uses. updating nonce.")
-                    nonce['current_uses'] += 1
-                    nonce['last_use_time'] = get_current_utc_time()
-                    nonce_store.update(actor_id, nonce_id, nonce)
-                elif nonce['remaining_uses'] > 0:
-                    logger.debug("nonce still has uses remaining. updating nonce.")
-                    nonce['current_uses'] += 1
-                    nonce['remaining_uses'] -= 1
-                    nonce_store.update(actor_id, nonce_id, nonce)
-                else:
-                    logger.debug("nonce did not have at least 1 use remaining.")
-                    raise errors.PermissionsException("No remaining uses left for this nonce.")
-            except KeyError:
-                logger.debug("nonce did not have a remaining_uses attribute.")
-                raise errors.PermissionsException("No remaining uses left for this nonce.")
-
-        # first, make sure the nonce exists for the actor id:
+        # first, make sure the nonce exists for the nonce_key:
+        nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
-            nonce_store[actor_id][nonce_id]
+            nonce = nonce_store[nonce_key][nonce_id]
         except KeyError:
-            raise errors.PermissionsException("Nonce does not exist.")
-        # atomically, check if the nonce is still valid and add a use if so:
-        nonce_store.within_transaction(_transaction, actor_id)
+            raise PermissionsException("Nonce does not exist.")
 
+        # check if the nonce level is sufficient
+        try:
+            if PermissionLevel(nonce['level']) < level:
+                raise PermissionsException("Nonce does not have sufficient permissions level.")
+        except KeyError:
+            raise PermissionsException("Nonce did not have an associated level.")
+        
+        try:
+            # Check for remaining uses equal to -1
+            res = nonce_store.full_update(
+                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$eq': -1}},
+                {'$inc': {nonce_id + '.current_uses': 1},
+                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+            if res.raw_result['updatedExisting'] == True:
+                logger.debug("nonce has infinite uses. updating nonce.")
+                return
 
+            # Check for remaining uses greater than 0
+            res = nonce_store.full_update(
+                {'_id': nonce_key, nonce_id + '.remaining_uses': {'$gt': 0}},
+                {'$inc': {nonce_id + '.current_uses': 1,
+                        nonce_id + '.remaining_uses': -1},
+                '$set': {nonce_id + '.last_use_time': get_current_utc_time()}})
+            if res.raw_result['updatedExisting'] == True:
+                logger.debug("nonce still has uses remaining. updating nonce.")
+                return
+            
+            logger.debug("nonce did not have at least 1 use remaining.")
+            raise PermissionsException("No remaining uses left for this nonce.")
+        except KeyError:
+            logger.debug("nonce did not have a remaining_uses attribute.")
+            raise PermissionsException("No remaining uses left for this nonce.")
+
+      
 class Execution(AbacoDAO):
     """Basic data access object for working with actor executions."""
 
@@ -656,12 +1241,13 @@ class Execution(AbacoDAO):
         ('worker_id', 'optional', 'worker_id', str, 'The worker who supervised this execution.', None),
         ('message_received_time', 'derived', 'message_received_time', str, 'Time (UTC) the message was received.', None),
         ('start_time', 'optional', 'start_time', str, 'Time (UTC) the execution started.', None),
+        ('finish_time', 'optional', 'finish_time', str, 'Time (UTC) the execution finished.', None),
         ('runtime', 'required', 'runtime', str, 'Runtime, in milliseconds, of the execution.', None),
         ('cpu', 'required', 'cpu', str, 'CPU usage, in user jiffies, of the execution.', None),
         ('io', 'required', 'io', str,
          'Block I/O usage, in number of 512-byte sectors read from and written to, by the execution.', None),
         ('id', 'derived', 'id', str, 'Human readable id for this execution.', None),
-        ('status', 'required', 'status', str, 'Status of the execution.', None),\
+        ('status', 'required', 'status', str, 'Status of the execution.', None),
         ('exit_code', 'optional', 'exit_code', str, 'The exit code of this execution.', None),
         ('final_state', 'optional', 'final_state', str, 'The final state of the execution.', None),
     ]
@@ -696,12 +1282,19 @@ class Execution(AbacoDAO):
                    'api_server': actor['api_server']
                    })
         execution = Execution(**ex)
+        start_timer = timeit.default_timer()
+        
+        executions_store[f'{actor_id}_{execution.id}'] = execution
+        abaco_metrics_store.full_update(
+            {'_id': 'stats'},
+            {'$inc': {'executions_total': 1},
+             '$addToSet': {'execution_dbids': f'{actor_id}_{execution.id}'}},
+             upsert=True)
 
-        try:
-            executions_store.update(actor_id, execution.id, execution)
-        except KeyError:
-            # if actor has no executions, a KeyError will be thrown
-            executions_store[actor_id] = {execution.id: execution}
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.add_execution took {ms} to run for actor {actor_id}, execution: {execution}")
         logger.info("Execution: {} saved for actor: {}.".format(ex, actor_id))
         return execution.id
 
@@ -715,14 +1308,45 @@ class Execution(AbacoDAO):
         """
         logger.debug("top of add_worker_id() for actor: {} execution: {} worker: {}".format(
             actor_id, execution_id, worker_id))
+        start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'worker_id', worker_id)
+            executions_store[f'{actor_id}_{execution_id}', 'worker_id'] = worker_id
             logger.debug("worker added to execution: {} actor: {} worker: {}".format(
             execution_id, actor_id, worker_id))
         except KeyError as e:
             logger.error("Could not add an execution. KeyError: {}. actor: {}. ex: {}. worker: {}".format(
                 e, actor_id, execution_id, worker_id))
-            raise errors.ExecutionException("Execution {} not found.".format(execution_id))
+            raise ExecutionException("Execution {} not found.".format(execution_id))
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.add_worker_id took {ms} to run for actor {actor_id}, execution: {execution_id}, worker: {worker_id}")
+
+
+    @classmethod
+    def update_status(cls, actor_id, execution_id, status):
+        """
+        :param actor_id: the id of the actor
+        :param execution_id: the id of the execution
+        :param status: the new status of the execution.
+        :return:
+        """
+        logger.debug("top of update_status() for actor: {} execution: {} status: {}".format(
+            actor_id, execution_id, status))
+        start_timer = timeit.default_timer()
+        try:
+            executions_store[f'{actor_id}_{execution_id}', 'status'] = status
+            logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
+            execution_id, actor_id, status))
+        except KeyError as e:
+            logger.error("Could not update status. KeyError: {}. actor: {}. ex: {}. status: {}".format(
+                e, actor_id, execution_id, status))
+            raise ExecutionException("Execution {} not found.".format(execution_id))
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Exection.update_status took {ms} to run for actor {actor_id}, "
+                            f"execution: {execution_id}.")
 
     @classmethod
     def finalize_execution(cls, actor_id, execution_id, status, stats, final_state, exit_code, start_time):
@@ -741,27 +1365,63 @@ class Execution(AbacoDAO):
         logger.debug("top of finalize_execution. Params: {}".format(params_str))
         if not 'io' in stats:
             logger.error("Could not finalize execution. io missing. Params: {}".format(params_str))
-            raise errors.ExecutionException("'io' parameter required to finalize execution.")
+            raise ExecutionException("'io' parameter required to finalize execution.")
         if not 'cpu' in stats:
             logger.error("Could not finalize execution. cpu missing. Params: {}".format(params_str))
-            raise errors.ExecutionException("'cpu' parameter required to finalize execution.")
+            raise ExecutionException("'cpu' parameter required to finalize execution.")
         if not 'runtime' in stats:
             logger.error("Could not finalize execution. runtime missing. Params: {}".format(params_str))
-            raise errors.ExecutionException("'runtime' parameter required to finalize execution.")
+            raise ExecutionException("'runtime' parameter required to finalize execution.")
+        start_timer = timeit.default_timer()
         try:
-            executions_store.update_subfield(actor_id, execution_id, 'status', status)
-            executions_store.update_subfield(actor_id, execution_id, 'io', stats['io'])
-            executions_store.update_subfield(actor_id, execution_id, 'cpu', stats['cpu'])
-            executions_store.update_subfield(actor_id, execution_id, 'runtime', stats['runtime'])
-            executions_store.update_subfield(actor_id, execution_id, 'final_state', final_state)
-            executions_store.update_subfield(actor_id, execution_id, 'exit_code', exit_code)
-            executions_store.update_subfield(actor_id, execution_id, 'start_time', start_time)
+            executions_store[f'{actor_id}_{execution_id}', 'status'] = status
+            executions_store[f'{actor_id}_{execution_id}', 'io'] = stats['io']
+            executions_store[f'{actor_id}_{execution_id}', 'cpu'] = stats['cpu']
+            executions_store[f'{actor_id}_{execution_id}', 'runtime'] = stats['runtime']
+            executions_store[f'{actor_id}_{execution_id}', 'final_state'] = final_state
+            executions_store[f'{actor_id}_{execution_id}', 'exit_code'] = exit_code
+            executions_store[f'{actor_id}_{execution_id}', 'start_time'] = start_time
         except KeyError:
             logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
-            raise errors.ExecutionException("Execution {} not found.".format(execution_id))
+            raise ExecutionException("Execution {} not found.".format(execution_id))
+
+        try:
+            finish_time = final_state.get('FinishedAt')
+            # we rely completely on docker for the final_state object which includes the FinishedAt time stamp;
+            # under heavy load, we have seen docker fail to set this time correctly and instead set it to 1/1/0001.
+            # in that case, we should use the total_runtime to back into it.
+            if finish_time == datetime.datetime.min:
+                derived_finish_time = start_time + datetime.timedelta(seconds=stats['runtime'])
+                executions_store[f'{actor_id}_{execution_id}', 'finish_time'] = derived_finish_time
+            else:
+                executions_store[f'{actor_id}_{execution_id}', 'finish_time'] = finish_time
+        except Exception as e:
+            logger.error(f"Could not finalize execution. Error: {e}")
+            raise ExecutionException(f"Could not finalize execution. Error: {e}")
+
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.finalize_execution took {ms} to run for actor {actor_id}, "\
+                            f"execution_id: {execution_id}")
+
+        try:
+            event_type = 'EXECUTION_COMPLETE'
+            data = {'actor_id': actor_id,
+                    'execution_id': execution_id,
+                    'status': status,
+                    'exit_code': exit_code
+                    }
+            event = ActorExecutionEvent(actor_id, execution_id, event_type, data)
+            event.publish()
+        except Exception as e:
+            logger.error("Got exception trying to publish an actor execution event. "
+                         "actor_id: {}; execution_id: {}; status: {}; "
+                         "exception: {}".format(actor_id, execution_id, status, e))
+
 
     @classmethod
-    def set_logs(cls, exc_id, logs):
+    def set_logs(cls, exc_id, logs, actor_id, tenant, worker_id):
         """
         Set the logs for an execution.
         :param exc_id: the id of the execution (str)
@@ -773,12 +1433,33 @@ class Execution(AbacoDAO):
             log_ex = int(log_ex)
         except ValueError:
             log_ex = -1
+        try:
+            max_log_length = int(Config.get('web', 'max_log_length'))
+        except:
+            max_log_length = DEFAULT_MAX_LOG_LENGTH
+        if len(logs) > DEFAULT_MAX_LOG_LENGTH:
+            logger.info("truncating log for execution: {}".format(exc_id))
+            # in some environments, perhaps depending on OS or docker version, the logs object is of type bytes.
+            # in that case we need to convert to be able to concatenate.
+            if type(logs) == bytes:
+                logs = logs.decode('utf-8')
+            if not type(logs) == str:
+                logger.info(f"Got unexpected type for logs object- could not convert to type str; type: {type(logs)}")
+                logs = ''
+            logs = logs[:max_log_length] + " LOG LIMIT EXCEEDED; this execution log was TRUNCATED!"
+        start_timer = timeit.default_timer()
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
-            logs_store.set_with_expiry(exc_id, logs)
+            logs_store.set_with_expiry([exc_id, 'logs'], logs)
         else:
             logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
-            logs_store[exc_id] = logs
+            logs_store[exc_id, logs] = logs
+        logs_store[exc_id, 'actor_id'] = actor_id
+        logs_store[exc_id, 'tenant'] = tenant
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"Execution.set_logs took {ms} to run for execution: {exc_id}.")
 
     def get_uuid_code(self):
         """ Return the Agave code for this object.
@@ -787,19 +1468,27 @@ class Execution(AbacoDAO):
         return '053'
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/actors/v2/{}/executions/{}'.format(self.api_server, self.actor_id, self.id),
+        aid = Actor.get_display_id(self.tenant, self.actor_id)
+        return {'_links': { 'self': '{}/actors/v2/{}/executions/{}'.format(self.api_server, aid, self.id),
                             'owner': '{}/profiles/v2/{}'.format(self.api_server, self.executor),
-                            'logs': '{}/actors/v2/{}/executions/{}/logs'.format(self.api_server, self.actor_id, self.id)
+                            'logs': '{}/actors/v2/{}/executions/{}/logs'.format(self.api_server, aid, self.id)
         }}
 
     def display(self):
         """Return a display version of the execution."""
         self.update(self.get_hypermedia())
         tenant = self.pop('tenant')
-        start_time_str = self.pop('start_time')
-        received_time_str = self.pop('message_received_time')
-        self['start_time'] = display_time(start_time_str)
-        self['message_received_time'] = display_time(received_time_str)
+        if self.get('start_time'):
+            self['start_time'] = display_time(self['start_time'])
+        if self.get('finish_time'):
+            self['finish_time'] = display_time(self['finish_time'])
+        if self.get('message_received_time'):
+            self['message_received_time'] = display_time(self['message_received_time'])
+        if self.get('final_state'):
+            if self['final_state'].get('StartedAt'):
+                self['final_state']['StartedAt'] = display_time(self['final_state']['StartedAt'])
+            if self['final_state'].get('FinishedAt'):
+                self['final_state']['FinishedAt'] = display_time(self['final_state']['FinishedAt'])
         self.actor_id = Actor.get_display_id(tenant, self.actor_id)
         return self.case()
 
@@ -824,7 +1513,7 @@ class ExecutionsSummary(AbacoDAO):
         try:
             actor = actors_store[dbid]
         except KeyError:
-            raise errors.DAOError(
+            raise DAOError(
                 "actor not found: {}'".format(dbid), 404)
         tot = {'api_server': actor['api_server'],
                'actor_id': actor['id'],
@@ -834,23 +1523,24 @@ class ExecutionsSummary(AbacoDAO):
                'total_io': 0,
                'total_runtime': 0,
                'executions': []}
-        try:
-            executions = executions_store[dbid]
-        except KeyError:
-            executions = {}
-        for id, val in executions.items():
-            execution = {'id': id,
+        executions = executions_store.items({'actor_id': dbid})
+        for val in executions:
+            start_time = val.get('start_time')
+            if start_time:
+                start_time = display_time(start_time)
+            finish_time = val.get('finish_time')
+            if finish_time:
+                finish_time = display_time(finish_time)
+            message_received_time = val.get('message_received_time')
+            if message_received_time:
+                message_received_time = display_time(message_received_time)
+            execution = {'id': val.get('id'),
                          'status': val.get('status'),
                          'start_time': val.get('start_time'),
+                         'finish_time': val.get('finish_time'),
                          'message_received_time': val.get('message_received_time')}
-            if val.get('final_state'):
-                execution['finish_time'] = val.get('final_state').get('FinishedAt')
-                # we rely completely on docker for the final_state object which includes the FinishedAt time stamp;
-                # under heavy load, we have seen docker fail to set this time correctly and instead set it to 1/1/0001.
-                # in that case, we should use the total_runtime to back into it.
-                if execution['finish_time'].startswith('0001-01-01'):
-                    finish_time = float(val.get('start_time')) + float(val['runtime'])
-                    execution['finish_time'] = display_time(str(finish_time))
+            if Config.get('web', 'case') == 'camel':
+                execution = dict_to_camel(execution)
             tot['executions'].append(execution)
             tot['total_executions'] += 1
             tot['total_cpu'] += int(val['cpu'])
@@ -871,7 +1561,7 @@ class ExecutionsSummary(AbacoDAO):
             dbid = d['db_id']
         except KeyError:
             logger.error("db_id missing from call to get_derived_value. d: {}".format(d))
-            raise errors.ExecutionException('db_id is required.')
+            raise ExecutionException('db_id is required.')
         tot = self.compute_summary_stats(dbid)
         d.update(tot)
         return tot[name]
@@ -884,13 +1574,6 @@ class ExecutionsSummary(AbacoDAO):
     def display(self):
         self.update(self.get_hypermedia())
         self.pop('db_id')
-        for e in self['executions']:
-            if e.get('start_time'):
-                start_time_str = e.pop('start_time')
-                e['start_time'] = display_time(start_time_str)
-            if e.get('message_received_time'):
-                message_received_time_str = e.pop('message_received_time')
-                e['message_received_time'] = display_time(message_received_time_str)
         return self.case()
 
 
@@ -929,9 +1612,9 @@ class Worker(AbacoDAO):
         # time fields
         if name == 'create_time':
             time_str = get_current_utc_time()
-            self.create_time = time_str
-            return time_str
-
+            self.create_time = time_str 
+            return time_str 
+    
     @classmethod
     def get_uuid(cls):
         """Generate a random uuid."""
@@ -942,18 +1625,27 @@ class Worker(AbacoDAO):
     @classmethod
     def get_workers(cls, actor_id):
         """Retrieve all workers for an actor. Pass db_id as `actor_id` parameter."""
-        try:
-            return workers_store[actor_id]
-        except KeyError:
-            return {}
+        start_timer = timeit.default_timer()
+        result = workers_store.items({'actor_id': actor_id})            
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"get_workers took {ms} to run for actor {actor_id}")
+        return result
 
     @classmethod
     def get_worker(cls, actor_id, worker_id):
         """Retrieve a worker from the workers store. Pass db_id as `actor_id` parameter."""
+        start_timer = timeit.default_timer()
         try:
-            return workers_store[actor_id][worker_id]
+            result = workers_store[f'{actor_id}_{worker_id}']
         except KeyError:
-            raise errors.WorkerException("Worker not found.")
+            raise WorkerException("Worker not found.")
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"get_worker took {ms} to run for actor {actor_id}, worker: {worker_id}")
+        return result
 
     @classmethod
     def delete_worker(cls, actor_id, worker_id):
@@ -963,11 +1655,11 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of delete_worker(). actor_id: {}; worker_id: {}".format(actor_id, worker_id))
         try:
-            wk = workers_store.pop_field(actor_id, worker_id)
-            logger.info("worker deleted. actor: {}. worker: {}.".format(actor_id, worker_id))
+            wk = workers_store.pop_field([f'{actor_id}_{worker_id}'])
+            logger.info(f"worker deleted. actor: {actor_id}. worker: {worker_id}.")
         except KeyError as e:
-            logger.info("KeyError deleting worker. actor: {}. worker: {}. exception: {}".format(actor_id, worker_id, e))
-            raise errors.WorkerException("Worker not found.")
+            logger.info(f"KeyError deleting worker. actor: {actor_id}. worker: {actor_id}. exception: {e}")
+            raise WorkerException("Worker not found.")
 
     @classmethod
     def ensure_one_worker(cls, actor_id, tenant):
@@ -978,14 +1670,20 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of ensure_one_worker.")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant}
-        val = workers_store.add_if_empty(actor_id, worker_id, worker)
-        if val:
-            logger.info("got worker: {} from add_if_empty.".format(val))
-            return worker_id
-        else:
+        worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant, 'actor_id': actor_id}
+        workers_for_actor = len(workers_store.items({'actor_id': actor_id}))
+        if workers_for_actor:
             logger.debug("did not get worker from add_if_empty.")
             return None
+        else:
+            val = workers_store[f'{actor_id}_{worker_id}'] = worker
+            abaco_metrics_store.full_update(
+                {'_id': 'stats'},
+                {'$inc': {'worker_total': 1},
+                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                upsert=True)
+            logger.info(f"got worker: {val} from add_if_empty.")
+            return worker_id
 
     @classmethod
     def request_worker(cls, tenant, actor_id):
@@ -995,16 +1693,26 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of request_worker().")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id}
+        worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id, 'actor_id': actor_id}
         # it's possible the actor_id is not in the workers_store yet (i.e., new actor with no workers)
         # In that case we need to catch a KeyError:
         try:
             # we know this worker_id is new since we just generated it, so we don't need to use the update
             # method.
-            workers_store[actor_id][worker_id] = worker
+            workers_store[f'{actor_id}_{worker_id}'] = worker
+            abaco_metrics_store.full_update(
+                {'_id': 'stats'},
+                {'$inc': {'worker_total': 1},
+                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                upsert=True)
             logger.info("added additional worker with id: {} to workers_store.".format(worker_id))
         except KeyError:
-            workers_store[actor_id] = {worker_id: worker}
+            workers_store.add_if_empty([f'{actor_id}_{worker_id}'], worker)
+            abaco_metrics_store.full_update(
+                {'_id': 'stats'},
+                {'$inc': {'worker_total': 1},
+                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                upsert=True)
             logger.info("added first worker with id: {} to workers_store.".format(worker_id))
         return worker_id
 
@@ -1017,7 +1725,7 @@ class Worker(AbacoDAO):
         returned.
         """
         logger.debug("top of add_worker().")
-        workers_store.update(actor_id, worker['id'], worker)
+        workers_store[f'{actor_id}_{worker["id"]}'] = worker
         logger.info("worker {} added to actor: {}".format(worker, actor_id))
 
     @classmethod
@@ -1025,11 +1733,16 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_execution_time().")
         now = get_current_utc_time()
+        start_timer = timeit.default_timer()
         try:
-            workers_store.update_subfield(actor_id, worker_id, 'last_execution_time', now)
+            workers_store[f'{actor_id}_{worker_id}', 'last_execution_time'] = now
         except KeyError as e:
             logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
             raise e
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"update_worker_execution_time took {ms} to run for actor {actor_id}, worker: {worker_id}")
         logger.info("worker execution time updated. worker_id: {}".format(worker_id))
 
     @classmethod
@@ -1037,19 +1750,66 @@ class Worker(AbacoDAO):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_health_time().")
         now = get_current_utc_time()
-        workers_store.update_subfield(actor_id, worker_id, 'last_health_check_time', now)
+        workers_store[f'{actor_id}_{worker_id}', 'last_health_check_time'] = now
         logger.info("worker last_health_check_time updated. worker_id: {}".format(worker_id))
 
     @classmethod
     def update_worker_status(cls, actor_id, worker_id, status):
         """Pass db_id as `actor_id` parameter."""
         logger.debug("top of update_worker_status().")
+        # The valid state transitions are as follows - set correct ERROR:
+        # REQUESTED -> SPAWNER_SETUP
+        # SPAWNER_SETUP -> PULLING_IMAGE
+        # PULLING_IMAGE -> CREATING_CONTAINER
+        # CREATING_CONTAINER -> UPDATING_STORE
+        # UPDATING_STORE -> READY
+        # READY -> BUSY -> READY ... etc
+        
+        valid_transitions = {
+            SPAWNER_SETUP: [REQUESTED],
+            PULLING_IMAGE: [SPAWNER_SETUP],
+            CREATING_CONTAINER: [PULLING_IMAGE],
+            UPDATING_STORE: [CREATING_CONTAINER],
+            READY: [UPDATING_STORE, BUSY],
+            BUSY: [READY]}
+
+        start_timer = timeit.default_timer()
         try:
-            workers_store.update_subfield(actor_id, worker_id, 'status', status)
+            # workers can transition to SHUTTING_DOWN from any status
+            if status == SHUTTING_DOWN or status == SHUTDOWN_REQUESTED:
+                workers_store[f'{actor_id}_{worker_id}', 'status'] = status
+                
+            elif status == ERROR:
+                res = workers_store.full_update(
+                    {'_id': f'{actor_id}_{worker_id}'},
+                    [{'$set': {'status': {"$concat": [ERROR, " (PREVIOUS ", f"${worker_id}.status", ")"]}}}])
+            # workers can always transition to an ERROR status from any status and from an ERROR status to
+            # any status.
+            else:
+                try:
+                    valid_status_1, valid_status_2 = valid_transitions[status]
+                except ValueError:
+                    valid_status_1 = valid_transitions[status][0]
+                    valid_status_2 = None
+                res = workers_store.full_update(
+                    {'_id': f'{actor_id}_{worker_id}',
+                    '$or': [{'status': valid_status_1},
+                            {'status': valid_status_2}]},
+                    {'$set': {'status': status}})
+                # Checks if nothing was modified (1 if yes, 0 if no)
+                if not res.raw_result['nModified']:
+                    prev_status = workers_store[f'{actor_id}_{worker_id}', 'status']
+                    if not (prev_status == "READY" and status == "READY"):
+                        raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:
-            logger.error("Got exception trying to update worker {} subfield status to {}; "
-                         "e: {}; type(e)".format(worker_id, status, e, type(e)))
-        logger.info("worker status updated to: {}. worker_id: {}".format(status, worker_id))
+            logger.warning("Got exception trying to update worker {} subfield status to {}; "
+                         "e: {}; type(e): {}".format(worker_id, status, e, type(e)))
+
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"update_worker_status took {ms} to run for actor {actor_id}, worker: {worker_id}")
+        logger.info(f"worker status updated to: {status}. worker_id: {worker_id}")
 
     def get_uuid_code(self):
         """ Return the Agave code for this object.
@@ -1125,16 +1885,14 @@ def get_permissions(actor_id):
     try:
         return permissions_store[actor_id]
     except KeyError:
-        raise errors.PermissionsException("Actor {} does not exist".format(actor_id))
+        raise PermissionsException("Actor {} does not exist".format(actor_id))
 
 def set_permission(user, actor_id, level):
     """Set the permission for a user and level to an actor."""
     logger.debug("top of set_permission().")
     if not isinstance(level, PermissionLevel):
-        raise errors.DAOError("level must be a PermissionLevel object.")
-    try:
-        permissions_store.update(actor_id, user, level.name)
-    except KeyError:
-        # if actor has no permissions, a KeyError will be thrown
-        permissions_store[actor_id] = {user: level.name}
+        raise DAOError("level must be a PermissionLevel object.")
+    new = permissions_store.add_if_empty([actor_id, user], str(level))
+    if not new:
+        permissions_store[actor_id, user] = str(level)
     logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))

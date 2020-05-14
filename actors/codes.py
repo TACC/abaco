@@ -3,10 +3,20 @@ from config import Config
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
+SPAWNER_SETUP = 'SPAWNER SETUP'
+PULLING_IMAGE = 'PULLING IMAGE'
+CREATING_CONTAINER = 'CREATING CONTAINER'
+UPDATING_STORE = 'UPDATING STORE'
+#TODO: error include prior state ie ERROR previous STATE
+#TODO: comment about order of states
 REQUESTED = 'REQUESTED'
+PROCESSING = 'PROCESSING'
 COMPLETE = 'COMPLETE'
 SUBMITTED = 'SUBMITTED'
+RUNNING = 'RUNNING'
 READY = 'READY'
+SHUTDOWN_REQUESTED = 'SHUTDOWN_REQUESTED'
+SHUTTING_DOWN = 'SHUTTING_DOWN'
 ERROR = 'ERROR'
 BUSY = 'BUSY'
 
@@ -56,6 +66,8 @@ UPDATE = PermissionLevel('UPDATE')
 
 
 PERMISSION_LEVELS = (NONE.name, READ.name, EXECUTE.name, UPDATE.name)
+
+ALIAS_NONCE_PERMISSION_LEVELS = (NONE.name, READ.name, EXECUTE.name)
 
 # role set by agaveflask in case the access_control_type is none
 ALL_ROLE = 'ALL'

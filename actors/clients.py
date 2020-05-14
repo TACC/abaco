@@ -8,8 +8,8 @@ import rabbitpy
 
 from agaveflask.auth import get_api_server
 
-from aga import Agave
-from auth import get_tenants, get_tenant_verify
+from aga import Agave, AgaveClientFailedDoNotRetry, AgaveClientFailedCanRetry
+from auth import get_tenants, get_tenant_verify, get_tenant_userstore_prefix
 from channels import ClientsChannel
 from models import Actor, Client, Worker
 from errors import ClientException, WorkerException
@@ -75,7 +75,7 @@ class ClientGenerator(object):
             message, msg_obj = self.ch.get_one()
             # we directly ack messages from the clients channel because caller expects direct reply_to
             msg_obj.ack()
-            logger.info("cleintg processing message: {}".format(message))
+            logger.info("clientg processing message: {}".format(message))
             anon_ch = message['reply_to']
             cmd = message['value']
             if cmd.get('command') == 'new':
@@ -132,13 +132,20 @@ class ClientGenerator(object):
         """Generate an Agave OAuth client whose name is equal to the worker_id that will be using said client."""
         logger.debug("top of generate_client(); cmd: {}; owner: {}".format(cmd, owner))
         api_server, ag = self.get_agave(cmd['tenant'], actor_owner=owner)
+        worker_id = cmd['worker_id']
         logger.debug("Got agave object; now generating OAuth client.")
         try:
-            ag.clients.create(body={'clientName': cmd['worker_id']})
+            ag.clients.create(body={'clientName': worker_id})
         except Exception as e:
-            msg = "clientg got exception trying to create OAuth client; exception: {}".format(e)
-            logger.error(e)
-            raise ClientException(msg)
+            msg = "clientg got exception trying to create OAuth client for worker {}; " \
+                  "exception: {}; type(e): {}".format(worker_id, e, type(e))
+            logger.error(msg)
+            # set the exception message depending on whether retry is possible:
+            exception_msg = f"AgaveClientFailedCanRetry error for worker {worker_id}"
+            if isinstance(e, AgaveClientFailedDoNotRetry):
+                exception_msg = f"AgaveClientFailedDoNotRetry error for worker {worker_id}"
+                logger.info(exception_msg)
+            raise ClientException(exception_msg)
         # note - the client generates tokens representing the user who registered the actor
         logger.info("ag.clients.create successful.")
         return api_server,\
@@ -192,7 +199,14 @@ class ClientGenerator(object):
             logger.error(m)
             return False, m, None
         logger.debug("new params were valid.")
-        return valid, msg, actor.owner
+        owner_prefix = get_tenant_userstore_prefix(actor.tenant)
+        logger.debug(f"using owner prefix: {owner_prefix} for tenant: {actor.tenant}")
+        if owner_prefix:
+            owner = f"{owner_prefix}/{actor.owner}"
+        else:
+            owner = actor.owner
+        logger.debug(f"using owner: {owner}")
+        return valid, msg, owner
 
     def check_del_params(self, cmd):
         """Additional checks for delete client requests."""

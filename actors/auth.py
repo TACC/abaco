@@ -39,10 +39,6 @@ TOKEN_RE = re.compile('Bearer (.+)')
 
 WORLD_USER = 'ABACO_WORLD'
 
-def get_pub_key():
-    pub_key = Config.get('web', 'apim_public_key')
-    return RSA.importKey(base64.b64decode(pub_key))
-
 
 def authn_and_authz():
     """All-in-one convenience function for implementing the basic abaco authentication
@@ -84,6 +80,19 @@ def check_nonce():
     any privileged action cannot be taken via a nonce. 
     """
     logger.debug("top of check_nonce")
+    # first check whether the request is even valid -
+    if hasattr(request, 'url_rule'):
+        logger.debug("request.url_rule: {}".format(request.url_rule))
+        if hasattr(request.url_rule, 'rule'):
+            logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
+        else:
+            logger.info("url_rule has no rule.")
+            raise ResourceError(
+                "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
+    else:
+        logger.info("Request has no url_rule")
+        raise ResourceError(
+            "Invalid request: the API endpoint does not exist or the provided HTTP method is not allowed.", 405)
     try:
         nonce_id = request.args['x-nonce']
     except KeyError:
@@ -92,15 +101,25 @@ def check_nonce():
     # the nonce encodes the tenant in its id:
     g.tenant = Nonce.get_tenant_from_nonce_id(nonce_id)
     g.api_server = get_api_server(g.tenant)
-    logger.debug("tenant associated with nonce: {}".format(g.tenant))
+    logger.debug("tenant associated with nonce: {}; api_server assoicated with nonce: {}".format(g.tenant, g.api_server))
     # get the actor_id base on the request path
-    actor_id = get_db_id()
-    logger.debug("db_id: {}".format(actor_id))
+    actor_id, actor_identifier = get_db_id()
+    logger.debug("db_id: {}; actor_identifier: {}".format(actor_id, actor_identifier))
     level = required_level(request)
-    Nonce.check_and_redeem_nonce(actor_id, nonce_id, level)
+
+    # if the actor_identifier is an alias, then the nonce must be attached to that, so we must pass that in the
+    # nonce check:
+    if is_hashid(actor_identifier):
+        Nonce.check_and_redeem_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id, level=level)
+    else:
+        alias_id = Alias.generate_alias_id(tenant=g.tenant, alias=actor_identifier)
+        Nonce.check_and_redeem_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id, level=level)
     # if we were able to redeem the nonce, update auth context with the actor owner data:
     logger.debug("nonce valid and redeemed.")
-    nonce = Nonce.get_nonce(actor_id, nonce_id)
+    if is_hashid(actor_identifier):
+        nonce = Nonce.get_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id)
+    else:
+        nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
     g.user = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = nonce.roles
@@ -131,13 +150,15 @@ def authorization():
     if request.url_rule.rule == '/actors' \
         or request.url_rule.rule == '/actors/' \
         or '/actors/admin' in request.url_rule.rule \
-        or '/actors/aliases' in request.url_rule.rule:
+        or '/actors/aliases' in request.url_rule.rule \
+        or '/actors/utilization' in request.url_rule.rule \
+        or '/actors/search/' in request.url_rule.rule:
         db_id = None
         logger.debug("setting db_id to None; rule: {}".format(request.url_rule.rule))
     else:
         # every other route should have an actor identifier
         logger.debug("fetching db_id; rule: {}".format(request.url_rule.rule))
-        db_id = get_db_id()
+        db_id, _ = get_db_id()
     g.db_id = db_id
     logger.debug("db_id: {}".format(db_id))
 
@@ -147,7 +168,7 @@ def authorization():
         logger.info("Allowing request because of OPTIONS method.")
         return True
 
-    # the 'ALL' role is a role set by agaveflask in case the access_control_type is none
+    # the 'ALL' role is a role set by agaveflask in case the access_control_type is None
     if codes.ALL_ROLE in g.roles:
         g.admin = True
         logger.info("Allowing request because of ALL role.")
@@ -178,6 +199,13 @@ def authorization():
         else:
             raise PermissionsException("Abaco Admin role required.")
 
+    # the utilization endpoint is available to every authenticated user
+    if '/actors/utilization' == request.url_rule.rule or '/actors/utilization/' == request.url_rule.rule:
+        return True
+
+    if '/actors/search/<string:search_type>' == request.url_rule.rule:
+        return True
+
     # there are special rules on the actors root collection:
     if '/actors' == request.url_rule.rule or '/actors/' == request.url_rule.rule:
         logger.debug("Checking permissions on root collection.")
@@ -196,12 +224,32 @@ def authorization():
     if '/actors/aliases' in request.url_rule.rule:
         alias_id = get_alias_id()
         noun = 'alias'
-        if request.method == 'GET':
-            # GET requests require READ access
-            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
-            # all other requests require UPDATE access
-        elif request.method in ['DELETE', 'POST', 'PUT']:
-            has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
+        # we need to compute the db_id since it is not computed in the general case for
+        # alias endpoints
+        db_id, _ = get_db_id()
+        # reading/creating/updating nonces for an alias requires permissions for both the
+        # alias itself and the underlying actor
+        if 'nonce' in request.url_rule.rule:
+            noun = 'alias and actor'
+            # logger.debug("checking user {} has permissions for "
+            #              "alias: {} and actor: {}".format(g.user, alias_id, db_id))
+            if request.method == 'GET':
+                # GET requests require READ access
+
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.READ)
+            elif request.method in ['DELETE', 'POST', 'PUT']:
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
+                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
+
+        # otherwise, this is a request to manage the alias itself; only requires permissions on the alias
+        else:
+            if request.method == 'GET':
+                # GET requests require READ access
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+                # all other requests require UPDATE access
+            elif request.method in ['DELETE', 'POST', 'PUT']:
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
     else:
         # all other checks are based on actor-id:
         noun = 'actor'
@@ -238,7 +286,7 @@ def check_privileged():
     data = request.get_json()
     if not data:
         data = request.form
-    # various APIs (e.g., the state api) allow an arbitary JSON serializable objects which won't have a get method:
+    # various APIs (e.g., the state api) allow an arbitrary JSON serializable objects which won't have a get method:
     if not hasattr(data, 'get'):
         return True
     if not codes.PRIVILEGED_ROLE in g.roles:
@@ -259,8 +307,6 @@ def check_privileged():
         if data.get('queue'):
             logger.debug("User is trying to set queue")
             raise PermissionsException("Not authorized -- only admins and privileged users can set queue.")
-
-
     else:
         logger.debug("user allowed to set privileged.")
 
@@ -279,12 +325,16 @@ def check_privileged():
         logger.debug("not trying to use privileged options.")
         return True
 
-def check_permissions(user, identifier, level):
+def check_permissions(user, identifier, level, roles=None):
     """Check the permissions store for user and level. Here, `identifier` is a unique id in the
     permissions_store; e.g., actor db_id or alias_id.
     """
     logger.debug("Checking user: {} permissions for identifier: {}".format(user, identifier))
-    # get all permissions for this actor
+    # first, if roles were passed, check for admin role -
+    if roles:
+        if codes.ADMIN_ROLE in roles:
+            return True
+    # get all permissions for this actor -
     permissions = get_permissions(identifier)
     for p_user, p_name in permissions.items():
         # if the actor has been shared with the WORLD_USER anyone can use it
@@ -307,19 +357,31 @@ def check_permissions(user, identifier, level):
 
 
 def get_db_id():
-    """Get the db_id from the request path."""
-    # logger.debug("top of get_db_id. request.path: {}".format(request.path))
+    """Get the db_id and actor_identifier from the request path."""
+    # the location of the actor identifier is different for aliases vs actor_id's.
+    # for actors, it is in index 2:
+    #     /actors/<actor_id>
+    # for aliases, it is in index 3:
+    #     /actors/aliases/<alias_id>
+    idx = 2
+    if 'aliases' in request.path:
+        idx = 3
     path_split = request.path.split("/")
     if len(path_split) < 3:
         logger.error("Unrecognized request -- could not find the actor id. path_split: {}".format(path_split))
         raise PermissionsException("Not authorized.")
-    # logger.debug("path_split: {}".format(path_split))
-    actor_identifier = path_split[2]
-    # logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    logger.debug("path_split: {}".format(path_split))
+    try:
+        actor_identifier = path_split[idx]
+    except IndexError:
+        raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
+    logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    if actor_identifier == 'search':
+        raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
         actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
     except KeyError:
-        logger.info("Unrecoginzed actor_identifier: {}. Actor not found".format(actor_identifier))
+        logger.info("Unrecognized actor_identifier: {}. Actor not found".format(actor_identifier))
         raise ResourceError("Actor with identifier '{}' not found".format(actor_identifier), 404)
     except Exception as e:
         msg = "Unrecognized exception trying to resolve actor identifier: {}; " \
@@ -327,7 +389,7 @@ def get_db_id():
         logger.error(msg)
         raise ResourceError(msg)
     logger.debug("actor_id: {}".format(actor_id))
-    return Actor.get_dbid(g.tenant, actor_id)
+    return Actor.get_dbid(g.tenant, actor_id), actor_identifier
 
 def get_alias_id():
     """Get the alias from the request path."""
@@ -348,16 +410,45 @@ def get_tenant_verify(tenant):
         return False
     return True
 
+def get_tenant_userstore_prefix(tenant):
+    """
+    Returnst he WSO2 userstore prefix associated with a tenant; this prefix is needed to generating tokens using
+    the impersonation grant
+    :param tenant:
+    :return:
+    """
+    if tenant == 'SD2E':
+        return 'SD2E'
+    if tenant == 'TACC':
+        return 'TACC'
+    if tenant == 'DESIGNSAFE':
+        return 'TACC'
+    if tenant == 'IPLANTC-ORG':
+        return 'IPLANTC'
+    if tenant == 'VDJ':
+        return 'VDJ'
+    if tenant == '3DEM':
+        return '3DEM'
+    if tenant == 'IREC':
+        return 'IREC'
+    if tenant == 'SGCI':
+        return 'SGCI-PROD'
+    if tenant == 'DEV' or tenant == 'DEV-DEVELOP' or tenant == 'DEV-STAGING':
+        return 'agavedev'
+    return 'TACC'
+
 def get_tenants():
     """Return a list of tenants"""
     return ['3DEM',
             'AGAVE-PROD',
             'ARAPORT-ORG',
             'DESIGNSAFE',
+            'DEV',
             'DEV-DEVELOP',
             'DEV-STAGING',
             'IPLANTC-ORG',
             'IREC',
+            'PORTALS',
             'SD2E',
             'SGCI',
             'TACC-PROD',
@@ -473,6 +564,24 @@ def get_tas_data(username, tenant):
                                                                                   tas_gid,
                                                                                   tas_homedir))
     return tas_uid, tas_gid, tas_homedir
+
+def get_token_default():
+    """
+    Returns the default token attribute based on the tenant and instance configs.
+    """
+    token_default = False
+    try:
+        token_default = Config.get('web', f'{g.tenant}_default_token')
+        logger.debug(f"got tenant token_default: {token_default} for {g.tenant}")
+    except:
+        # if there isn't a tenant config, check for a global config:
+        try:
+            token_default = Config.get('web', 'default_token')
+            logger.debug(f"got global token default: {token_default}")
+        except:
+            logger.debug("did not find any token default config. Using False")
+            token_default = False
+    return token_default
 
 def get_uid_gid_homedir(actor, user, tenant):
     """

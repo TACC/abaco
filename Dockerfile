@@ -13,6 +13,9 @@ RUN pip3 install -r /requirements.txt
 
 RUN touch /var/log/abaco.log
 
+# set default threads for gunicorn
+ENV threads=3
+
 # todo -- add/remove to toggle between local channelpy and github instance
 #ADD channelpy /channelpy
 #RUN pip3 install /channelpy

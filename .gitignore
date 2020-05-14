@@ -66,3 +66,5 @@ passwords.yml
 *.key
 *.log
 abaco.log
+tests/.DS_Store
+.DS_Store

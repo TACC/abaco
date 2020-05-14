@@ -2,22 +2,10 @@ from functools import partial
 import os
 
 import configparser
-from pymongo import errors
+from pymongo import errors, TEXT
 
-from store import RedisStore, MongoStore
+from store import MongoStore
 from config import Config
-
-
-# redis is used for actor and worker run time state for its speed and transactional semantics.
-redis_config_store = partial(
-    RedisStore, Config.get('store', 'redis_host'), Config.getint('store', 'redis_port'))
-
-actors_store = redis_config_store(db='1')
-workers_store = redis_config_store(db='2')
-nonce_store = redis_config_store(db='3')
-alias_store = redis_config_store(db='4')
-pregen_clients = redis_config_store(db='5')
-
 
 # Mongo is used for accounting, permissions and logging data for its scalability.
 mongo_user = None
@@ -54,6 +42,19 @@ try:
             pass
 except (ValueError, configparser.NoOptionError):
     pass
+
 permissions_store = mongo_config_store(db='2')
 executions_store = mongo_config_store(db='3')
 clients_store = mongo_config_store(db='4')
+actors_store = mongo_config_store(db='5')
+workers_store = mongo_config_store(db='6')
+nonce_store = mongo_config_store(db='7')
+alias_store = mongo_config_store(db='8')
+pregen_clients = mongo_config_store(db='9')
+abaco_metrics_store = mongo_config_store(db='10')
+
+# Indexing
+logs_store.create_index([('$**', TEXT)])
+executions_store.create_index([('$**', TEXT)])
+actors_store.create_index([('$**', TEXT)])
+workers_store.create_index([('$**', TEXT)])
