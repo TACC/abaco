@@ -1990,8 +1990,10 @@ def test_search_like_nlike(headers):
     
     url = '{}/actors/search/actors?image.nlike=py3_func'.format(base_url)
     rsp = requests.get(url, headers=headers)
+    print(rsp.content)
+    print(rsp)
     result = basic_response_checks(rsp)
-    assert len(result['search']) >= 4
+    assert len(result['search']) == 7
 
 def test_search_skip_limit(headers):
     url = '{}/actors/search/actors?skip=4&limit=23'.format(base_url)
