@@ -73,12 +73,12 @@ def store_check():
     """
     Checks that all section options are set correctly.
     All section options: 'mongo_host', 'mongo_port', 'mongo_user',
-    'mongo_password', 'redis_hosts', 'redis_port', 'redis_password'.
+    'mongo_password'.
     """
     section = 'store'
 
     # Raises error for required options
-    req_options = ['mongo_host', 'mongo_port', 'redis_host', 'redis_port']
+    req_options = ['mongo_host', 'mongo_port']
     for option in req_options:
         if not valexists(section, option):
             raise ValueError('{}:{} should be set.'.format(section, option))
