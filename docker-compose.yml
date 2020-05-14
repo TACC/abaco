@@ -8,7 +8,7 @@ networks:
 services:
 
     mongo:
-        image: mongo
+        image: mongo:4.2.6
         ports:
             - "27017:27017"
         #    uncomment to add auth
