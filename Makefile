@@ -91,8 +91,7 @@ test-snake: build-testsuite
 	@echo "\n\nSnake Case Tests.\n"
 	@echo "Converting config file to snake case and launching Abaco Stack.\n"
 	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
-	@echo "Converting back to camel"
-	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
+	@echo "Converting back to camel"; sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 
 
 # Pulls all Docker images not yet available but needed to run Abaco suite
