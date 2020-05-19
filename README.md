@@ -3,7 +3,9 @@ Abaco
 
 Actor Based Co(mputing)ntainers: Functions-as-a-service using the Actor model.
 
+[![DOCS](https://readthedocs.org/projects/abaco/badge/)](https://tacc-cloud.readthedocs.io/projects/abaco/en/latest/index.html)
 [![DOI](https://zenodo.org/badge/39394579.svg)](https://zenodo.org/badge/latestdoi/39394579)
+
 
 Intro
 -----
