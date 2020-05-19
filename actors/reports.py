@@ -69,7 +69,7 @@ def get_actors_executions_for_report():
 
     result['summary']['total_actors_all'] += abaco_metrics_store['stats', 'actor_total']
     result['summary']['total_actors_existing'] += len(actors_store)
-    return 
+    return result
     
 if __name__ == "__main__":
     print(get_actors_executions_for_report())
