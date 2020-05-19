@@ -39,14 +39,19 @@ paths:
       description: List summary of all actors owned by user
       operationId: listActors
       parameters:
+      - name: search
+        in: query
+        description: The query to perform when using DB search.
+        schema:
+          type: string
       - name: limit
         in: query
-        description: limit the number of actors returned.
+        description: limit the number of search records returned.
         schema:
           type: integer
-      - name: offset
+      - name: skip
         in: query
-        description: index (offset) to start list.
+        description: index (skip) to start list.
         schema:
           type: integer
       responses:
@@ -292,6 +297,21 @@ paths:
         required: true
         schema:
           type: string
+      - name: search
+        in: query
+        description: The query to perform when using DB search.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: limit the number of search records returned.
+        schema:
+          type: integer
+      - name: skip
+        in: query
+        description: index (skip) to start list.
+        schema:
+          type: integer
       responses:
         200:
           description: OK
@@ -549,6 +569,21 @@ paths:
         required: true
         schema:
           type: string
+      - name: search
+        in: query
+        description: The query to perform when using DB search.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: limit the number of search records returned.
+        schema:
+          type: integer
+      - name: skip
+        in: query
+        description: index (skip) to start list.
+        schema:
+          type: integer
       responses:
         200:
           description: OK
@@ -637,6 +672,21 @@ paths:
         required: true
         schema:
           type: string
+      - name: search
+        in: query
+        description: The query to perform when using DB search.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: limit the number of search records returned.
+        schema:
+          type: integer
+      - name: skip
+        in: query
+        description: index (skip) to start list.
+        schema:
+          type: integer
       responses:
         200:
           description: OK
@@ -834,6 +884,49 @@ paths:
                     type: string
                     nullable: true
                     enum: [null]
+
+
+  /actors/search/{search_type}:
+    get:
+      tags:
+      - Actors
+      - Executions
+      - Workers
+      - Logs
+      summary: Search a specified Abaco database
+      description: Return db records that match query
+      operationId: searchDatabase
+      parameters:
+      - name: search_type
+        in: path
+        description: The Abaco database to search
+        required: true
+        schema:
+          type: string
+          enum: [actors, workers, logs, executions]
+      - name: search
+        in: query
+        description: The query to perform when using DB search.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: limit the number of search records returned.
+        schema:
+          type: integer
+      - name: skip
+        in: query
+        description: index (skip) to start list.
+        schema:
+          type: integer
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
 
 
 components:

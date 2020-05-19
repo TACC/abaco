@@ -39,10 +39,6 @@ TOKEN_RE = re.compile('Bearer (.+)')
 
 WORLD_USER = 'ABACO_WORLD'
 
-def get_pub_key():
-    pub_key = Config.get('web', 'apim_public_key')
-    return RSA.importKey(base64.b64decode(pub_key))
-
 
 def authn_and_authz():
     """All-in-one convenience function for implementing the basic abaco authentication
@@ -155,7 +151,8 @@ def authorization():
         or request.url_rule.rule == '/actors/' \
         or '/actors/admin' in request.url_rule.rule \
         or '/actors/aliases' in request.url_rule.rule \
-        or '/actors/utilization' in request.url_rule.rule:
+        or '/actors/utilization' in request.url_rule.rule \
+        or '/actors/search/' in request.url_rule.rule:
         db_id = None
         logger.debug("setting db_id to None; rule: {}".format(request.url_rule.rule))
     else:
@@ -204,6 +201,9 @@ def authorization():
 
     # the utilization endpoint is available to every authenticated user
     if '/actors/utilization' == request.url_rule.rule or '/actors/utilization/' == request.url_rule.rule:
+        return True
+
+    if '/actors/search/<string:search_type>' == request.url_rule.rule:
         return True
 
     # there are special rules on the actors root collection:
@@ -376,10 +376,12 @@ def get_db_id():
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
     logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    if actor_identifier == 'search':
+        raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
         actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
     except KeyError:
-        logger.info("Unrecoginzed actor_identifier: {}. Actor not found".format(actor_identifier))
+        logger.info("Unrecognized actor_identifier: {}. Actor not found".format(actor_identifier))
         raise ResourceError("Actor with identifier '{}' not found".format(actor_identifier), 404)
     except Exception as e:
         msg = "Unrecognized exception trying to resolve actor identifier: {}; " \
@@ -441,6 +443,7 @@ def get_tenants():
             'AGAVE-PROD',
             'ARAPORT-ORG',
             'DESIGNSAFE',
+            'DEV',
             'DEV-DEVELOP',
             'DEV-STAGING',
             'IPLANTC-ORG',

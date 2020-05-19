@@ -8,7 +8,7 @@ networks:
 services:
 
     mongo:
-        image: mongo
+        image: mongo:4.2.6
         ports:
             - "27017:27017"
         #    uncomment to add auth
@@ -22,7 +22,7 @@ services:
             hard: 65535
 
     rabbit:
-        image: rabbitmq:3.5.3-management
+        image: rabbitmq:3.6.12-management
         ports:
             - "5672:5672"
             - "15672:15672"
@@ -38,29 +38,9 @@ services:
             - abaco
         depends_on:
             - mongo
-            - redis
-
-    redis:
-        image: redis
-        ports:
-            - "6379:6379"
-        networks:
-            - abaco
-    # -- uncomment to add auth
-    #    volumes:
-    #        - ./redis.conf:/etc/redis.conf
-    #    command: redis-server /etc/redis.conf --appendonly yes
-    # --
-        sysctls:
-          net.core.somaxconn: '511'
-        ulimits:
-          nproc: 65535
-          nofile:
-            soft: 65535
-            hard: 65535
 
     nginx:
-        image: abaco/nginx$TAG
+        image: abaco/nginx:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
 #            - ./images/nginx/nginx.conf:/etc/nginx/nginx.conf
@@ -70,12 +50,11 @@ services:
         restart: always
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
     reg:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         ports:
             - "5000:5000"
         volumes:
@@ -85,17 +64,15 @@ services:
             api: reg
             server: gunicorn
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
     mes:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -106,17 +83,15 @@ services:
             api: mes
             threads: 12
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
     admin:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -126,17 +101,15 @@ services:
             server: gunicorn
             api: admin
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
     spawner:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: "python3 -u /actors/spawner.py"
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -146,18 +119,16 @@ services:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
             queue: default
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
     clientg:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: "python3 -u /actors/clients.py"
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -168,7 +139,6 @@ services:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -179,12 +149,11 @@ services:
             _abaco_DEV-STAGING_password: testotheruser
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
     health:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: /actors/health_check.sh
         volumes:
             - /:/host
@@ -194,7 +163,6 @@ services:
         environment:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
             # add the following pair of credentials for each tenant wanting client generation
@@ -204,12 +172,11 @@ services:
             _abaco_DEV-STAGING_password: testotheruser
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
     events:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: "python3 -u /actors/events.py"
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -220,7 +187,6 @@ services:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -231,14 +197,13 @@ services:
             _abaco_DEV-STAGING_password: testotheruser
         depends_on:
             - mongo
-            - redis
         networks:
             - abaco
 
 
     prometheus:
         # build: ./prometheus
-        image: abaco/prom$TAG
+        image: abaco/prom:$TAG
         volumes:
             - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
             - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
@@ -251,7 +216,6 @@ services:
             - abaco
         depends_on:
             - mongo
-            - redis
 
     grafana:
         image: grafana/grafana
@@ -259,7 +223,6 @@ services:
         depends_on:
             - prometheus
             - mongo
-            - redis
         ports:
             - 3000:3000
         volumes:
@@ -273,7 +236,7 @@ services:
 
 
     metrics:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         networks:
             - abaco
         volumes:
@@ -285,12 +248,10 @@ services:
             server: dev
             api: metrics
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
-            - redis
             - prometheus
 
 volumes:

@@ -4,6 +4,7 @@ import os
 import socket
 import time
 import timeit
+import datetime
 
 import docker
 from requests.packages.urllib3.exceptions import ReadTimeoutError
@@ -127,8 +128,8 @@ def check_worker_containers_against_store():
     for idx, w in enumerate(worker_containers):
         try:
             # try to get the worker from the store:
-            store_key = '{}_{}'.format(w['tenant_id'], w['actor_id'])
-            worker = workers_store[store_key][w['worker_id']]
+            store_key = '{}_{}_{}'.format(w['tenant_id'], w['actor_id'], w['worker_id'])
+            worker = workers_store[store_key]
         except KeyError:
             worker = {}
         status = worker.get('status')
@@ -399,7 +400,8 @@ def execute_actor(actor_id,
                   fifo_host_path=None,
                   socket_host_path=None,
                   mem_limit=None,
-                  max_cpus=None):
+                  max_cpus=None,
+                  tenant=None):
     """
     Creates and runs an actor container and supervises the execution, collecting statistics about resource consumption
     from the Docker daemon.
@@ -665,7 +667,7 @@ def execute_actor(actor_id,
         # grab the logs every 5th iteration --
         if loop_idx % 5 == 0:
             logs = cli.logs(container.get('Id'))
-            Execution.set_logs(execution_id, logs)
+            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id)
             logs = None
 
         # checking the container status to see if it is still running ----
@@ -740,15 +742,26 @@ def execute_actor(actor_id,
             except KeyError as e:
                 logger.error("Could not determine ExitCode for container {}. "
                              "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
+                exit_code = 'undetermined'
+            # Converting ISO8601 times to unix timestamps
+            try:
+                # Slicing to 23 to account for accuracy up to milliseconds and replace to get rid of ISO 8601 'Z'
+                startedat_ISO = container_state['StartedAt'].replace('Z', '')[:23]
+                finishedat_ISO = container_state['FinishedAt'].replace('Z', '')[:23]
+
+                container_state['StartedAt'] = datetime.datetime.strptime(startedat_ISO, "%Y-%m-%dT%H:%M:%S.%f")
+                container_state['FinishedAt'] = datetime.datetime.strptime(finishedat_ISO, "%Y-%m-%dT%H:%M:%S.%f")
+            except Exception as e:
+                logger.error(f"Datetime conversion failed for container {container.get('Id')}. ",
+                             f"Exception: {e}; (worker {worker_id};{execution_id})")
+                container_state = {'unavailable': True}
         except KeyError as e:
-            logger.error("Could not determine final state for container {}. Exception: {}; "
-                         "(worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
+            logger.error(f"Could not determine final state for container {container.get('Id')}. ",
+                         f"Exception: {e}; (worker {worker_id};{execution_id})")
             container_state = {'unavailable': True}
     except docker.errors.APIError as e:
-        logger.error("Could not inspect container {}. "
-                     "Exception: {}; (worker {};{})".format(container.get('Id'), e, worker_id, execution_id))
-        container_state = {'unavailable': True}
-
+        logger.error(f"Could not inspect container {container.get('Id')}. ",
+                     f"Exception: {e}; (worker {worker_id};{execution_id})")
     logger.debug("right after getting container_info: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                  worker_id, execution_id))
     # get logs from container

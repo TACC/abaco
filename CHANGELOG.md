@@ -1,6 +1,45 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
+## 1.6.0 - 2020-04-30
+### Added
+- Added the `GET /actors/search/{search_type}?{search_terms}` endpoint for mongo database full-text search and matching
+- Added abaco_metrics_store to store long term information about actors executions
+- Added tests for search feature
+- Added developer docs for the new search endpoint and Mongo conversion.
+- Added ReadTheDoc docs for the new search endpoint and it's abilities.
+- Added search endpoint to Mongo specs.
+- Added testing (not complete) to the makefile
+- Added maxfails for pytest in entry.sh for testing. Configurable through Makefile and allows pytest end after
+set amount of fails for debugging.
+- Added tenant and actor_id fields to logs for better compatibility within search.
+- Added `total_actors_all_with_executions` and `total_actors_existing_with_executions` to reports.py to account
+for the fact that actors without executions are not account for in the executions_store after the flattening.
+
+### Changed
+- Converted Redis databases to Mongo for database simplification. This includes the actors_store,
+the workers_store, the alias_store, the nonce_store, and pregen_clients.
+- Changed all time instances in Mongo from unix strings to datetime objects.
+- Modified the Mongo store class to allow for missing features from Redis and allow for recursive use of any function
+that gets, sets, or deletes. Additionally added full_update, a function that allows for full use of the Mongo
+update_one function. Additionally added aggregation and indexing functions to use pymongo native functions.
+- Modified any functions that needed updating to new Mongo database structure.
+- Updated pymongo and other requirements for additional features.
+- Flattened the workers and execution stores in order for better search results. Also allows for
+uninterrupted execution documents without a actor size limit.
+- Modified the atomicity of some logic in abaco, namely setting worker status and setting nonce use. Rewritten
+to allow for atomic queries/sets without needing to implement transactions like when using Redis.
+- Modified the cleaning functions of the makefile.
+- Fixed abaco_core_test.py by deleting previously undeleted testing tenant.
+- Modified reports.py to work with new mongo conversion.
+
+### Removed
+- Eliminated any Redis calls, the Redis stores, Redis objects, any reference to Redis, Redis images, etc.
+- Batching executions. Previously meant to fix execution document from going over Mongo document size limits. No
+longer needed with the flattening of the executions_store.
+
+
 ## 1.5.4 - 2020-04-20
 ### Added
 - No change.

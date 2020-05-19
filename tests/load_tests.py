@@ -148,14 +148,18 @@ def send_messages_threaded(actor_ids, num_messages_per_actor):
     try:
         POOL_SIZE = int(os.environ['POOL_SIZE'])
     except:
-        POOL_SIZE = 16
+        POOL_SIZE = 8
     print(f"using pool of size: {POOL_SIZE}")
+    multiprocessing.freeze_support()
     pool = multiprocessing.Pool(processes=POOL_SIZE)
     total_messages = len(actor_ids) * num_messages_per_actor
     messages_per_process = int(total_messages / POOL_SIZE)
     # this is a list with a URL for every message we want to send
     urls = [f'{base}/actors/{aid}/messages' for aid in actor_ids] * num_messages_per_actor
+    start = time.time()
+    print(f'Sending {num_messages_per_actor} messages now.')
     results = pool.map(_thread_send_actor_message, urls)
+    print(f'Messages sent in {start - time.time()}s.')
     execution_ids = results
     # for r in results:
         # each result is a list of execution id's, so we extend by the result, r

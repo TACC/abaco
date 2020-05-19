@@ -4,7 +4,7 @@ version: "2"
 
 services:
     nginx:
-        image: abaco/nginx$TAG
+        image: abaco/nginx:$TAG
 #        image: nginx
         volumes:
             - ./local-dev.conf:/etc/service.conf
@@ -15,7 +15,7 @@ services:
         restart: always
 
     reg:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         ports:
             - "5000:5000"
         volumes:
@@ -25,12 +25,11 @@ services:
             api: reg
             server: gunicorn
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
     mes:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -40,12 +39,11 @@ services:
             server: gunicorn
             api: mes
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
     admin:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -55,12 +53,11 @@ services:
             server: gunicorn
             api: admin
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
     spawner:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: "python3 -u /actors/spawner.py"
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -70,13 +67,12 @@ services:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
             queue: default
 
     clientg:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: "python3 -u /actors/clients.py"
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -86,7 +82,6 @@ services:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
@@ -97,7 +92,7 @@ services:
     #        _abaco_DEV-STAGING_password: abaco1
 
     metrics:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/var/log/service.log
@@ -107,12 +102,11 @@ services:
             server: dev
             api: metrics
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
 
     health:
-        image: abaco/core$TAG
+        image: abaco/core:$TAG
         command: /actors/health_check.sh
         volumes:
             - /:/host
@@ -122,6 +116,5 @@ services:
         environment:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             mongo_password:
-            redis_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:

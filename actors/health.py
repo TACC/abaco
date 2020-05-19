@@ -12,6 +12,7 @@
 import os
 import shutil
 import time
+import datetime
 
 from agaveflask.auth import get_api_server
 import channelpy
@@ -40,23 +41,23 @@ MAX_EXECUTIONS_PER_MONGO_DOC = 25000
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
-    return [db_id for db_id, _ in actors_store.items()]
+    return [aid for aid in actors_store]
 
 def check_workers_store(ttl):
     logger.debug("Top of check_workers_store.")
     """Run through all workers in workers_store and ensure there is no data integrity issue."""
-    for actor_id, worker in workers_store.items():
-        check_worker_health(worker, actor_id, ttl)
+    for worker in workers_store.items():
+        aid = worker['actor_id']
+        check_worker_health(aid, worker, ttl)
 
 def get_worker(wid):
     """
     Check to see if a string `wid` is the id of a worker in the worker store.
     If so, return it; if not, return None.
     """
-    for actor_id, value in workers_store.items():
-        for worker_id, worker in value.items():
-            if worker_id == wid:
-                return worker
+    worker = workers_store.items({'id': wid})
+    if worker:
+        return worker
     return None
 
 def clean_up_socket_dirs():
@@ -160,7 +161,7 @@ def clean_up_clients_store():
     if not secret:
         logger.error("health.py not configured with _abaco_secret. exiting clean_up_clients_store.")
         return None
-    for k, client in clients_store.items():
+    for client in clients_store.items():
         wid = client.get('worker_id')
         if not wid:
             logger.error("client object in clients_store without worker_id. client: {}".format(client))
@@ -180,7 +181,7 @@ def clean_up_clients_store():
         # check to see if the wid is the id of an actual worker:
         worker = get_worker(wid)
         if not worker:
-            logger.info("worker {} is gone. deleting client {}.".format(wid, client))
+            logger.info(f"worker {wid} is gone. deleting client {client}.")
             clients_ch = ClientsChannel()
             msg = clients_ch.request_delete_client(tenant=tenant,
                                                    actor_id=actor_id,
@@ -188,44 +189,16 @@ def clean_up_clients_store():
                                                    client_id=client_key,
                                                    secret=secret)
             if msg['status'] == 'ok':
-                logger.info("Client delete request completed successfully for "
-                            "worker_id: {}, client_id: {}.".format(wid, client_key))
+                logger.info(f"Client delete request completed successfully for "
+                            "worker_id: {wid}, client_id: {client_key}.".format(wid, client_key))
             else:
-                logger.error("Error deleting client for "
-                             "worker_id: {}, client_id: {}. Message: {}".format(wid, msg['message'], client_key, msg))
+                logger.error(f"Error deleting client for "
+                             "worker_id: {wid}, client_id: {client_key}. Message: {msg}")
 
         else:
-            logger.info("worker {} still here. ignoring client {}.".format(wid, client))
+            logger.info(f"worker {wid} still here. ignoring client {client}.")
 
-def batch_executions(aid):
-    """
-    Batch the executions for a specific actor id, `aid`. Should be the database id.
-    :param aid:
-    :return:
-    """
-    # make a local copy of the executions -
-    d = executions_store[aid]
-    # fix an ordering of keys -
-    ld = list(d)
-    if len(d) <= MAX_EXECUTIONS_PER_MONGO_DOC:
-        return
-    # split executions into two dicts -
-    d2 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if d[k].get('status') == 'COMPLETE'}
-    d3 = {k: d[k] for k in ld[0:MAX_EXECUTIONS_PER_MONGO_DOC] if not d[k].get('status') == 'COMPLETE'}
-    d3.update({k: d[k] for k in ld[MAX_EXECUTIONS_PER_MONGO_DOC: ]})
-    executions_store[aid] = d3
-    # get next index of historical docs -
-    i = 1
-    while True:
-        try:
-            executions_store['{}_HIST_{}'.format(aid, i)]
-            i = i + 1
-        except KeyError:
-            break
-    executions_store['{}_HIST_{}'.format(aid, i)] = d2
-
-
-def check_worker_health(actor_id, worker):
+def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
     worker_id = worker.get('id')
@@ -233,7 +206,7 @@ def check_worker_health(actor_id, worker):
     if not worker_id:
         logger.error("Corrupt data in the workers_store. Worker object without an id attribute. {}".format(worker))
         try:
-            workers_store.pop(actor_id)
+            workers_store.pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
@@ -246,7 +219,7 @@ def check_worker_health(actor_id, worker):
         try:
             # todo - removing worker objects from db can be problematic if other aspects of the worker are not cleaned
             # up properly. this code should be reviewed.
-            workers_store.pop(actor_id)
+            workers_store.pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
@@ -261,8 +234,8 @@ def zero_out_workers_db():
       4) run zero_out_clients_db()
     :return:
     """
-    for k, _ in workers_store.items():
-        workers_store[k] = {}
+    for worker in workers_store.items(proj_inp=None):
+        del workers_store[worker['_id']]
 
 def zero_out_clients_db():
     """
@@ -273,8 +246,8 @@ def zero_out_clients_db():
       4) run this function
     :return:
     """
-    for k, _ in clients_store.items():
-        clients_store[k] = {}
+    for client in clients_store.items():
+        clients_store[client['_id']] = {}
 
 
 def check_workers(actor_id, ttl):
@@ -288,7 +261,7 @@ def check_workers(actor_id, ttl):
     logger.debug("workers: {}".format(workers))
     host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
     logger.debug("host_id: {}".format(host_id))
-    for _, worker in workers.items():
+    for worker in workers:
         # if the worker has only been requested, it will not have a host_id.
         if 'host_id' not in worker:
             # @todo- we will skip for now, but we need something more robust in case the worker is never claimed.
@@ -345,17 +318,17 @@ def check_workers(actor_id, ttl):
             return
         # we don't shut down workers that are currently running:
         if not worker['status'] == codes.BUSY:
-            last_execution = int(float(worker.get('last_execution_time', 0)))
+            last_execution = worker.get('last_execution_time', 0)
             # if worker has made zero executions, use the create_time
             if last_execution == 0:
-                last_execution = worker.get('create_time', 0)
+                last_execution = worker.get('create_time', datetime.datetime.min)
             logger.debug("using last_execution: {}".format(last_execution))
             try:
-                last_execution = int(float(last_execution))
+                assert type(last_execution) == datetime.datetime
             except:
-                logger.error("Could not case last_execution {} to int(float()".format(last_execution))
-                last_execution = 0
-            if last_execution + ttl < time.time():
+                logger.error("Time received for TTL measurements is not of type datetime.")
+                last_execution = datetime.datetime.min
+            if last_execution + datetime.timedelta(seconds=ttl) < datetime.datetime.utcnow():
                 # shutdown worker
                 logger.info("Shutting down worker beyond ttl.")
                 shutdown_worker(actor_id, worker['id'])
@@ -458,8 +431,7 @@ def manage_workers(actor_id):
         logger.info("Did not find actor; returning.")
         return
     workers = Worker.get_workers(actor_id)
-    for key in workers:
-        worker = get_worker(key)
+    for worker in workers:
         time_difference = time.time() - worker['create_time']
         if worker['status'] == 'PROCESSING' and time_difference > 1:
             logger.info("LOOK HERE - worker creation time {}".format(worker['create_time']))
@@ -471,8 +443,12 @@ def shutdown_all_workers():
     This function is useful when deploying a new version of the worker code.
     """
     # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
-    for actor_id, worker in workers_store.items():
-        # call check_workers with ttl = 0 so that all will be shut down:
+    logger.debug("Top of shutdown_all_workers.")
+    actors_with_workers = set()
+    for worker in workers_store.items():
+        actors_with_workers.add(worker['actor_id'])
+
+    for actor_id in actors_with_workers:
         check_workers(actor_id, 0)
 
 def main():
