@@ -1,0 +1,369 @@
+{
+  "$schema": "http://json-schema.org/schema#",
+  "$id": "http://github.com/tapis-project/tapisflask/schemas/configschema.json",
+  "type": "object",
+  "properties": {
+    "server": {
+      "type": "string",
+      "pattern": "dev|prod",
+      "default": "prod",
+      "description": "configures whether to run the development server or the production server."
+    },
+    "service_name": {
+      "type": "string",
+      "description": "The name of the service, such as 'apps', 'jobs', etc."
+    },
+    "service_password": {
+      "type": "string",
+      "description": "The password for the service; used when calling the Tokens API to generate a service token.",
+      "default": "5kY6WyiGMaY0ev0tqda2YKefTom"
+    },
+    "show_traceback": {
+      "type": "boolean",
+      "description": "Whether to show a full traceback when an exception occurs; should be false in production.",
+      "default": false
+    },
+    "version": {
+      "type": "string",
+      "description": "The version string for the service, e.g., '3.24.1'.",
+      "default": "dev"
+    },
+    "log_file": {
+      "type": "string",
+      "description": "Location of log file. If not set, STDOUT will be used."
+    },
+    "service_tenant_base_url": {
+      "type": "string",
+      "default": "https://master.develop.tapis.io",
+      "description": "Base URL for the tenant where this service lives. This will be the URL to used for retrieving the service's Tapis token amd for retrieving initialization data such as tenant data and other basic configuration."
+    },
+    "service_tenant_id": {
+      "type": "string",
+      "default": "master",
+      "description": "The tenant_id for the tenant where this service lives."
+    },
+    "tenants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The list of tenants that this service will serve requests for."
+    },
+    "use_sk": {
+      "type": "boolean",
+      "description": "Whether this service should use an external Tapis Security Kernel for its auth. NOTE: This should always be TRUE in production",
+      "default": true
+    },
+    "use_tenants": {
+      "type": "boolean",
+      "description": "Whether this service should use an external Tapis Tenants API for retrieving the tenant registry. NOTE: This should always be TRUE in production",
+      "default": true
+    },
+    "dev_jwt_public_key": {
+      "type": "string",
+      "description": "The public key associated with the private key to use for signing JWTs in dev mode. NOTE: This should NOT be used in production",
+      "default": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz7rr5CsFM7rHMFs7uKIdcczn0uL4ebRMvH8pihrg1tW/fp5Q+5ktltoBTfIaVDrXGF4DiCuzLsuvTG5fGElKEPPcpNqaCzD8Y1v9r3tfkoPT3Bd5KbF9f6eIwrGERMTs1kv7665pliwehz91nAB9DMqqSyjyKY3tpSIaPKzJKUMsKJjPi9QAS167ylEBlr5PECG4slWLDAtSizoiA3fZ7fpngfNr4H6b2iQwRtPEV/EnSg1N3Oj1x8ktJPwbReKprHGiEDlqdyT6j58l/I+9ihR6ettkMVCq7Ho/bsIrwm5gP0PjJRvaD5Flsze7P4gQT37D1c5nbLR+K6/T0QTiyQIDAQAB\n-----END PUBLIC KEY-----"
+    },
+    "dev_base_url": {
+      "type": "string",
+      "description": "The base URL to use for the dev tenant in dev mode. NOTE: This should NOT be used in production",
+      "default": "https://dev.develop.tapis.io"
+    },
+    "dev_token_service": {
+      "type": "string",
+      "description": "The URL to the token service to use for the dev tenant in dev mode. NOTE: This should NOT be used in production",
+      "default": "https://dev.develop.tapis.io/v3/tokens"
+    },
+    "dev_authenticator": {
+      "type": "string",
+      "description": "The URL to the authenticator to use for the dev tenant in dev mode. NOTE: This should NOT be used in production",
+      "default": "https://dev.develop.tapis.io/v3/oauth2"
+    },
+    "dev_security_kernel": {
+      "type": "string",
+      "description": "The URL to the SK to use for the dev tenant in dev mode. NOTE: This should NOT be used in production",
+      "default": "https://dev.develop.tapis.io/v3/security"
+    },
+    "dev_is_owned_by_associate_site": {
+      "type": "boolean",
+      "description": "Whether the dev tenant in dev mode is owned by an A.S. NOTE: This should NOT be used in production",
+      "default": false
+    },
+    "dev_allowable_x_tenant_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of x_allowable_tenant_ids for the dev tenant in dev mode. NOTE: This should NOT be used in production",
+      "default": ["dev"]
+    },
+    "dev_iss": {
+      "type": "string",
+      "description": "The URL to use for the 'iss' claim in dev mode. NOTE: This should NOT be used in production",
+      "default": "https://dev.api.tapis.io/v3/tokens"
+    },
+    "worker.worker_ttl": {
+      "type": "string",
+      "description": "The URL to use for the 'iss' claim in dev mode. NOTE: This should NOT be used in production",
+      "default": "https://dev.api.tapis.io/v3/tokens"
+    },
+
+
+    "log_level.global": {
+      "type": "string",
+      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
+      "default": "ERROR",
+      "description": "The global logging level to use for the service."
+    },
+    "log_level.worker": {
+      "type": "string",
+      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
+      "default": "ERROR",
+      "description": "The logging level to use for the worker module."
+    },
+    "log_level.docker_utils": {
+      "type": "string",
+      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
+      "default": "ERROR",
+      "description": "The logging level to use for the docker_utils module."
+    },
+    "log_level.spawner": {
+      "type": "string",
+      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
+      "default": "ERROR",
+      "description": "The logging level to use for the spawner module."
+    },
+    "log_level.controllers": {
+      "type": "string",
+      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
+      "default": "ERROR",
+      "description": "The logging level to use for the controllers module."
+    },
+
+    "store_mongo_host": {
+      "type": "string",
+      "description": "The url for the mongo instance."
+    },
+    "store_mongo_port": {
+      "type": "integer",
+      "description": "The port to access the mongo instance."
+    },
+    "store_mongo_user": {
+      "type": "string",
+      "description": "The username for the mongo instance if authentication is active."
+    },
+    "store_mongo_password": {
+      "type": "string",
+      "description": "The password for the mongo instance if authentication is active."
+    },
+
+    "spawner_host_id": {
+      "type": "integer",
+      "description": "Unique host_id for worker host. Each host should have at least one spawner and health check worker."
+    },
+    "spawner_host_queues": {
+      "type": "array",
+      "description": "List of queues that spawners on this host will subscribe to."
+    },
+    "spawner_host_ip": {
+      "type": "string",
+      "description": "An addressable IP for the spawner's host. (Not currently used)"
+    },
+    "spawner_max_cmd_length": {
+      "type": "integer",
+      "description": "Maximum number of messages that the autoscaler should put on the default command channel."
+    },
+    "spawner_max_workers_per_host": {
+      "type": "integer",
+      "description": "Maximum number of workers that are allowed to simultaneously be running on a given compute host."
+    },
+    "spawner_max_workers_per_actor": {
+      "type": "integer",
+      "description": "Maximum number of workers that a given actor can have at one time."
+    },
+    "spawner_docker_network": {
+      "type": "string",
+      "description": "Sets worker and spawner network. Otherwise uses default network for host"
+    },
+
+    "docker_dd": {
+      "type": "string",
+      "description": "url to use for docker daemon by spawners and workers."
+    },
+
+    "worker_init_count": {
+      "type": "integer",
+      "description": "Number of worker contaienrs to initially start when an actor is created."
+    },
+    "worker_autoscaling": {
+      "type": "boolean",
+      "description": "Set whether or not autoscaling is enabled."
+    },
+    "worker_max_run_time": {
+      "type": "integer",
+      "description": "Max length of time (secs) an actor is allowed to execute before being killed. (-1 = indefinite)"
+    },
+    "worker_mem_limit":{
+      "type": "integer",
+      "description": "Maximum amount of memory an Actor container can use. Like --memory flag for Docker. (-1 = unlimited)"
+    },
+    "worker_max_cpus": {
+      "type": "integer",
+      "description": "Maximum number of CPUs available to each actor. (Not a guarantee) (-1 = unlimited)"
+    },
+    "worker_worker_ttl": {
+      "type": "integer",
+      "description": "Length of time (secs) to keep an idle worker alive. (-1 = indefinite)"
+    },
+    "worker_sync_max_idle_time": {
+      "type": "integer",
+      "description": "Length of time (secs) to keep an idle worker alive when actor has the 'sync' hint."
+    },
+    "worker_auto_remove": {
+      "type": "boolean",
+      "description": "Whether worker should be scheduled with 'auto_remove' flag. Limited to docker version > 1.25."
+    },
+    "worker_generate_clients": {
+      "type": "boolean",
+      "description": "Whether the workers should have OAuth clients generated for them."
+    },
+    "worker_global_mounts": {
+      "type": "array",
+      "description": "A list of mounts to make for every actor container, separated by comma (,) characters."
+    },
+    "worker_designsafe_global_mounts": {
+      "type": "array",
+      "description": "The global mounts for a specific tenant"
+    },
+    "worker_dev-develop_global_mounts": {
+      "type": "array",
+      "description": "The global mounts for a specific tenant. "
+    },
+    "worker_privileged_mounts": {
+      "type": "array",
+      "description": "The mounts for a 'privileged' actor containers."
+    },
+    "worker_leave_containers": {
+      "type": "boolean",
+      "description": "Whether to leave the actor containers or remove them. True is helpful for debugging."
+    },
+    "worker_actor_uid": {
+      "type": "integer",
+      "description": "Specific uid for containers globally. Trumps tenant wide uid."
+    },
+    "worker_actor_gid": {
+      "type": "integer",
+      "description": "Specific gid for containers globally. Trumps tenant wide gid."
+    },
+    "worker_design_safe_actor_uid": {
+      "type": "integer",
+      "description": "Specific uid for containers on specified tenant."
+    },
+    "worker_design_safe_actor_gid": {
+      "type": "integer",
+      "description": "Specific gid for containers on specified tenant."
+    },
+    "worker_use_tas_uid": {
+      "type": "boolean",
+      "description": "Enables running actor container as the UID associated wtih the owener of the actor in TAS."
+    },
+    "worker_sd2e_use_tas_uid": {
+      "type": "boolean",
+      "description": "Enables use of TAS uid/gid for a specific tenant. eg. SD2E."
+    },
+    "worker_socket_host_path_dir": {
+      "type": "string",
+      "description": "Path on workers host to use for mounting temp socekts for processing exec results."
+    },
+    "worker_fifo_host_path_dir": {
+      "type": "string",
+      "description": "Path on workers host to use for mounting temp fifo's for processing binary messages."
+    },
+
+    "web_access_control": {
+      "type": "string",
+      "description": "Type of access control for web front end.",
+      "pattern": "jwt|none"
+    },
+    "web_user_role": {
+      "type": "string",
+      "description": "The role required for 'base level' access to the service. Only used with JWT access control."
+    },
+    "web_accept_nonce": {
+      "type": "boolean",
+      "description": "Enables use of nonce for auth with API. x-nonce param is only checked in absence of a JWT header."
+    },
+    "web_tenant_name": {
+      "type": "string",
+      "description": "The name of the tenant when not using JWT."
+    },
+    "web_apim_public_key": {
+      "type": "string",
+      "description": "Public key for the apim instance when deployed behind apim (jwt access control)"
+    },
+    "web_default_token": {
+      "type": "boolean",
+      "description": "Default value for an actor's token attribute. Set globally."
+    },
+    "web_DEV-STAGING_default_token": {
+      "type": "boolean",
+      "description": "Default value for an actor's token attribute. Set by tenant."
+    },
+    "web_show_traceback": {
+      "type": "boolean",
+      "description": "Whether the web apps return a stacktrace or a nice JSON object on an APIException."
+    },
+    "web_log_ex": {
+      "type": "integer",
+      "description": "Amount of time (secs) to store log data. (-1 = indefinite)"
+    },
+    "web_max_log_length": {
+      "type": "integer",
+      "description": "Max length (bytes) to store an actors exec's logs. Truncated otherwise. Cannot exceed max mongo doc len."
+    },
+    "web_case": {
+      "type": "string",
+      "description": "Either to use camel or snake case. Changes return responses. Default is snake.",
+      "pattern": "camel|snake"
+    },
+    "web_max_content_length": {
+      "type": "integer",
+      "description": "Maximum content length (bytes) allow for raw (binary) data messages."
+    },
+    "web_all_queues": {
+      "type": "array",
+      "description": "List of all allowable queues"
+    },
+    "auth_stuff": {
+      "type": "object",
+      "description": "tenant stuff please",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "use_tas": {
+          "type": "boolean"
+        },
+        "uid": {
+          "type": "integer"
+        },
+        "gid": {
+          "type": "integer"
+        }
+      },
+      "required":[
+        "gid",
+        "uid",
+        "use_tas",
+        "name"
+      ]
+    }
+  },
+  "required": [
+    "service_name",
+    "version",
+    "log_level.global",
+    "store_mongo_host",
+    "store_mongo_port",
+    "rabbit_uri"]
+}

@@ -1,0 +1,8 @@
+- 'TAG' is now 'version'
+- 'logs' is now 'log_level'
+
+DEFAULTS OR REQUIRED NEEDED:
+web_apim_public_key
+web_accept_nonce
+workers_use_tas_uid
+web_default_token

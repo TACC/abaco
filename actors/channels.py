@@ -6,7 +6,7 @@ from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 import cloudpickle
 import rabbitpy
 
-from config import Config
+from common.config import conf
 
 class WorkerChannel(Channel):
     """Channel for communication with a worker. Pass the id of the worker to communicate with an
@@ -18,7 +18,7 @@ class WorkerChannel(Channel):
         return 'worker_{}'.format(worker_id)
 
     def __init__(self, worker_id=None):
-        self.uri = Config.get('rabbit', 'uri')
+        self.uri = conf.rabbit_uri
         ch_name = None
         if worker_id:
             ch_name = WorkerChannel.get_name(worker_id)
@@ -32,7 +32,7 @@ class SpawnerWorkerChannel(Channel):
     existing worker.
     """
     def __init__(self, worker_id=None):
-        self.uri = Config.get('rabbit', 'uri')
+        self.uri = conf.rabbit_uri
         ch_name = None
         if worker_id:
             ch_name = 'spawner_worker_{}'.format(worker_id)
@@ -45,7 +45,7 @@ class ClientsChannel(Channel):
     """Channel for communicating with the clients generator."""
 
     def __init__(self, name='clients'):
-        self.uri = Config.get('rabbit', 'uri')
+        self.uri = conf.rabbit_uri
         super().__init__(name=name,
                          connection_type=RabbitConnection,
                          uri=self.uri)
@@ -74,9 +74,8 @@ class CommandChannel(Channel):
     """Work with commands on the command channel."""
 
     def __init__(self, name='default'):
-        self.uri = Config.get('rabbit', 'uri')
-        queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
-        valid_queues = queues_list.split(',')
+        self.uri = conf.rabbit_uri
+        valid_queues = conf.spawner_host_queues
         if name not in valid_queues:
             raise Exception('Invalid Queue name.')
 
@@ -103,7 +102,7 @@ class EventsChannel(Channel):
                          )
 
     def __init__(self, name='default'):
-        self.uri = Config.get('rabbit', 'uri')
+        self.uri = conf.rabbit_uri
         if name not in EventsChannel.event_queue_names:
             raise Exception('Invalid Events Channel Queue name.')
 
@@ -169,7 +168,7 @@ class ActorMSSgChannel(BinaryChannel):
     """Work with messages sent to a specific actor.
     """
     def __init__(self, actor_id):
-        self.uri = Config.get('rabbit', 'uri')
+        self.uri = conf.rabbit_uri
         super().__init__(name='actor_msg_{}'.format(actor_id),
                          connection_type=RabbitConnection,
                          uri=self.uri)
@@ -204,7 +203,7 @@ class ExecutionResultsChannel(BinaryChannel):
     """Work with the results for a specific actor execution.
     """
     def __init__(self, actor_id, execution_id):
-        self.uri = Config.get('rabbit', 'uri')
+        self.uri = conf.rabbit_uri
         super().__init__(name='results_{}_{}'.format(actor_id, execution_id),
                          connection_type=FiniteRabbitConnection,
                          uri=self.uri)
@@ -214,7 +213,7 @@ class ExecutionJSONResultsChannel(Channel):
     """Work with the results for a specific actor execution when actor type==json.
     """
     def __init__(self, actor_id, execution_id):
-        self.uri = Config.get('rabbit', 'uri')
+        self.uri = conf.rabbit_uri
         super().__init__(name='results_{}_{}'.format(actor_id, execution_id),
                          connection_type=FiniteRabbitConnection,
                          uri=self.uri)

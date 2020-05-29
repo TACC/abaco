@@ -16,7 +16,7 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
 from agavepy.agave import Agave
-from config import Config
+from common.config import conf
 import codes
 from models import Actor, Alias, get_permissions, is_hashid, Nonce
 
@@ -29,7 +29,7 @@ jwt.prepare_key_methods['SHA256WITHRSA'] = jwt.prepare_RS_key
 
 
 def get_pub_key():
-    pub_key = Config.get('web', 'apim_public_key')
+    pub_key = conf.web_apim_public_key
     return RSA.importKey(base64.b64decode(pub_key))
 
 
@@ -52,8 +52,7 @@ def authn_and_authz():
         auth.authn_and_authz()
 
     """
-    accept_nonce = Config.get('web', 'accept_nonce')
-    if accept_nonce:
+    if conf.web_accept_nonce:
         agaveflask_az(check_nonce, authorization)
     else:
         # we use the agaveflask authn_and_authz function, passing in our authorization callback.
@@ -312,7 +311,7 @@ def check_privileged():
 
     # when using the UID associated with the user in TAS, admins can still register actors
     # to use the UID built in the container using the use_container_uid flag:
-    if Config.get('workers', 'use_tas_uid'):
+    if conf.worker_use_tas_uid:
         if data.get('use_container_uid') or data.get('useContainerUid'):
             logger.debug("User is trying to use_container_uid")
             # if we're here, user isn't an admin so must have privileged role:
@@ -569,82 +568,36 @@ def get_token_default():
     """
     Returns the default token attribute based on the tenant and instance configs.
     """
-    token_default = False
-    try:
-        token_default = Config.get('web', f'{g.tenant}_default_token')
-        logger.debug(f"got tenant token_default: {token_default} for {g.tenant}")
-    except:
-        # if there isn't a tenant config, check for a global config:
-        try:
-            token_default = Config.get('web', 'default_token')
-            logger.debug(f"got global token default: {token_default}")
-        except:
-            logger.debug("did not find any token default config. Using False")
-            token_default = False
-    return token_default
+    default_token = conf.get(f"web_{g.tenant}_default_token") or conf.web_default_token
+    logger.debug(f"got default_token: {default_token}. Either for {g.tenant} or global.")
+    return default_token
 
 def get_uid_gid_homedir(actor, user, tenant):
     """
     Determines the uid and gid that should be used to run an actor's container. This function does
-    not need to be called if the user is a privileges user
+    not need to be called if the user is a privileged user
     :param actor:
     :param tenant:
     :return:
     """
-    # first, determine if this tenant is using tas:
-    try:
-        use_tas = Config.get('workers', '{}_use_tas_uid'.format(tenant))
-    except configparser.NoOptionError:
-        logger.debug("no {}_use_tas_uid config.".format(tenant))
-        try:
-            use_tas = Config.get('workers', 'use_tas_uid')
-        except configparser.NoOptionError:
-            logger.debug("no use_tas_uid config.".format(tenant))
-            use_tas = 'false'
-    if hasattr(use_tas, 'lower'):
-        use_tas = use_tas.lower() == 'true'
-    else:
-        logger.error("use_tas_uid configured but not as a string. use_tas_uid: {}".format(use_tas))
+    # first, check for tas usage for tenant or globally:
+    use_tas = conf.get(f"worker_{tenant}_use_tas_uid") or conf.worker_use_tas_uid
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # next, look for a tenant-specific uid and gid:
-    try:
-        uid = Config.get('workers', '{}_actor_uid'.format(tenant))
-        gid = Config.get('workers', '{}_actor_gid'.format(tenant))
-        found_config = True
-        # the homr_dir is optional
-        try:
-            home_dir = Config.get('workers', '{}_actor_homedir'.format(tenant))
-        except:
-            home_dir = None
+    uid = conf.get(f"worker_{tenant}_actor_uid") or None
+    gid = conf.get(f"worker_{tenant}_actor_gid") or None
+    if uid and gid:
+        home_dir = conf.get(f"worker_{tenant}_actor_homedir") or None
         return uid, gid, home_dir
-    except configparser.NoOptionError:
-        logger.debug("no tenant uid or gid config.")
-
-    # next, look for a global use_tas config
-    try:
-        use_tas = Config.get('workers', 'use_tas_uid')
-        found_config = True
-    except configparser.NoOptionError:
-        logger.debug("no use_tas_uid config.")
-        use_tas = False
-    if use_tas and tenant_can_use_tas(tenant):
-        return get_tas_data(user, tenant)
 
     # finally, look for a global uid and gid:
-    try:
-        uid = Config.get('workers', 'actor_uid'.format(tenant))
-        gid = Config.get('workers', 'actor_gid'.format(tenant))
-        found_config = True
-        # the homr_dir is optional
-        try:
-            home_dir = Config.get('workers', 'actor_homedir'.format(tenant))
-        except:
-            home_dir = None
+    uid = conf.get(f"worker_actor_uid") or None
+    gid = conf.get(f"worker_actor_gid") or None
+    if uid and gid:
+        home_dir = conf.get(f"worker_actor_homedir") or None
         return uid, gid, home_dir
-    except configparser.NoOptionError:
-        logger.debug("no global uid or gid config.")
 
     # otherwise, run using the uid and gid set in the container
     return None, None, None
