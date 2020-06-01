@@ -14,12 +14,12 @@ def headers():
     return get_jwt_headers()
 
 def priv_headers():
-    return get_jwt_headers('/tests/jwt-abaco_privileged')
+    return get_jwt_headers('/home/tapis/tests/jwt-abaco_privileged')
 
 def limited_headers():
-    return get_jwt_headers('/tests/jwt-abaco_limited')
+    return get_jwt_headers('/home/tapis/tests/jwt-abaco_limited')
 
-def get_jwt_headers(file_path='/tests/jwt-abaco_admin'):
+def get_jwt_headers(file_path='/home/tapis/tests/jwt-abaco_admin'):
     with open(file_path, 'r') as f:
         jwt_default = f.read()
     jwt = os.environ.get('jwt', jwt_default)

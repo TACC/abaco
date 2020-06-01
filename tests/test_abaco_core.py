@@ -1612,7 +1612,7 @@ def get_role_headers(role_type):
     Return headers with a JWT representing a user with a specific Abaco role. Each role type is represented by a
     *different* user. The valid role_type values are listed above.
      """
-    with open('/tests/jwt-abaco_{}'.format(role_type), 'r') as f:
+    with open('/home/tapis/tests/jwt-abaco_{}'.format(role_type), 'r') as f:
         jwt = f.read()
     jwt_header = os.environ.get('jwt_header', 'X-Jwt-Assertion-AGAVE-PROD')
     return {jwt_header: jwt}

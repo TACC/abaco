@@ -1,4 +1,3 @@
-from config import Config
 from models import Actor
 from stores import actors_store, executions_store, workers_store, abaco_metrics_store
 

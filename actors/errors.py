@@ -2,9 +2,9 @@
 import os
 from agaveflask.errors import BaseAgaveflaskError
 
-from config import Config
+from common.config import conf
 
-TAG = os.environ.get('service_TAG') or Config.get('general', 'TAG')
+TAG = os.environ.get('service_TAG') or conf.version
 
 class DAOError(BaseAgaveflaskError):
     pass

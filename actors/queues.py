@@ -4,7 +4,7 @@ import rabbitpy
 import threading
 import time
 
-from config import Config
+from common.config import conf
 
 
 class ChannelClosedException(Exception):
@@ -13,7 +13,7 @@ class ChannelClosedException(Exception):
 
 class RabbitConnection(object):
     def __init__(self, retries=100):
-        self._uri = Config.get('rabbit', 'uri')
+        self._uri = conf.rabbit_uri
         tries = 0
         connected = False
         while tries < retries and not connected:

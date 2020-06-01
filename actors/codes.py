@@ -1,5 +1,5 @@
 # Status codes for actor objects
-from config import Config
+from common.config import conf
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
@@ -82,7 +82,7 @@ PRIVILEGED_ROLE = 'Internal/abaco-privileged'
 # the base user role in Abaco. This role isn't authorized to create privileged containers or add workers but is not
 # throttled in the number of requests they can make.
 try:
-    USER_ROLE = Config.get('web', 'user_role')
+    USER_ROLE = conf.web_user_role
 except Exception:
     USER_ROLE = 'Internal/abaco-user'
 
