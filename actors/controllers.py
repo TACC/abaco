@@ -1,4 +1,3 @@
-import configparser
 import datetime
 import json
 import os
@@ -16,7 +15,7 @@ from agaveflask.utils import RequestParser, ok
 from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
-from config import Config
+from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
     set_permission, get_current_utc_time
@@ -42,18 +41,10 @@ clients_gauge = Gauge('clients_count_for_clients_store',
 
 
 
-try:
-    ACTOR_MAX_WORKERS = Config.get("spawner", "max_workers_per_actor")
-except:
-    ACTOR_MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_ACTOR', 20)
-ACTOR_MAX_WORKERS = int(ACTOR_MAX_WORKERS)
+ACTOR_MAX_WORKERS = conf.spawner_max_workers_per_actor or int(os.environ.get('MAX_WORKERS_PER_ACTOR', 20))
 logger.info("METRICS - running with ACTOR_MAX_WORKERS = {}".format(ACTOR_MAX_WORKERS))
 
-try:
-    num_init_workers = int(Config.get('workers', 'init_count'))
-except:
-    num_init_workers = 1
-
+num_init_workers = conf.worker_init_count
 
 class SearchResource(Resource):
     def get(self, search_type):
@@ -67,11 +58,8 @@ class SearchResource(Resource):
 
 class MetricsResource(Resource):
     def get(self):
-        enable_autoscaling = Config.get('workers', 'autoscaling')
-        if hasattr(enable_autoscaling, 'lower'):
-            if not enable_autoscaling.lower() == 'true':
-                return
-        else:
+        enable_autoscaling = conf.workers_autoscaling
+        if not enable_autoscaling:
             return
         actor_ids, inbox_lengths, cmd_length = self.get_metrics()
         self.check_metrics(actor_ids, inbox_lengths, cmd_length)
@@ -118,13 +106,7 @@ class MetricsResource(Resource):
                     logger.error("max_workers defined for actor_id {} but could not cast to int. "
                                  "Exception: {}".format(actor_id, e))
             if not max_workers:
-                try:
-                    conf = Config.get('spawner', 'max_workers_per_actor')
-                    max_workers = int(conf)
-                except Exception as e:
-                    logger.error("Unable to get/cast max_workers_per_actor config ({}) to int. "
-                                 "Exception: {}".format(conf, e))
-                    max_workers = 1
+                max_workers = conf.spawner_max_workers_per_actor
 
             # Add an additional worker if message count reaches a given number
             try:
@@ -162,7 +144,7 @@ class MetricsResource(Resource):
 class AdminActorsResource(Resource):
     def get(self):
         logger.debug("top of GET /admin")
-        case = Config.get('web', 'case')
+        case = conf.web_case
         actors = []
         try:
             for actor in actors_store.items():
@@ -196,7 +178,7 @@ class AdminWorkersResource(Resource):
                    'error_workers': 0,
                    'busy_workers': 0,
                    'actors_no_workers': 0}
-        case = Config.get('web', 'case')
+        case = conf.web_case
         # the workers_store objects have a key:value structure where the key is the actor_id and
         # the value is the worker object (iself, a dictionary).
         actors_with_workers = set()
@@ -254,7 +236,7 @@ class AdminExecutionsResource(Resource):
                               },
                   'actors': []
         }
-        case = Config.get('web', 'case')
+        case = conf.web_case
         actor_stats = {}
         actor_does_not_exist = []
         for execution in executions_store.items():
@@ -340,7 +322,7 @@ class AliasesResource(Resource):
         logger.info("top of POST to register a new alias.")
         args = self.validate_post()
         actor_id = args.get('actor_id')
-        if Config.get('web', 'case') == 'camel':
+        if conf.web_case == 'camel':
             actor_id = args.get('actorId')
         logger.debug("alias post args validated: {}.".format(actor_id))
         dbid = Actor.get_dbid(g.tenant, actor_id)
@@ -415,7 +397,7 @@ class AliasResource(Resource):
         logger.debug("found alias {}".format(alias_obj))
         args = self.validate_put()
         actor_id = args.get('actor_id')
-        if Config.get('web', 'case') == 'camel':
+        if conf.web_case == 'camel':
             actor_id = args.get('actorId')
         dbid = Actor.get_dbid(g.tenant, actor_id)
         # update 10/2019: check that use has UPDATE permission on the actor -
@@ -525,7 +507,7 @@ class AliasNoncesResource(Resource):
             if not args['level'] in ALIAS_NONCE_PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
                                "The level attribute must be one of: {}".format(ALIAS_NONCE_PERMISSION_LEVELS))
-        if Config.get('web', 'case') == 'snake':
+        if conf.web_case == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
         else:
@@ -709,8 +691,7 @@ class ActorsResource(Resource):
             args = parser.parse_args()
             logger.debug(f"initial actor args from parser: {args}")
             if args['queue']:
-                queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
-                valid_queues = queues_list.split(',')
+                valid_queues = conf.spawner_host_queues
                 if args['queue'] not in valid_queues:
                     raise BadRequest('Invalid queue name.')
             if args['link']:
@@ -748,7 +729,7 @@ class ActorsResource(Resource):
         # whether to use TAS, use a fixed UID, etc.) and 2) use the uid and gid created in the container.
         # Case 2) allows containers to be run as root and requires admin role in Abaco.
         use_container_uid = args.get('use_container_uid')
-        if Config.get('web', 'case') == 'camel':
+        if conf.web_case == 'camel':
             use_container_uid = args.get('useContainerUid')
         logger.debug("request set use_container_uid: {}; type: {}".format(use_container_uid, type(use_container_uid)))
         if not use_container_uid:
@@ -769,7 +750,7 @@ class ActorsResource(Resource):
         else:
             token = get_token_default()
         args['token'] = token
-        if Config.get('web', 'case') == 'camel':
+        if conf.web_case == 'camel':
             max_workers = args.get('maxWorkers')
             args['max_workers'] = max_workers
         else:
@@ -892,8 +873,7 @@ class ActorResource(Resource):
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant
         if args['queue']:
-            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
-            valid_queues = queues_list.split(',')
+            valid_queues = conf.spawner_host_queues
             if args['queue'] not in valid_queues:
                 raise BadRequest('Invalid queue name.')
         if args['link']:
@@ -923,7 +903,7 @@ class ActorResource(Resource):
             logger.debug("token not in args; using default: {token}")
         args['token'] = token
         use_container_uid = args.get('use_container_uid')
-        if Config.get('web', 'case') == 'camel':
+        if conf.web_case == 'camel':
             use_container_uid = args.get('useContainerUid')
         if not use_container_uid:
             uid, gid, home_dir = get_uid_gid_homedir(args, g.user, g.tenant)
@@ -964,7 +944,7 @@ class ActorResource(Resource):
         parser.add_argument('force', type=bool, required=False, help="Whether to force an update of the actor image", default=False)
 
         # if camel case, need to remove fields snake case versions of fields that can be updated
-        if Config.get('web', 'case') == 'camel':
+        if conf.web_case == 'camel':
             actor.pop('use_container_uid')
             actor.pop('default_environment')
             actor.pop('max_workers')
@@ -1143,7 +1123,7 @@ class ActorNoncesResource(Resource):
             if not args['level'] in PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
                                "The level attribute must be one of: {}".format(PERMISSION_LEVELS))
-        if Config.get('web', 'case') == 'snake':
+        if conf.web_case == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
         else:
@@ -1341,8 +1321,8 @@ class MessagesResource(Resource):
                     int(length)
                 except Exception:
                     raise ResourceError("Content Length must be an integer.")
-                if int(length) > int(Config.get('web', 'max_content_length')):
-                    raise ResourceError("Message exceeds max content length of: {}".format(Config.get('web', 'max_content_length')))
+                if int(length) > conf.web_max_content_length:
+                    raise ResourceError(f"Message exceeds max content length of: {conf.web_max_content_length}")
                 logger.debug("using get_data, setting content type to application/octet-stream.")
                 args['message'] = request.get_data()
                 args['_abaco_Content_Type'] = 'application/octet-stream'
@@ -1452,7 +1432,7 @@ class MessagesResource(Resource):
         else:
             result = {'execution_id': exc, 'msg': args['message']}
         result.update(get_hypermedia(actor, exc))
-        case = Config.get('web', 'case')
+        case = conf.web_case
         end_timer = timeit.default_timer()
         time_data = {'total': (end_timer - start_timer) * 1000,
                      'get_actor': (got_actor_timer - start_timer) * 1000,

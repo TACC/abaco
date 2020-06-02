@@ -3,7 +3,7 @@ import json
 import datetime
 import time
 
-from config import Config
+from common.config import conf
 from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
     set_permission
 from worker import shutdown_workers, shutdown_worker
@@ -19,7 +19,7 @@ cmd_channel_gauges = {}
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
 DEFAULT_SYNC_MAX_IDLE_TIME = 600 # defaults to 10*60 = 600 s = 10 min
 
-MAX_WORKERS_PER_HOST = Config.get('spawner', 'max_workers_per_host')
+MAX_WORKERS_PER_HOST = conf.spawner_max_workers_per_host
 
 command_gauge = Gauge(
     'message_count_for_command_channel',
@@ -62,8 +62,7 @@ def create_gauges(actor_ids):
             # Update this actor's command channel metric
             channel_name = actor.get("queue")
 
-            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
-            valid_queues = queues_list.split(',')
+            valid_queues = conf.spawner_host_queues
 
             if not channel_name or channel_name not in valid_queues:
                 channel_name = 'default'
@@ -131,10 +130,7 @@ def calc_change_rate(data, last_metric, actor_id):
 
 def allow_autoscaling(max_workers, num_workers, cmd_length):
     # first check if the number of messages on the command channel exceeds the limit:
-    try:
-        max_cmd_length = int(Config.get('spawner', 'max_cmd_length'))
-    except:
-        max_cmd_length = 10
+    max_cmd_length = conf.spawner_max_cmd_length
 
     if cmd_length > max_cmd_length:
         return False
@@ -182,11 +178,7 @@ def scale_down(actor_id, is_sync_actor=False):
             sync_max_idle_time = 0
             if len(workers) == 1 and is_sync_actor:
                 logger.debug("only one worker, on sync actor. checking worker idle time..")
-                try:
-                    sync_max_idle_time = int(Config.get('workers', 'sync_max_idle_time'))
-                except Exception as e:
-                    logger.error(f"Got exception trying to read sync_max_idle_time from config; e:{e}")
-                    sync_max_idle_time = DEFAULT_SYNC_MAX_IDLE_TIME
+                sync_max_idle_time = conf.worker_sync_max_idle_time
                 check_ttl = True
             worker = workers.pop()
             if check_ttl:

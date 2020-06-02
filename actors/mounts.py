@@ -1,7 +1,6 @@
 """Module to determine file system mounts for an actor."""
 
-import configparser
-from config import Config
+from common.config import conf
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
@@ -34,7 +33,8 @@ def process_mount_strs(mount_strs, actor):
     result = []
     if not mount_strs:
         return result
-    mounts = mount_strs.split(",")
+    #mounts = mount_strs.split(",")
+    mounts = mount_strs
     for m in mounts:
         parts = m.split(":")
         if not len(parts) == 3:
@@ -63,18 +63,12 @@ def get_global_mounts(actor):
     Returns a list of dictionaries containing host_path, container_path and mode.
     """
     # first look for a tenant-specific global_mounts config:
-    tenant = actor['tenant']
-    mount_strs = None
-    try:
-        mount_strs = Config.get("workers", "{}_global_mounts".format(tenant.lower()))
-        logger.debug("foung a tenant-specific global mounts config for tenant {}".format(tenant.lower()))
-    except configparser.NoOptionError:
-        logger.info("No workers.{}_global_mounts config. Will look for general global_mounts.".format(tenant.lower()))
+    tenant = actor['tenant'].lower()
+    
+    tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
+    mount_strs = tenant_auth_object.get("global_mounts") or conf.global_auth_object.get("global_mounts") or None
     if not mount_strs:
-        try:
-            mount_strs = Config.get("workers", "global_mounts")
-        except configparser.NoOptionError:
-            logger.info("No workers.global_mounts config. Skipping.")
+        logger.info("No workers.global_mounts config. Skipping.")
     return process_mount_strs(mount_strs, actor)
 
 
@@ -83,11 +77,9 @@ def get_privileged_mounts(actor):
     Read and parse the global_mounts config.
     Returns a list of dictionaries containing host_path, container_path and mode.
     """
-    try:
-        mount_strs = Config.get("workers", "privileged_mounts")
-    except configparser.NoOptionError:
+    mount_strs = conf.worker_privileged_mounts or None
+    if not mount_strs:
         logger.info("No workers.privileged_mounts config. Skipping.")
-        mount_strs = None
     return process_mount_strs(mount_strs, actor)
 
 

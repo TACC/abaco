@@ -21,7 +21,7 @@ import timeit
 sys.path.append(os.path.split(os.getcwd())[0])
 sys.path.append('/actors')
 
-from config import Config
+from common.config import conf
 from store import MongoStore
 
 store = 'mongo'
@@ -30,7 +30,7 @@ n = 500
 
 @pytest.fixture(scope='session')
 def st():
-    ms = MongoStore(Config.get('store', 'mongo_host'), Config.getint('store', 'mongo_port'), db='11')
+    ms = MongoStore(conf.store_mongo_host, conf.store_mongo_port, db='11')
     # we want to recreate the index each time so we start off trying to drop it, but the first time we run
     # after the db is instantiated the index won't exist.
     try:

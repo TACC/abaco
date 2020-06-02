@@ -6,7 +6,6 @@ import re
 from Crypto.Signature import PKCS1_v1_5
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
-import configparser
 from flask import g, request
 import jwt
 import requests
@@ -568,8 +567,15 @@ def get_token_default():
     """
     Returns the default token attribute based on the tenant and instance configs.
     """
-    default_token = conf.get(f"{g.tenant}_auth_object").get('default_token') or conf.global_auth_object.get('default_token')
+
+    tenant_auth_object = conf.get(f"{g.tenant}_auth_object") or {}
+    default_token = tenant_auth_object.get("default_token") or conf.global_auth_object.get("default_token")
     logger.debug(f"got default_token: {default_token}. Either for {g.tenant} or global.")
+    ## We have to stringify the boolean as it's listed with results and it would require a database change.
+    if default_token:
+        default_token = 'true'
+    else:
+        default_token = 'false'
     return default_token
 
 def get_uid_gid_homedir(actor, user, tenant):
@@ -580,16 +586,17 @@ def get_uid_gid_homedir(actor, user, tenant):
     :param tenant:
     :return:
     """
+    tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
     # first, check for tas usage for tenant or globally:
-    use_tas = conf.get(f"{tenant}_auth_object").get("use_tas_uid") or None
+    use_tas = tenant_auth_object or None
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # next, look for a tenant-specific uid and gid:
-    uid = conf.get(f"{tenant}_auth_object").get("actor_uid") or None
-    gid = conf.get(f"{tenant}_auth_object").get("actor_gid") or None
+    uid = tenant_auth_object.get("actor_uid") or None
+    gid = tenant_auth_object.get("actor_gid") or None
     if uid and gid:
-        home_dir = conf.get(f"{tenant}_auth_object").get("actor_homedir") or None
+        home_dir = tenant_auth_object.get("actor_homedir") or None
         return uid, gid, home_dir
 
     # next, look for a global use_tas config

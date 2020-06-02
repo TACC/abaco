@@ -5,7 +5,6 @@ import json
 import os
 import urllib.parse
 
-import configparser
 import pprint
 import redis
 from pymongo.errors import WriteError, DuplicateKeyError

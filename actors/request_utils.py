@@ -5,10 +5,10 @@ from flask import jsonify, request
 from werkzeug.exceptions import ClientDisconnected
 from flask_restful import Api
 
-from config import Config
+from common.config import conf
 from errors import BaseAbacoError
 
-TAG = os.environ.get('TAG') or Config.get('general', 'TAG')
+TAG = os.environ.get('TAG') or conf.version
 
 
 class RequestParser(reqparse.RequestParser):
@@ -26,7 +26,7 @@ class AgaveApi(Api):
 
 
 def handle_error(exc):
-    show_traceback = Config.get('web', 'show_traceback')
+    show_traceback = conf.web_show_traceback
     if show_traceback == 'true':
         raise exc
     if isinstance(exc, BaseAbacoError):

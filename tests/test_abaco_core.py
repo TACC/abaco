@@ -1623,6 +1623,8 @@ def test_other_users_can_create_basic_actor():
         url = '{}/{}'.format(base_url, '/actors')
         data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_{}'.format(r_type)}
         rsp = requests.post(url, data=data, headers=headers)
+        print(rsp)
+        print(rsp.content)
         result = basic_response_checks(rsp)
 
 def test_other_users_actor_list():
@@ -1630,6 +1632,8 @@ def test_other_users_actor_list():
         headers = get_role_headers(r_type)
         url = '{}/{}'.format(base_url, '/actors')
         rsp = requests.get(url, headers=headers)
+        print(rsp)
+        print(rsp.content)
         result = basic_response_checks(rsp)
         # this list should only include the actors for this user.
         assert len(result) == 1

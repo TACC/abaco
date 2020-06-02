@@ -8,7 +8,7 @@ from channelpy.exceptions import ChannelTimeoutException
 
 from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
-from config import Config
+from common.config import conf
 from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
 from models import Actor, Worker
@@ -19,11 +19,7 @@ from health import get_worker
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 
-try:
-    MAX_WORKERS = Config.get("spawner", "max_workers_per_host")
-except:
-    MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_HOST', 20)
-MAX_WORKERS = int(MAX_WORKERS)
+MAX_WORKERS = conf.spawner_max_workers_per_host
 logger.info("Spawner running with MAX_WORKERS = {}".format(MAX_WORKERS))
 
 
@@ -36,16 +32,12 @@ class SpawnerException(Exception):
 class Spawner(object):
 
     def __init__(self):
-        self.num_workers = int(Config.get('workers', 'init_count'))
+        self.num_workers = conf.worker_init_count
         self.secret = os.environ.get('_abaco_secret')
         self.queue = os.environ.get('queue', 'default')
         self.cmd_ch = CommandChannel(name=self.queue)
         self.tot_workers = 0
-        try:
-            self.host_id = Config.get('spawner', 'host_id')
-        except Exception as e:
-            logger.critical("Spawner not configured with a host_id! Aborting! Exception: {}".format(e))
-            raise e
+        self.host_id = conf.spawner_host_id
 
     def run(self):
         while True:
@@ -192,14 +184,11 @@ class Spawner(object):
         client_secret = None
 
         # ---- Oauth client generation for the worker -------
-        # check if tenant and instance configured for client generation -
-        try:
-            generate_clients =  Config.get('workers', f'{tenant}_generate_clients').lower()
-        except:
-            logger.debug(f"Did not find a {tenant}_generate_clients config. Looking for a global config.")
-            generate_clients = Config.get('workers', 'generate_clients').lower()
+        # check if tenant and instance configured for client generation
+        tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
+        generate_clients = tenant_auth_object.get("generate_clients") or conf.global_auth_object.get('generate_clients')
         logger.debug(f"final generate_clients: {generate_clients}")
-        if generate_clients == "true":
+        if generate_clients:
             logger.debug("client generation was configured to be available; now checking the actor's token attr.")
             # updated 1.3.0-- check whether the actor requires a token:
             if actor.token:

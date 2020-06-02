@@ -14,7 +14,7 @@ from agaveflask.utils import RequestParser
 from channels import CommandChannel, EventsChannel
 from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
     SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
-from config import Config
+from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
 from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
@@ -177,7 +177,7 @@ class Search():
 
         # Converts everything to snake case as that's what Mongo holds.
         # This means that snake case input will always work, but not camel case.
-        case = Config.get('web', 'case')
+        case = conf.web_case
         if case == 'camel':
             self.args = dict_to_under(self.args)
 
@@ -413,7 +413,7 @@ class Search():
                 search_list[i].pop('tenant', None)
 
         # Adjusts case of the response to match expected case.
-        case = Config.get('web', 'case')
+        case = conf.web_case
         logger.info(f'Adjusting search response case')
         case_corrected_list = []
         for dictionary in search_list:
@@ -634,7 +634,7 @@ class AbacoDAO(DbDict):
         """Return a flask RequestParser object that can be used in post/put processing."""
         logger.debug("Top of request_parser().")
         parser = RequestParser()
-        config_case = Config.get('web', 'case')
+        config_case = conf.web_case
         if config_case == 'camel':
             logger.debug("request_parser() using 'camel' case.")
         else:
@@ -666,7 +666,7 @@ class AbacoDAO(DbDict):
             # When using camel case, it is possible a given argument will come in in camel
             # case, for instance when creating an object directly from parameters passed in
             # a POST request.
-            if name not in kwargs and Config.get('web', 'case') == 'camel':
+            if name not in kwargs and conf.web_case == 'camel':
                 # derived attributes always create the attribute with underscores:
                 if source == 'derived':
                     pname = name
@@ -708,7 +708,7 @@ class AbacoDAO(DbDict):
 
     def case(self):
         """Convert to camel case, if required."""
-        case = Config.get('web', 'case')
+        case = conf.web_case
         if not case == 'camel':
             return self
         # if camel case, convert all attributes
@@ -1428,13 +1428,9 @@ class Execution(AbacoDAO):
         :param logs: dict describing the logs
         :return:
         """
-        log_ex = Config.get('web', 'log_ex')
+        log_ex = conf.web_log_ex
         try:
-            log_ex = int(log_ex)
-        except ValueError:
-            log_ex = -1
-        try:
-            max_log_length = int(Config.get('web', 'max_log_length'))
+            max_log_length = conf.web_max_log_length
         except:
             max_log_length = DEFAULT_MAX_LOG_LENGTH
         if len(logs) > DEFAULT_MAX_LOG_LENGTH:
@@ -1539,7 +1535,7 @@ class ExecutionsSummary(AbacoDAO):
                          'start_time': val.get('start_time'),
                          'finish_time': val.get('finish_time'),
                          'message_received_time': val.get('message_received_time')}
-            if Config.get('web', 'case') == 'camel':
+            if conf.web_case == 'camel':
                 execution = dict_to_camel(execution)
             tot['executions'].append(execution)
             tot['total_executions'] += 1

@@ -20,17 +20,17 @@ import channelpy
 from aga import Agave
 from auth import get_tenants, get_tenant_verify
 import codes
-from config import Config
+from common.config import conf
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
 from models import Actor, Worker, is_hashid
 from channels import ClientsChannel, CommandChannel, WorkerChannel
 from stores import actors_store, clients_store, executions_store, workers_store
 from worker import shutdown_worker
 
-TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
-if not TAG[0] == ':':
-    TAG = ':{}',format(TAG)
-AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
+TAG = os.environ.get('TAG') or conf.version or ""
+if not TAG[0] == ":":
+    TAG = f":{TAG}"
+AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core')}{TAG}"
 
 from agaveflask.logs import get_logger, get_log_file_strategy
 logger = get_logger(__name__)
@@ -62,7 +62,7 @@ def get_worker(wid):
 
 def clean_up_socket_dirs():
     logger.debug("top of clean_up_socket_dirs")
-    socket_dir = os.path.join('/host/', Config.get('workers', 'socket_host_path_dir').strip('/'))
+    socket_dir = os.path.join('/host/', conf.worker_socket_host_path_dir.strip('/'))
     logger.debug("processing socket_dir: {}".format(socket_dir))
     for p in os.listdir(socket_dir):
         # check to see if p is a worker
@@ -74,7 +74,7 @@ def clean_up_socket_dirs():
 
 def clean_up_fifo_dirs():
     logger.debug("top of clean_up_fifo_dirs")
-    fifo_dir = os.path.join('/host/', Config.get('workers', 'fifo_host_path_dir').strip('/'))
+    fifo_dir = os.path.join('/host/', conf.worker_fifo_host_path_dir.strip('/'))
     logger.debug("processing fifo_dir: {}".format(fifo_dir))
     for p in os.listdir(fifo_dir):
         # check to see if p is a worker
@@ -258,9 +258,9 @@ def check_workers(actor_id, ttl):
     except Exception as e:
         logger.error("Got exception trying to retrieve workers: {}".format(e))
         return None
-    logger.debug("workers: {}".format(workers))
-    host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
-    logger.debug("host_id: {}".format(host_id))
+    logger.debug(f"workers: {workers}")
+    host_id = os.environ.get('SPAWNER_HOST_ID', conf.spawner_host_id)
+    logger.debug(f"host_id: {host_id}")
     for worker in workers:
         # if the worker has only been requested, it will not have a host_id.
         if 'host_id' not in worker:
@@ -348,8 +348,8 @@ def get_host_queues():
     :return: list[str]
     """
     try:
-        host_queues_str = Config.get('spawner', 'host_queues')
-        return [ s.strip() for s in host_queues_str.split(',')]
+        host_queues = conf.spawner_host_queues
+        return host_queues
     except Exception as e:
         msg = "Got unexpected exception attempting to parse the host_queues config. Exception: {}".format(e)
         logger.error(e)
@@ -461,15 +461,7 @@ def main():
         clean_up_ipc_dirs()
     except Exception as e:
         logger.error("Got exception from clean_up_ipc_dirs: {}".format(e))
-    try:
-        ttl = Config.get('workers', 'worker_ttl')
-    except Exception as e:
-        logger.error("Could not get worker_ttl config. Exception: {}".format(e))
-    try:
-        ttl = int(ttl)
-    except Exception as e:
-        logger.error("Invalid ttl config: {}. Setting to -1.".format(e))
-        ttl = -1
+    ttl = conf.worker_worker_ttl
     ids = get_actor_ids()
     logger.info("Found {} actor(s). Now checking status.".format(len(ids)))
     for id in ids:

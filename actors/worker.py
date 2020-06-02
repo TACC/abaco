@@ -7,13 +7,12 @@ import _thread
 import time
 
 import channelpy
-import configparser
 from aga import Agave
 
 from auth import get_tenant_verify
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from codes import SHUTDOWN_REQUESTED, SHUTTING_DOWN, ERROR, READY, BUSY, COMPLETE
-from config import Config
+from common.config import conf
 from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
 import globals
@@ -191,29 +190,14 @@ def subscribe(tenant,
     logger.debug("Top of subscribe(). worker_id: {}".format(worker_id))
     actor_ch = ActorMsgChannel(actor_id)
     # establish configs for this worker -------
-    try:
-        leave_containers = Config.get('workers', 'leave_containers')
-    except configparser.NoOptionError:
-        logger.debug("No leave_containers value configured.")
-        leave_containers = False
-    if hasattr(leave_containers, 'lower'):
-        leave_containers = leave_containers.lower() == "true"
-    logger.debug("leave_containers: {}".format(leave_containers))
+    leave_containers = conf.worker_leave_containers
+    logger.debug(f"leave_containers: {leave_containers}")
 
-    try:
-        mem_limit = Config.get('workers', 'mem_limit')
-    except configparser.NoOptionError:
-        logger.debug("No mem_limit value configured.")
-        mem_limit = "-1"
-    mem_limit = str(mem_limit)
+    mem_limit = str(conf.worker_mem_limit)
+    logger.debug(f"mem_limit: {mem_limit}")
 
-    try:
-        max_cpus = Config.get('workers', 'max_cpus')
-    except configparser.NoOptionError:
-        logger.debug("No max_cpus value configured.")
-        max_cpus = "-1"
-
-    logger.debug("max_cpus: {}".format(max_cpus))
+    max_cpus = conf.worker_max_cpus
+    logger.debug(f"max_cpus: {max_cpus}")
 
     # instantiate an OAuth client python object if credentials were passed -----
     ag = None
@@ -310,14 +294,8 @@ def subscribe(tenant,
             raise e
 
         # for results, create a socket in the configured directory.
-        try:
-            socket_host_path_dir = Config.get('workers', 'socket_host_path_dir')
-        except (configparser.NoSectionError, configparser.NoOptionError) as e:
-            logger.error("No socket_host_path configured. Cannot manage results data. Nacking message")
-            Actor.set_status(actor_id, ERROR, status_message="Abaco instance not configured for results data.")
-            msg_obj.nack(requeue=True)
-            logger.info("worker exiting. worker_id: {}".format(worker_id))
-            raise e
+
+        socket_host_path_dir = conf.worker_socket_host_path_dir
         socket_host_path = '{}.sock'.format(os.path.join(socket_host_path_dir, worker_id, execution_id))
         logger.info("Create socket at path: {}".format(socket_host_path))
         # add the socket as a mount:
@@ -328,14 +306,7 @@ def subscribe(tenant,
         # fifo_host_path_dir is equal to the fifo path in the worker container:
         fifo_host_path = None
         if content_type == 'application/octet-stream':
-            try:
-                fifo_host_path_dir = Config.get('workers', 'fifo_host_path_dir')
-            except (configparser.NoSectionError, configparser.NoOptionError) as e:
-                logger.error("No fifo_host_path configured. Cannot manage binary data.")
-                Actor.set_status(actor_id, ERROR, status_message="Abaco instance not configured for binary data. Nacking message.")
-                msg_obj.nack(requeue=True)
-                logger.info("worker exiting. worker_id: {}".format(worker_id))
-                raise e
+            fifo_host_path_dir = conf.worker_fifo_host_path_dir
             fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
             try:
                 os.mkfifo(fifo_host_path)
@@ -533,7 +504,7 @@ def get_container_user(actor):
     gid = actor.get('gid')
     logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
     if not uid:
-        if Config.get('workers', 'use_tas_uid') and not actor.get('use_container_uid'):
+        if conf.global_auth_object.get("use_tas_uid") and not actor.get('use_container_uid'):
             logger.warn('Warning - legacy actor running as image UID without use_container_uid!')
         user = None
     elif not gid:

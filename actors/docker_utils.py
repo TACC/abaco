@@ -1,4 +1,3 @@
-import configparser
 import json
 import os
 import socket
@@ -14,14 +13,14 @@ from agaveflask.logs import get_logger, get_log_file_strategy
 logger = get_logger(__name__)
 
 from channels import ExecutionResultsChannel
-from config import Config
+from common.config import conf
 from codes import BUSY, READY, RUNNING
 import globals
 from models import Execution, get_current_utc_time, display_time
 from stores import workers_store
 
 
-TAG = os.environ.get('TAG') or Config.get('general', 'TAG') or ''
+TAG = os.environ.get('TAG') or conf.version or ''
 if not TAG[0] == ':':
     TAG = ':{}'.format(TAG)
 AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
@@ -32,12 +31,12 @@ RESULTS_SOCKET_TIMEOUT = 0.1
 # max frame size, in bytes, for a single result
 MAX_RESULT_FRAME_SIZE = 131072
 
-max_run_time = int(Config.get('workers', 'max_run_time'))
+max_run_time = conf.worker_max_run_time
 
-dd = Config.get('docker', 'dd')
-host_id = os.environ.get('SPAWNER_HOST_ID', Config.get('spawner', 'host_id'))
-logger.debug("host_id: {}".format(host_id))
-host_ip = Config.get('spawner', 'host_ip')
+dd = conf.docker_dd
+host_id = os.environ.get('SPAWNER_HOST_ID', conf.spawner_host_id)
+logger.debug(f"host_id: {host_id}")
+host_ip = conf.spawner_host_ip
 
 
 class DockerError(Exception):
@@ -191,16 +190,16 @@ def run_container_with_docker(image,
                                      'ro': m.get('format') == 'ro'}
         volumes.append(m.get('host_path'))
 
-    # mount the abaco conf file. first we look for the environment variable, falling back to the value in Config.
+    # mount the abaco conf file. first we look for the environment variable, falling back to the value in conf.
     try:
         abaco_conf_host_path = os.environ.get('abaco_conf_host_path')
         if not abaco_conf_host_path:
-            abaco_conf_host_path = Config.get('spawner', 'abaco_conf_host_path')
+            abaco_conf_host_path = conf.spawner_abaco_conf_host_path
         logger.debug("docker_utils using abaco_conf_host_path={}".format(abaco_conf_host_path))
         # mount config file at the root of the container as r/o
         volumes.append('/service.conf')
         binds[abaco_conf_host_path] = {'bind': '/service.conf', 'ro': True}
-    except configparser.NoOptionError as e:
+    except AttributeError as e:
         # if we're here, it's bad. we don't have a config file. better to cut and run,
         msg = "Did not find the abaco_conf_host_path in Config. Exception: {}".format(e)
         logger.error(msg)
@@ -240,9 +239,8 @@ def run_container_with_docker(image,
     # mount the logs file.
     volumes.append('/var/log/service.log')
     # first check to see if the logs directory config was set:
-    try:
-        logs_host_dir = Config.get('logs', 'host_dir')
-    except (configparser.NoSectionError, configparser.NoOptionError):
+    logs_host_dir = conf.get("logs_host_dir") or None
+    if not logs_host_dir:
         # if the directory is not configured, default it to abaco_conf_host_path
         logs_host_dir = os.path.dirname(abaco_conf_host_path)
     binds['{}/{}'.format(logs_host_dir, log_file)] = {'bind': '/var/log/service.log', 'rw': True}
@@ -252,10 +250,7 @@ def run_container_with_docker(image,
 
     # add the container to a specific docker network, if configured
     netconf = None
-    try:
-        docker_network = Config.get('spawner', 'docker_network')
-    except Exception:
-        docker_network = None
+    docker_network = conf.spawner_docker_network
     if docker_network:
         netconf = cli.create_networking_config({docker_network: cli.create_endpoint_config()})
 
@@ -297,12 +292,8 @@ def run_worker(image,
         image, command))
 
     # mount the directory on the host for creating fifos
-    try:
-        fifo_host_path_dir = Config.get('workers', 'fifo_host_path_dir')
-        logger.info("Using fifo_host_path_dir: {}".format(fifo_host_path_dir))
-    except (configparser.NoSectionError, configparser.NoOptionError) as e:
-        logger.error("Got exception trying to look up fifo_host_path_dir. Setting to None. Exception: {}".format(e))
-        fifo_host_path_dir = None
+    fifo_host_path_dir = conf.worker_fifo_host_path_dir
+    logger.info("Using fifo_host_path_dir: {}".format(fifo_host_path_dir))
     if fifo_host_path_dir:
         mounts = [{'host_path': os.path.join(fifo_host_path_dir, worker_id),
                    'container_path': os.path.join(fifo_host_path_dir, worker_id),
@@ -311,12 +302,8 @@ def run_worker(image,
         mounts = []
 
     # mount the directory on the host for creating result sockets
-    try:
-        socket_host_path_dir = Config.get('workers', 'socket_host_path_dir')
-        logger.info("Using socket_host_path_dir: {}".format(socket_host_path_dir))
-    except (configparser.NoSectionError, configparser.NoOptionError) as e:
-        logger.error("Got exception trying to look up fifo_host_path_dir. Setting to None. Exception: {}".format(e))
-        socket_host_path_dir = None
+    socket_host_path_dir = conf.worker_socket_host_path_dir
+    logger.info(f"Using socket_host_path_dir: {socket_host_path_dir}")
     if socket_host_path_dir:
         mounts.append({'host_path': os.path.join(socket_host_path_dir, worker_id),
                        'container_path': os.path.join(socket_host_path_dir, worker_id),
@@ -324,18 +311,7 @@ def run_worker(image,
 
     logger.info("Final fifo_host_path_dir: {}; socket_host_path_dir: {}".format(fifo_host_path_dir,
                                                                                 socket_host_path_dir))
-    try:
-        auto_remove = Config.get('workers', 'auto_remove')
-    except (configparser.NoSectionError, configparser.NoOptionError) as e:
-        logger.debug("no auto_remove in the workers stanza.")
-        auto_remove = True
-    if hasattr(auto_remove, 'lower'):
-        if auto_remove.lower() == 'false':
-            auto_remove = False
-        else:
-            auto_remove = True
-    elif not auto_remove == True:
-        auto_remove = False
+    auto_remove = conf.worker_auto_remove
     container = run_container_with_docker(
         image=AE_IMAGE,
         command=command,

@@ -1,25 +1,8 @@
 """Set up the loggers for the Abaco system."""
 
 import logging
-import configparser
 
-from config import Config
-
-# possible log levels
-LEVELS = ('CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG',)
-
-# default log file to be used when using the the combined strategy
-LOG_FILE = '/var/log/abaco.log'
-
-# default log level
-LEVEL = 'INFO'
-
-# log strategies that can be used. with combined, all logs go to one file; with split,
-# each abaco agent has its own log file.
-LOG_FILE_STRATEGIES = ('split', 'combined')
-
-# default log strategy
-LOG_FILE_STRATEGY_DEFAULT = 'combined'
+from common.config import conf
 
 def get_log_file_strategy():
     """
@@ -27,33 +10,13 @@ def get_log_file_strategy():
     The string "combined" means the logs should be written to a single file, abaco.log, while the string
     "split" means the logs should be split to different files, depending on the Abaco agent.
     """
-    try:
-        strategy = Config.get('logs', 'files')
-    except (configparser.NoSectionError, configparser.NoOptionError):
-        # default to collecting all logs to a single file
-        strategy = LOG_FILE_STRATEGY_DEFAULT
-    if strategy.lower() not in LOG_FILE_STRATEGIES:
-        return LOG_FILE_STRATEGY_DEFAULT
+    strategy = conf.logs_filing_strategy
     return strategy.lower()
-
 
 def get_module_log_level(name):
     """Reads config file for a log level set for this module."""
-    try:
-        log_level = Config.get('logs', 'level.{}'.format(name))
-    except configparser.NoSectionError:
-        # if the logs section doesn't exist, use default
-        return LEVEL
-    except configparser.NoOptionError:
-        # if the module doesn't have a specific level, see of there is a global config:
-        try:
-            log_level = Config.get('logs', 'level')
-        except configparser.NoOptionError:
-            return LEVEL
-    if log_level.upper() in LEVELS:
-        return log_level
-    else:
-        return LEVEL
+    log_level = conf.get(f"log_level_{name}") or conf.log_level_global
+    return log_level
 
 def get_log_file(name):
     """
@@ -64,17 +27,7 @@ def get_log_file(name):
     Note: These paths refer to container paths, and the files must already exist. Since separate host files can be
     mounted to the container, it it likely that this configuration is not needed.
     """
-    try:
-        log_file = Config.get('logs', 'file.{}'.format(name))
-    except configparser.NoSectionError:
-        # if the logs section doesn't exist, return the default
-        return LOG_FILE
-    except configparser.NoOptionError:
-        # if the module doesn't have a specific file, check for a global config:
-        try:
-            log_file = Config.get('logs', 'file')
-        except configparser.NoOptionError:
-            return LOG_FILE
+    log_file = conf.get(f"log_file_{name}") or conf.log_file_global
     return log_file
 
 
