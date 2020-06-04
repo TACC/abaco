@@ -21,7 +21,7 @@
     },
     "show_traceback": {
       "type": "boolean",
-      "description": "Whether to show a full traceback when an exception occurs; should be false in production.",
+      "description": "WEB AND DEFAULT EXISTS>>>>>>>>>>>>>>>>>>>>>>>>>>> Whether to show a full traceback when an exception occurs; should be false in production.",
       "default": false
     },
     "version": {
@@ -100,33 +100,34 @@
         "dev"
       ]
     },
+
     "dev_iss": {
       "type": "string",
       "description": "The URL to use for the 'iss' claim in dev mode. NOTE: This should NOT be used in production",
       "default": "https://dev.api.tapis.io/v3/tokens"
     },
-    "log_level_global": {
+    "log_level": {
       "type": "string",
       "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
       "default": "INFO",
       "description": "The global logging level to use for the service."
     },
-    "log_level_worker": {
+    "worker_log_level": {
       "type": "string",
       "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
       "description": "The logging level to use for the worker module."
     },
-    "log_level_docker_utils": {
+    "docker_utils_log_level": {
       "type": "string",
       "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
       "description": "The logging level to use for the docker_utils module."
     },
-    "log_level_spawner": {
+    "spawner_log_level": {
       "type": "string",
       "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
       "description": "The logging level to use for the spawner module."
     },
-    "log_level_controllers": {
+    "controllers_log_level": {
       "type": "string",
       "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
       "description": "The logging level to use for the controllers module."
@@ -338,13 +339,16 @@
       "properties": {
         "use_tas_uid": {
           "type": "boolean",
+          "description": "Whether or not to use tas for authentication.",
           "default": false
         },
         "actor_uid": {
-          "type": "integer"
+          "type": "integer",
+          "description": "If using uid and gid, what uid globally should be set as."
         },
         "actor_gid": {
-          "type": "integer"
+          "type": "integer",
+          "description": "If using uid and gid, what gid globally should be set as."
         },
         "default_token": {
           "type": "boolean",
@@ -353,13 +357,16 @@
         },
         "generate_clients": {
           "type": "boolean",
+          "description": "Whether or not to generate clients when creating workers.",
           "default": false
         },
         "actor_homedir":{
-          "type":"string"
+          "type":"string",
+          "description": "Allows for specification regarding an actors homedir to use."
         },
         "global_mounts": {
           "type": "array",
+          "description": "Global mounts.",
           "items": {
             "type": "string"
           },    
@@ -422,29 +429,35 @@
       "additionalProperties": false,
       "properties": {
         "use_tas_uid": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether or not to use tas for authentication for tenant."
         },
         "actor_uid": {
-          "type": "integer"
+          "type": "integer",
+          "description": "If using uid and gid, what uid by tenant should be set as."
         },
         "actor_gid": {
-          "type": "integer"
+          "type": "integer",
+          "description": "If using uid and gid, what gid by tenant should be set as."
         },
         "default_token": {
           "type": "boolean",
-          "description": "Default value for an actor's token attribute. Set by tenant."
+          "description": "Default value for an actor's token attribute. Set per tenant."
         },
         "generate_clients": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether or not to generate clients when creating workers for this tenant."
         },
         "actor_homedir":{
-          "type":"string"
+          "type":"string",
+          "description": "Allows for specification regarding an actors homedir to use for this tenant."
         },
         "global_mounts": {
           "type": "array",
+          "description": "Global mounts for this tenant.",
           "items": {
             "type": "string"
-          }    
+          }
         }
       },
       "oneOf": [
@@ -496,7 +509,7 @@
   "required":[
     "service_name",
     "version",
-    "log_level.global",
+    "log_level",
     "store_mongo_host",
     "store_mongo_port",
     "rabbit_uri",
