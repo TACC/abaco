@@ -9,7 +9,7 @@ import docker
 from requests.packages.urllib3.exceptions import ReadTimeoutError
 from requests.exceptions import ReadTimeout, ConnectionError
 
-from agaveflask.logs import get_logger, get_log_file_strategy
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 from channels import ExecutionResultsChannel
@@ -71,7 +71,7 @@ def pull_image(image):
     :param actor_id:
     :return:
     """
-    logger.debug("top of pull_image()")
+    logger.debug(f"top of pull_image(), dd: {dd}")
     cli = docker.APIClient(base_url=dd, version="auto")
     try:
         rsp = cli.pull(repository=image)
@@ -231,19 +231,19 @@ def run_container_with_docker(image,
 
     # if not passed, determine what log file to use
     if not log_file:
-        if get_log_file_strategy() == 'split':
+        if conf.log_filing_strategy == 'split':
             log_file = 'worker.log'
         else:
             log_file = 'abaco.log'
 
     # mount the logs file.
-    volumes.append('/var/log/service.log')
+    volumes.append('/home/tapis/runtime_files/logs/service.log')
     # first check to see if the logs directory config was set:
     logs_host_dir = conf.get("logs_host_dir") or None
     if not logs_host_dir:
         # if the directory is not configured, default it to abaco_conf_host_path
         logs_host_dir = os.path.dirname(abaco_conf_host_path)
-    binds['{}/{}'.format(logs_host_dir, log_file)] = {'bind': '/var/log/service.log', 'rw': True}
+    binds['{}/{}'.format(logs_host_dir, log_file)] = {'bind': '/home/tapis/runtime_files/logs/service.log', 'rw': True}
 
     host_config = cli.create_host_config(binds=binds, auto_remove=auto_remove)
     logger.debug("binds: {}".format(binds))

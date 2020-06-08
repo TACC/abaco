@@ -16,7 +16,7 @@ from stores import actors_store, workers_store
 from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from health import get_worker
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 MAX_WORKERS = conf.spawner_max_workers_per_host

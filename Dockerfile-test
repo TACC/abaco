@@ -17,14 +17,16 @@ COPY configschema.json /home/tapis/configschema.json
 COPY config-local.json /home/tapis/config.json
 
 # create abaco.log file for logs
-RUN touch /var/log/abaco.log
+RUN mkdir -p /home/tapis/runtime_files/logs /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files
+# create abaco.log file for logs
+RUN touch /home/tapis/runtime_files/logs/service.log
 
 COPY actors /home/tapis/actors
 RUN chmod +x /home/tapis/actors/health_check.sh
 COPY tests /home/tapis/tests
 RUN chmod +x /home/tapis/tests/entry.sh
 
-RUN chown -R tapis:tapis /home/tapis /var/log
+RUN chown -R tapis:tapis /home/tapis
 USER tapis
 ENV PYTHONPATH .:*:actors:actors/*
 CMD ["./tests/entry.sh"]

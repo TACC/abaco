@@ -8,6 +8,6 @@ sleep 30 #120
 # main loop runs every 10 minutes/20 seconds
 while :
 do
-    python3 -u /actors/health.py
+    python3 -u /home/tapis/actors/health.py
     sleep 600  #20
 done

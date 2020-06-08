@@ -1,7 +1,7 @@
 import requests
 import datetime
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 from stores import actors_store
 
 logger = get_logger(__name__)

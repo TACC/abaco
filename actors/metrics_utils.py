@@ -10,7 +10,7 @@ from worker import shutdown_workers, shutdown_worker
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 message_gauges = {}

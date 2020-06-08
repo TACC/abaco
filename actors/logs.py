@@ -10,12 +10,12 @@ def get_log_file_strategy():
     The string "combined" means the logs should be written to a single file, abaco.log, while the string
     "split" means the logs should be split to different files, depending on the Abaco agent.
     """
-    strategy = conf.logs_filing_strategy
+    strategy = conf.log_filing_strategy
     return strategy.lower()
 
 def get_module_log_level(name):
     """Reads config file for a log level set for this module."""
-    log_level = conf.get(f"log_level_{name}") or conf.log_level_global
+    log_level = conf.get(f"log_level_{name}") or conf.log_level
     return log_level
 
 def get_log_file(name):
@@ -27,7 +27,7 @@ def get_log_file(name):
     Note: These paths refer to container paths, and the files must already exist. Since separate host files can be
     mounted to the container, it it likely that this configuration is not needed.
     """
-    log_file = conf.get(f"log_file_{name}") or conf.log_file_global
+    log_file = conf.get(f"log_file_{name}") or conf.log_file
     return log_file
 
 

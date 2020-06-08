@@ -24,7 +24,7 @@ from models import Execution
 from stores import actors_store
 
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 def process_event_msg(msg):

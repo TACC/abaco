@@ -59,7 +59,7 @@ services:
             - "5000:5000"
         volumes:
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
             api: reg
             server: gunicorn
@@ -75,7 +75,7 @@ services:
         image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
             - "5001:5000"
         environment:
@@ -94,7 +94,7 @@ services:
         image: abaco/core:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
             - "5003:5000"
         environment:
@@ -114,7 +114,7 @@ services:
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             _abaco_secret: 123
@@ -133,7 +133,7 @@ services:
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
 
         environment:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
@@ -154,12 +154,12 @@ services:
 
     health:
         image: abaco/core:$TAG
-        command: /actors/health_check.sh
+        command: /home/tapis/actors/health_check.sh
         volumes:
             - /:/host
             - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
             mongo_password:
@@ -181,7 +181,7 @@ services:
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
 
         environment:
             abaco_conf_host_path: ${abaco_path}/local-dev.conf
@@ -241,7 +241,7 @@ services:
             - abaco
         volumes:
             - ./local-dev.conf:/etc/service.conf
-            - ./abaco.log:/var/log/service.log
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
             - "5004:5000"
         environment:

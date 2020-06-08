@@ -19,7 +19,7 @@ import globals
 from models import Actor, Execution, Worker
 from stores import actors_store, workers_store
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 # keep_running will be updated by the thread listening on the worker channel when a graceful shutdown is

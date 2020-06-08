@@ -15,7 +15,7 @@ from models import Actor, Client, Worker
 from errors import ClientException, WorkerException
 from stores import actors_store, clients_store
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 

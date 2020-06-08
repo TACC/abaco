@@ -10,7 +10,7 @@ import redis
 from pymongo.errors import WriteError, DuplicateKeyError
 from pymongo import MongoClient
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 def _do_get(getter, key):

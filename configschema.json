@@ -100,12 +100,12 @@
         "dev"
       ]
     },
-
     "dev_iss": {
       "type": "string",
       "description": "The URL to use for the 'iss' claim in dev mode. NOTE: This should NOT be used in production",
       "default": "https://dev.api.tapis.io/v3/tokens"
     },
+
     "log_level": {
       "type": "string",
       "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
@@ -135,27 +135,23 @@
     "log_file_global": {
       "type": "string",
       "description": "File path to write logs for all modules. Must already exist.",
-      "default": "/var/log/abaco.log"
+      "default": "/home/tapis/logs/abaco.log"
     },
     "log_file_worker": {
       "type": "string",
-      "description": "File path to write logs for worker module. Must already exist.",
-      "default": "/var/log/abaco.log"
+      "description": "File path to write logs for worker module. Must already exist."
     },
     "log_file_docker_utils": {
       "type": "string",
-      "description": "File path to write logs for docker_utils module. Must already exist.",
-      "default": "/var/log/abaco.log"
+      "description": "File path to write logs for docker_utils module. Must already exist."
     },
     "log_file_spawner": {
       "type": "string",
-      "description": "File path to write logs for spawner module. Must already exist.",
-      "default": "/var/log/abaco.log"
+      "description": "File path to write logs for spawner module. Must already exist."
     },
     "log_file_controllers": {
       "type": "string",
-      "description": "File path to write logs for controllers module. Must already exist.",
-      "default": "/var/log/abaco.log"
+      "description": "File path to write logs for controllers module. Must already exist."
     },
     "log_filing_strategy": {
       "type": "string",
@@ -185,8 +181,7 @@
     },
     "spawner_host_id": {
       "type": "integer",
-      "description": "Unique host_id for worker host. Each host should have at least one spawner and health check worker.",
-      "default": 0
+      "description": "Unique host_id for worker host. Each host should have at least one spawner and health check worker."
     },
     "spawner_host_queues": {
       "type": "array",
@@ -203,13 +198,11 @@
     },
     "spawner_max_workers_per_host": {
       "type": "integer",
-      "description": "Maximum number of workers that are allowed to simultaneously be running on a given compute host.",
-      "default": 75
+      "description": "Maximum number of workers that are allowed to simultaneously be running on a given compute host."
     },
     "spawner_max_workers_per_actor": {
       "type": "integer",
-      "description": "Maximum number of workers that a given actor can have at one time.",
-      "default": 6
+      "description": "Maximum number of workers that a given actor can have at one time."
     },
     "spawner_docker_network": {
       "type": "string",
@@ -369,11 +362,7 @@
           "description": "Global mounts.",
           "items": {
             "type": "string"
-          },    
-          "default": [
-            "/data1:/_abaco_data1:ro",
-            "/data2/{tenant_id}/{username}:/_abaco_data2:rw"    
-          ]
+          }
         }
       },
       "oneOf": [

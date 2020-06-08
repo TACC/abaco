@@ -2,7 +2,7 @@
 
 from common.config import conf
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 

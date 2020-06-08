@@ -20,7 +20,7 @@ from errors import DAOError, ResourceError, PermissionsException, WorkerExceptio
 from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
     permissions_store, workers_store, abaco_metrics_store
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 

@@ -3,7 +3,7 @@ import json
 from flask import g, request, render_template
 import requests
 
-from agaveflask.logs import get_logger
+from common.logs import get_logger
 logger = get_logger(__name__)
 
 from models import dict_to_camel, display_time
