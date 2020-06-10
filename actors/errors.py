@@ -1,32 +1,32 @@
 """All exceptions thrown by the Abaco system"""
 import os
-from agaveflask.errors import BaseAgaveflaskError
+from common.errors import BaseTapisError
 
 from common.config import conf
 
 TAG = os.environ.get('service_TAG') or conf.version
 
-class DAOError(BaseAgaveflaskError):
+class DAOError(BaseTapisError):
     pass
 
 
-class ResourceError(BaseAgaveflaskError):
+class ResourceError(BaseTapisError):
     pass
 
 
-class WorkerException(BaseAgaveflaskError):
+class WorkerException(BaseTapisError):
     pass
 
 
-class ExecutionException(BaseAgaveflaskError):
+class ExecutionException(BaseTapisError):
     pass
 
 
-class PermissionsException(BaseAgaveflaskError):
+class PermissionsException(BaseTapisError):
     pass
 
 
-class ClientException(BaseAgaveflaskError):
+class ClientException(BaseTapisError):
     pass
 
 errors = {

@@ -2,7 +2,9 @@ from flask import Flask, render_template
 from flask_cors import CORS
 from prometheus_client import Summary, MetricsHandler, Counter
 
-from agaveflask.utils import AgaveApi, handle_error
+from agaveflask.utils import AgaveApi
+from common.utils import handle_error
+
 
 from controllers import MetricsResource
 

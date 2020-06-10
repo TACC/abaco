@@ -55,7 +55,7 @@ paths:
         schema:
           type: integer
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -78,7 +78,7 @@ paths:
             schema:
               $ref: '#/components/schemas/NewActor'
       responses:
-        201:
+        '201':
           description: Created
           content:
             application/json:
@@ -104,7 +104,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -134,7 +134,7 @@ paths:
             schema:
               $ref: '#/components/schemas/NewActor'
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -159,7 +159,7 @@ paths:
           type: string
 
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -189,7 +189,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -235,7 +235,7 @@ paths:
               $ref: '#/components/schemas/Message'
 
       responses:
-        200:
+        '200':
           description: Message receieved
           content:
             application/json:
@@ -268,7 +268,7 @@ paths:
           type: string
 
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -313,7 +313,7 @@ paths:
         schema:
           type: integer
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -341,7 +341,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -374,7 +374,7 @@ paths:
               $ref: '#/components/schemas/NewActorNonce'
 
       responses:
-        200:
+        '200':
           description: Request successful
           content:
             application/json:
@@ -408,7 +408,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -439,7 +439,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -469,7 +469,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -504,7 +504,7 @@ paths:
               description: An arbitrary JSON-serializable object.
 
       responses:
-        200:
+        '200':
           description: Request successful
           content:
             application/json:
@@ -537,7 +537,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -585,7 +585,7 @@ paths:
         schema:
           type: integer
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -613,7 +613,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -645,7 +645,7 @@ paths:
               $ref: '#/components/schemas/ActorPermission'
 
       responses:
-        200:
+        '200':
           description: Request successful
           content:
             application/json:
@@ -688,7 +688,7 @@ paths:
         schema:
           type: integer
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -726,7 +726,7 @@ paths:
                   description: Ensures the size of the pool is at least this number.
 
       responses:
-        200:
+        '200':
           description: Request successful
           content:
             application/json:
@@ -764,7 +764,7 @@ paths:
         schema:
           type: integer
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -788,7 +788,7 @@ paths:
             schema:
               $ref: '#/components/schemas/NewAlias'
       responses:
-        201:
+        '201':
           description: Created
           content:
             application/json:
@@ -815,7 +815,7 @@ paths:
         schema:
           type: string
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -846,7 +846,7 @@ paths:
             schema:
               $ref: '#/components/schemas/NewAlias'
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -872,7 +872,7 @@ paths:
           type: string
 
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:
@@ -920,7 +920,7 @@ paths:
         schema:
           type: integer
       responses:
-        200:
+        '200':
           description: OK
           content:
             application/json:

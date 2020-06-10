@@ -17,9 +17,10 @@ COPY configschema.json /home/tapis/configschema.json
 COPY config-local.json /home/tapis/config.json
 
 # create abaco.log file for logs
-RUN mkdir -p /home/tapis/runtime_files/logs /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files
+RUN mkdir -p /home/tapis/service/resources /home/tapis/runtime_files/logs /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files
 # create abaco.log file for logs
 RUN touch /home/tapis/runtime_files/logs/service.log
+COPY docs/specs/openapi_v3.yml /home/tapis/service/resources/openapi_v3.yml
 
 COPY actors /home/tapis/actors
 RUN chmod +x /home/tapis/actors/health_check.sh

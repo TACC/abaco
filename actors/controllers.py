@@ -10,7 +10,7 @@ from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 from flask import g, request, render_template, make_response, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
-from agaveflask.utils import RequestParser, ok
+from common.utils import RequestParser, ok
 
 from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel

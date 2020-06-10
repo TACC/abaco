@@ -9,7 +9,7 @@ import time
 from flask_restful import inputs
 from hashids import Hashids
 
-from agaveflask.utils import RequestParser
+from common.utils import RequestParser
 
 from channels import CommandChannel, EventsChannel
 from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
