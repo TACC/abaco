@@ -4,59 +4,6 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "log_level": {
-      "type": "string",
-      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
-      "default": "INFO",
-      "description": "The global logging level to use for the service."
-    },
-    "worker_log_level": {
-      "type": "string",
-      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
-      "description": "The logging level to use for the worker module."
-    },
-    "docker_utils_log_level": {
-      "type": "string",
-      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
-      "description": "The logging level to use for the docker_utils module."
-    },
-    "spawner_log_level": {
-      "type": "string",
-      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
-      "description": "The logging level to use for the spawner module."
-    },
-    "controllers_log_level": {
-      "type": "string",
-      "pattern": "DEBUG|INFO|WARN|ERROR|CRITICAL",
-      "description": "The logging level to use for the controllers module."
-    },
-    "log_file_global": {
-      "type": "string",
-      "description": "File path to write logs for all modules. Must already exist.",
-      "default": "/home/tapis/logs/abaco.log"
-    },
-    "log_file_worker": {
-      "type": "string",
-      "description": "File path to write logs for worker module. Must already exist."
-    },
-    "log_file_docker_utils": {
-      "type": "string",
-      "description": "File path to write logs for docker_utils module. Must already exist."
-    },
-    "log_file_spawner": {
-      "type": "string",
-      "description": "File path to write logs for spawner module. Must already exist."
-    },
-    "log_file_controllers": {
-      "type": "string",
-      "description": "File path to write logs for controllers module. Must already exist."
-    },
-    "log_filing_strategy": {
-      "type": "string",
-      "pattern": "split|combined",
-      "description": "Log file strategy. Either all to one file (combined) or to split files (split).",
-      "default": "combined"
-    },
     "store_mongo_host": {
       "type": "string",
       "description": "The url for the mongo instance."
