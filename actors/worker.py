@@ -569,6 +569,8 @@ if __name__ == '__main__':
 
     # call the main() function:
     try:
+        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files/_abaco_fifos')
+        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files/_abaco_results_sockets')
         main()
     except Exception as e:
         try:
