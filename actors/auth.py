@@ -10,8 +10,7 @@ from flask import g, request
 import jwt
 import requests
 
-from agaveflask.auth import get_api_server
-from common.auth import authn_and_authz as flaskbase_az
+from agaveflask.auth import authn_and_authz as agaveflask_az, get_api_server
 from common.logs import get_logger
 logger = get_logger(__name__)
 
@@ -52,15 +51,11 @@ def authn_and_authz():
         auth.authn_and_authz()
 
     """
-    logger.debug("HEY")
     if conf.web_accept_nonce:
-        logger.debug("1")
-        flaskbase_az(check_nonce, authorization)
+        agaveflask_az(check_nonce, authorization)
     else:
-        # we use the flaskbase authn_and_authz function, passing in our authorization callback.
-        logger.debug("2")
-        flaskbase_az(authorization)
-    logger.debug(f"G: {g}")
+        # we use the agaveflask authn_and_authz function, passing in our authorization callback.
+        agaveflask_az(authorization)
 
 def required_level(request):
     """Returns the required permission level for the request."""
@@ -103,8 +98,8 @@ def check_nonce():
     logger.debug("checking nonce with id: {}".format(nonce_id))
     # the nonce encodes the tenant in its id:
     g.tenant = Nonce.get_tenant_from_nonce_id(nonce_id)
-    g.base_url = get_api_server(g.tenant)
-    logger.debug("tenant associated with nonce: {}; api_server assoicated with nonce: {}".format(g.tenant, g.base_url))
+    g.api_server = get_api_server(g.tenant)
+    logger.debug("tenant associated with nonce: {}; api_server assoicated with nonce: {}".format(g.tenant, g.api_server))
     # get the actor_id base on the request path
     actor_id, actor_identifier = get_db_id()
     logger.debug("db_id: {}; actor_identifier: {}".format(actor_id, actor_identifier))
@@ -123,7 +118,7 @@ def check_nonce():
         nonce = Nonce.get_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id)
     else:
         nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
-    g.username = nonce.owner
+    g.user = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = nonce.roles
     # now, manually call our authorization function:
@@ -235,32 +230,32 @@ def authorization():
         if 'nonce' in request.url_rule.rule:
             noun = 'alias and actor'
             # logger.debug("checking user {} has permissions for "
-            #              "alias: {} and actor: {}".format(g.username, alias_id, db_id))
+            #              "alias: {} and actor: {}".format(g.user, alias_id, db_id))
             if request.method == 'GET':
                 # GET requests require READ access
 
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
-                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.READ)
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.READ)
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
-                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
+                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
 
         # otherwise, this is a request to manage the alias itself; only requires permissions on the alias
         else:
             if request.method == 'GET':
                 # GET requests require READ access
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
                 # all other requests require UPDATE access
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
     else:
         # all other checks are based on actor-id:
         noun = 'actor'
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.READ)
+            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.READ)
         elif request.method == 'DELETE':
-            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
         else:
             logger.debug("URL rule in request: {}".format(request.url_rule.rule))
             # first, only admins can create/update actors to be privileged, so check that:
@@ -271,10 +266,10 @@ def authorization():
                     raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
                 # POST to the messages endpoint requires EXECUTE
                 if 'messages' in request.url_rule.rule:
-                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)
+                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.EXECUTE)
                 # otherwise, we require UPDATE
                 else:
-                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
     if not has_pem:
         logger.info("NOT allowing request.")
         raise PermissionsException("Not authorized -- you do not have access to this {}.".format(noun))

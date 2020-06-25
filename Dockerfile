@@ -23,6 +23,8 @@ COPY actors /actors
 
 RUN mkdir -p /home/tapis/service/resources /home/tapis/runtime_files/logs /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files
 # create abaco.log file for logs
+RUN touch /home/tapis/runtime_files/logs/service.log
+
 COPY docs/specs/openapi_v3.yml /home/tapis/service/resources/openapi_v3.yml
 
 # todo -- add/remove to toggle between local channelpy and github instance
