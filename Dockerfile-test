@@ -2,7 +2,8 @@
 # Image: abaco/testsuite
 
 # inherit from the flaskbase iamge:
-from tapis/flaskbase
+#from tapis/flaskbase
+from notchristiangarcia/flaskbase
 
 RUN apt-get install python3-dev g++ -y
 

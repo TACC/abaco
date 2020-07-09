@@ -10,7 +10,9 @@ from flask import g, request
 import jwt
 import requests
 
-from agaveflask.auth import authn_and_authz as agaveflask_az, get_api_server
+from __init__ import t
+from agaveflask.auth import get_api_server
+from common.auth import Tenants, authn_and_authz as flaskbase_az
 from common.logs import get_logger
 logger = get_logger(__name__)
 
@@ -51,11 +53,12 @@ def authn_and_authz():
         auth.authn_and_authz()
 
     """
+    tenants = Tenants()
     if conf.web_accept_nonce:
-        agaveflask_az(check_nonce, authorization)
+        flaskbase_az(tenants, check_nonce, authorization)
     else:
-        # we use the agaveflask authn_and_authz function, passing in our authorization callback.
-        agaveflask_az(authorization)
+        # we use the flaskbase authn_and_authz function, passing in our authorization callback.
+        flaskbase_az(tenants, authorization)
 
 def required_level(request):
     """Returns the required permission level for the request."""
@@ -97,9 +100,9 @@ def check_nonce():
         raise PermissionsException("No JWT or nonce provided.")
     logger.debug("checking nonce with id: {}".format(nonce_id))
     # the nonce encodes the tenant in its id:
-    g.tenant = Nonce.get_tenant_from_nonce_id(nonce_id)
-    g.api_server = get_api_server(g.tenant)
-    logger.debug("tenant associated with nonce: {}; api_server assoicated with nonce: {}".format(g.tenant, g.api_server))
+    g.tenant_id = Nonce.get_tenant_from_nonce_id(nonce_id)
+    g.api_server = get_api_server(g.tenant_id)
+    logger.debug("tenant associated with nonce: {}; api_server assoicated with nonce: {}".format(g.tenant_id, g.api_server))
     # get the actor_id base on the request path
     actor_id, actor_identifier = get_db_id()
     logger.debug("db_id: {}; actor_identifier: {}".format(actor_id, actor_identifier))
@@ -110,7 +113,7 @@ def check_nonce():
     if is_hashid(actor_identifier):
         Nonce.check_and_redeem_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id, level=level)
     else:
-        alias_id = Alias.generate_alias_id(tenant=g.tenant, alias=actor_identifier)
+        alias_id = Alias.generate_alias_id(tenant=g.tenant_id, alias=actor_identifier)
         Nonce.check_and_redeem_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id, level=level)
     # if we were able to redeem the nonce, update auth context with the actor owner data:
     logger.debug("nonce valid and redeemed.")
@@ -118,14 +121,23 @@ def check_nonce():
         nonce = Nonce.get_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id)
     else:
         nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
-    g.user = nonce.owner
+    g.username = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = nonce.roles
     # now, manually call our authorization function:
     authorization()
 
+def get_user_sk_roles():
+    """
+    """
+    roles_obj = t.sk.getUserRoles(tenant='dev', user=t.username)
+    roles_str = str(roles_obj).replace("\nnames: [", "").replace("]", "")
+    roles_array = roles_str.replace("'", "").split(", ")
+    g.roles = roles_array
+
 def authorization():
-    """This is the agaveflask authorization callback and implements the main Abaco authorization
+    """
+    This is the agaveflask authorization callback and implements the main Abaco authorization
     logic. This function is called by agaveflask after all authentication processing and initial
     authorization logic has run.
     """
@@ -160,21 +172,19 @@ def authorization():
     g.db_id = db_id
     logger.debug("db_id: {}".format(db_id))
 
+    g.api_server = conf.service_tenant_base_url
+
     g.admin = False
     if request.method == 'OPTIONS':
         # allow all users to make OPTIONS requests
         logger.info("Allowing request because of OPTIONS method.")
         return True
 
-    # the 'ALL' role is a role set by agaveflask in case the access_control_type is None
-    if codes.ALL_ROLE in g.roles:
-        g.admin = True
-        logger.info("Allowing request because of ALL role.")
-        return True
+    get_user_sk_roles()
 
     # there is a bug in wso2 that causes the roles claim to sometimes be missing; this should never happen:
-    if not g.roles:
-        g.roles = ['Internal/everyone']
+    #if not g.roles:
+    #    g.roles = ['Internal/everyone']
 
     # all other requests require some kind of abaco role:
     if set(g.roles).isdisjoint(codes.roles):
@@ -230,32 +240,32 @@ def authorization():
         if 'nonce' in request.url_rule.rule:
             noun = 'alias and actor'
             # logger.debug("checking user {} has permissions for "
-            #              "alias: {} and actor: {}".format(g.user, alias_id, db_id))
+            #              "alias: {} and actor: {}".format(g.username, alias_id, db_id))
             if request.method == 'GET':
                 # GET requests require READ access
 
-                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
-                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.READ)
+                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
+                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.READ)
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
-                has_pem = has_pem and check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
+                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
 
         # otherwise, this is a request to manage the alias itself; only requires permissions on the alias
         else:
             if request.method == 'GET':
                 # GET requests require READ access
-                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.READ)
+                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
                 # all other requests require UPDATE access
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.user, identifier=alias_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
     else:
         # all other checks are based on actor-id:
         noun = 'actor'
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.READ)
+            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.READ)
         elif request.method == 'DELETE':
-            has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
+            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
         else:
             logger.debug("URL rule in request: {}".format(request.url_rule.rule))
             # first, only admins can create/update actors to be privileged, so check that:
@@ -266,10 +276,10 @@ def authorization():
                     raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
                 # POST to the messages endpoint requires EXECUTE
                 if 'messages' in request.url_rule.rule:
-                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.EXECUTE)
+                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)
                 # otherwise, we require UPDATE
                 else:
-                    has_pem = check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE)
+                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
     if not has_pem:
         logger.info("NOT allowing request.")
         raise PermissionsException("Not authorized -- you do not have access to this {}.".format(noun))
@@ -373,11 +383,11 @@ def get_db_id():
         actor_identifier = path_split[idx]
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
-    logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant))
+    logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant_id))
     if actor_identifier == 'search':
         raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
-        actor_id = Actor.get_actor_id(g.tenant, actor_identifier)
+        actor_id = Actor.get_actor_id(g.tenant_id, actor_identifier)
     except KeyError:
         logger.info("Unrecognized actor_identifier: {}. Actor not found".format(actor_identifier))
         raise ResourceError("Actor with identifier '{}' not found".format(actor_identifier), 404)
@@ -387,7 +397,7 @@ def get_db_id():
         logger.error(msg)
         raise ResourceError(msg)
     logger.debug("actor_id: {}".format(actor_id))
-    return Actor.get_dbid(g.tenant, actor_id), actor_identifier
+    return Actor.get_dbid(g.tenant_id, actor_id), actor_identifier
 
 def get_alias_id():
     """Get the alias from the request path."""
@@ -397,7 +407,7 @@ def get_alias_id():
         raise PermissionsException("Not authorized.")
     alias = path_split[3]
     logger.debug("alias: {}".format(alias))
-    return Alias.generate_alias_id(g.tenant, alias)
+    return Alias.generate_alias_id(g.tenant_id, alias)
 
 def get_tenant_verify(tenant):
     """Return whether to turn on SSL verification."""
@@ -568,9 +578,9 @@ def get_token_default():
     Returns the default token attribute based on the tenant and instance configs.
     """
 
-    tenant_auth_object = conf.get(f"{g.tenant}_auth_object") or {}
+    tenant_auth_object = conf.get(f"{g.tenant_id}_auth_object") or {}
     default_token = tenant_auth_object.get("default_token") or conf.global_auth_object.get("default_token")
-    logger.debug(f"got default_token: {default_token}. Either for {g.tenant} or global.")
+    logger.debug(f"got default_token: {default_token}. Either for {g.tenant_id} or global.")
     ## We have to stringify the boolean as it's listed with results and it would require a database change.
     if default_token:
         default_token = 'true'

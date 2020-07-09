@@ -2,7 +2,8 @@
 # Image: abaco/core
 
 # inherit from the flaskbase iamge:
-from tapis/flaskbase
+#from tapis/flaskbase
+from notchristiangarcia/flaskbase
 
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api

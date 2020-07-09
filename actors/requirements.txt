@@ -5,7 +5,7 @@
 -e git+https://github.com/NotChristianGarcia/agaveflaskquickfix#egg=agaveflask
 
 -e git://github.com/TACC/channelpy.git#egg=channelpy
--e git://github.com/NotChristianGarcia/python-sdk#egg=tapylib
+
 Werkzeug==0.16.1
 flask==0.12.2
 Flask-RESTful==0.3.6
