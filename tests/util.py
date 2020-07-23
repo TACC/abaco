@@ -4,6 +4,8 @@ import os
 import pytest
 import requests
 import time
+from common.auth import get_service_tapy_client
+from common.config import conf
 
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
 case = os.environ.get('case', 'snake')
@@ -11,7 +13,9 @@ case = os.environ.get('case', 'snake')
 
 @pytest.fixture(scope='session')
 def headers():
-    return get_jwt_headers()
+    t = get_service_tapy_client(tenant_id=conf.service_tenant_id, base_url=conf.service_tenant_base_url)
+    header_dat = {"X-Tapis-Token": t.access_token.access_token}
+    return header_dat
 
 def priv_headers():
     return get_jwt_headers('/home/tapis/tests/jwt-abaco_privileged')

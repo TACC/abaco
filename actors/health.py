@@ -23,8 +23,8 @@ import codes
 from common.config import conf
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
 from models import Actor, Worker, is_hashid
-from channels import ClientsChannel, CommandChannel, WorkerChannel
-from stores import actors_store, clients_store, executions_store, workers_store
+from channels import CommandChannel, WorkerChannel
+from stores import actors_store, executions_store, workers_store
 from worker import shutdown_worker
 
 TAG = os.environ.get('TAG') or conf.version or ""
@@ -89,114 +89,6 @@ def clean_up_ipc_dirs():
     clean_up_socket_dirs()
     clean_up_fifo_dirs()
 
-def delete_client(ag, client_name):
-    """Remove a client from the APIM."""
-    try:
-        ag.clients.delete(clientName=client_name)
-    except Exception as e:
-        m = 'Not able to delete client from APIM. Got an exception: {}'.format(e)
-        logger.error(m)
-    return None
-
-def clean_up_apim_clients(tenant):
-    """Check the list of clients registered in APIM and remove any that are associated with retired workers."""
-    username = os.environ.get('_abaco_{}_username'.format(tenant), '')
-    password = os.environ.get('_abaco_{}_password'.format(tenant), '')
-    if not username:
-        msg = "Health process did not get a username for tenant {}; " \
-              "returning from clean_up_apim_clients".format(tenant)
-        if tenant in ['SD2E', 'TACC-PROD']:
-            logger.error(msg)
-        else:
-            logger.info(msg)
-        return None
-    if not password:
-        msg = "Health process did not get a password for tenant {}; " \
-              "returning from clean_up_apim_clients".format(tenant)
-        if tenant in ['SD2E', 'TACC-PROD']:
-            logger.error(msg)
-        else:
-            logger.info(msg)
-        return None
-    api_server = get_api_server(tenant)
-    verify = get_tenant_verify(tenant)
-    ag = Agave(api_server=api_server,
-               username=username,
-               password=password,
-               verify=verify)
-    logger.debug("health process created an ag for tenant: {}".format(tenant))
-    try:
-        cs = ag.clients.list()
-        clients = cs.json()['result']
-    except Exception as e:
-        msg = "Health process got an exception trying to retrieve clients; exception: {}".format(e)
-        logger.error(msg)
-        return None
-    for client in clients:
-        # check if the name of the client is an abaco hash (i.e., a worker id). if not, we ignore it from the beginning
-        name = client.get('name')
-        if not is_hashid(name):
-            logger.debug("client {} is not an abaco hash id; skipping.".format(name))
-            continue
-        # we know this client came from a worker, so we need to check to see if the worker is still active;
-        # first check if the worker even exists; if it does, the id will be the client name:
-        worker = get_worker(name)
-        if not worker:
-            logger.info("no worker associated with id: {}; deleting client.".format(name))
-            delete_client(ag, name)
-            logger.info("client {} deleted by health process.".format(name))
-            continue
-        # if the worker exists, we should check the status:
-        status = worker.get('status')
-        if status == codes.ERROR:
-            logger.info("worker {} was in ERROR status so deleting client; worker: {}.".format(name, worker))
-            delete_client(ag, name)
-            logger.info("client {} deleted by health process.".format(name))
-        else:
-            logger.debug("worker {} still active; not deleting client.".format(worker))
-
-def clean_up_clients_store():
-    logger.debug("top of clean_up_clients_store")
-    secret = os.environ.get('_abaco_secret')
-    if not secret:
-        logger.error("health.py not configured with _abaco_secret. exiting clean_up_clients_store.")
-        return None
-    for client in clients_store.items():
-        wid = client.get('worker_id')
-        if not wid:
-            logger.error("client object in clients_store without worker_id. client: {}".format(client))
-            continue
-        tenant = client.get('tenant')
-        if not tenant:
-            logger.error("client object in clients_store without tenant. client: {}".format(client))
-            continue
-        actor_id = client.get('actor_id')
-        if not actor_id:
-            logger.error("client object in clients_store without actor_id. client: {}".format(client))
-            continue
-        client_key = client.get('client_key')
-        if not client_key:
-            logger.error("client object in clients_store without client_key. client: {}".format(client))
-            continue
-        # check to see if the wid is the id of an actual worker:
-        worker = get_worker(wid)
-        if not worker:
-            logger.info(f"worker {wid} is gone. deleting client {client}.")
-            clients_ch = ClientsChannel()
-            msg = clients_ch.request_delete_client(tenant=tenant,
-                                                   actor_id=actor_id,
-                                                   worker_id=wid,
-                                                   client_id=client_key,
-                                                   secret=secret)
-            if msg['status'] == 'ok':
-                logger.info(f"Client delete request completed successfully for "
-                            "worker_id: {wid}, client_id: {client_key}.".format(wid, client_key))
-            else:
-                logger.error(f"Error deleting client for "
-                             "worker_id: {wid}, client_id: {client_key}. Message: {msg}")
-
-        else:
-            logger.info(f"worker {wid} still here. ignoring client {client}.")
 
 def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
@@ -230,25 +122,10 @@ def zero_out_workers_db():
     Set all workers collections in the db to empty. Run this as part of a maintenance; steps:
       1) remove all docker containers
       2) run this function
-      3) run clean_up_apim_clients().
-      4) run zero_out_clients_db()
     :return:
     """
     for worker in workers_store.items(proj_inp=None):
         del workers_store[worker['_id']]
-
-def zero_out_clients_db():
-    """
-    Set all clients collections in the db to empty. Run this as part of a maintenance; steps:
-      1) remove all docker containers
-      2) run zero_out_workers_db()
-      3) run clean_up_apim_clients().
-      4) run this function
-    :return:
-    """
-    for client in clients_store.items():
-        clients_store[client['_id']] = {}
-
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
@@ -381,8 +258,9 @@ def start_spawner(queue, idx='0'):
 
     # check logging strategy to determine log file name:
     log_file = 'abaco.log'
-    if conf.log_filing_strategy == 'split':
-        log_file = 'spawner.log'
+    if conf.log_filing_strategy == 'split' and conf.get('spawner_log_file'):
+        log_file = conf.get('spawner_log_file')
+
     try:
         run_container_with_docker(AE_IMAGE,
                                   command,
@@ -468,9 +346,6 @@ def main():
         # manage_workers(id)
         check_workers(id, ttl)
     tenants = get_tenants()
-    for t in tenants:
-        logger.debug("health process cleaning up apim_clients for tenant: {}".format(t))
-        clean_up_apim_clients(t)
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
     # check_workers_store(ttl)

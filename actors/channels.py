@@ -41,35 +41,6 @@ class SpawnerWorkerChannel(Channel):
                          uri=self.uri)
 
 
-class ClientsChannel(Channel):
-    """Channel for communicating with the clients generator."""
-
-    def __init__(self, name='clients'):
-        self.uri = conf.rabbit_uri
-        super().__init__(name=name,
-                         connection_type=RabbitConnection,
-                         uri=self.uri)
-
-    def request_client(self, tenant, actor_id, worker_id, secret):
-        """Request a new client for a specific tenant and worker."""
-        msg = {'command': 'new',
-               'tenant': tenant,
-               'actor_id': actor_id,
-               'worker_id': worker_id,
-               'secret': secret}
-        return self.put_sync(msg, timeout=60)
-
-    def request_delete_client(self, tenant, actor_id, worker_id, client_id, secret):
-        """Request a client be deleted as part of shutting down a worker."""
-        msg = {'command': 'delete',
-               'tenant': tenant,
-               'actor_id': actor_id,
-               'worker_id': worker_id,
-               'client_id': client_id,
-               'secret': secret}
-        return self.put_sync(msg, timeout=60)
-
-
 class CommandChannel(Channel):
     """Work with commands on the command channel."""
 

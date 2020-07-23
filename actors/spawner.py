@@ -13,7 +13,7 @@ from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
 from models import Actor, Worker
 from stores import actors_store, workers_store
-from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
+from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from health import get_worker
 
 from common.logs import get_logger
@@ -176,35 +176,9 @@ class Spawner(object):
         # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
         Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
         logger.debug("spawner has updated worker status to SPAWNER_SETUP; worker_id: {}".format(worker_id))
-        client_id = None
-        client_secret = None
-        client_access_token = None
-        client_refresh_token = None
-        api_server = None
-        client_secret = None
+        api_server = conf.service_tenant_base_url
 
-        # ---- Oauth client generation for the worker -------
-        # check if tenant and instance configured for client generation
-        tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
-        generate_clients = tenant_auth_object.get("generate_clients") or conf.global_auth_object.get('generate_clients')
-        logger.debug(f"final generate_clients: {generate_clients}")
-        if generate_clients:
-            logger.debug("client generation was configured to be available; now checking the actor's token attr.")
-            # updated 1.3.0-- check whether the actor requires a token:
-            if actor.token:
-                if type(actor.token) == str and actor.token.lower() == 'false':
-                    logger.debug("actor.token was a string set to false, so not generating a token")
-                else:
-                    logger.debug("spawner starting client generation")
-                    client_id, \
-                    client_access_token, \
-                    client_refresh_token, \
-                    api_server, \
-                    client_secret = self.client_generation(actor_id, worker_id, tenant)
-            else:
-                logger.debug("actor's token attribute was False. Not generating client.")
-        ch = SpawnerWorkerChannel(worker_id=worker_id)
-
+        spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
         logger.debug("spawner attempting to start worker; worker_id: {}".format(worker_id))
         try:
             worker = self.start_worker(
@@ -212,130 +186,31 @@ class Spawner(object):
                 tenant,
                 actor_id,
                 worker_id,
-                client_id,
-                client_access_token,
-                client_refresh_token,
-                ch,
-                api_server,
-                client_secret
+                spawner_ch,
+                api_server
             )
         except Exception as e:
             msg = "Spawner got an exception from call to start_worker. Exception:{}".format(e)
             logger.error(msg)
             self.error_out_actor(actor_id, worker_id, msg)
-            if client_id:
-                self.delete_client(tenant, actor_id, worker_id, client_id, client_secret)
             return
 
         logger.debug("Returned from start_worker; Created new worker: {}".format(worker))
-        ch.close()
-        logger.debug("Client channel closed")
+        spawner_ch.close()
+        logger.debug("Worker's spawner channel closed")
 
         if stop_existing:
             logger.info("Stopping existing workers: {}".format(worker_id))
             # TODO - update status to stop_requested
             self.stop_workers(actor_id, [worker_id])
 
-
-    def client_generation(self, actor_id, worker_id, tenant):
-        need_a_client = True
-        client_attempts = 0
-        while need_a_client and client_attempts < 10:
-            client_attempts = client_attempts + 1
-            # take a break between each subsequent attempt after the first one:
-            if client_attempts > 1:
-                time.sleep(2)
-            client_ch = ClientsChannel()
-            logger.debug(f"trying to generate a client for worker {worker_id}; attempt: {client_attempts}.")
-            try:
-                client_msg = client_ch.request_client(
-                    tenant=tenant,
-                    actor_id=actor_id,
-                    worker_id=worker_id,
-                    secret=self.secret
-                )
-            except Exception as e:
-                logger.error("Got a ChannelTimeoutException trying to generate a client for "
-                             "actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
-                if client_attempts == 10:
-                    # Update - 4/2020: we do NOT set the actor to an error statewhen client generation fails because
-                    # put worker in an error state and return
-                    # self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
-                    #                                           "worker {} for this actor. System administrators have been "
-                    #                                           "notified. Actor will be put in error state and "
-                    #                                           "must be updated before it will process".format(worker_id))
-                    # Worker.update_worker_status(actor_id, worker_id, ERROR)
-                    try:
-                        client_ch.close()
-                    except Exception as e:
-                        logger.debug(f"got exception trying to close the client_ch: {e}")
-                    self.kill_worker(actor_id, worker_id)
-                    logger.critical("Client generation FAILED.")
-                    raise e
-            try:
-                client_ch.close()
-            except Exception as e:
-                logger.debug(f"got exception trying to close the client_ch: {e}")
-
-            if client_msg.get('status') == 'error':
-                logger.error("Error generating client; worker_id: {}; message: {}".format(worker_id, client_msg.get('message')))
-                # check to see if the error was an error that cannot be retried:
-                if 'AgaveClientFailedDoNotRetry' in client_msg.get('message'):
-                    logger.debug(f"got AgaveClientFailedDoNotRetry in message for worker {worker_id}. "
-                                 f"Giving up and setting attempts directly to 10.")
-                    client_attempts = 10
-                if client_attempts == 10:
-                    # Update - 4/2020: we do NOT set the actor to an error statewhen client generation fails because
-                    # this is not something the user has control over.
-                    # self.error_out_actor(actor_id, worker_id, "Abaco was unable to generate an OAuth client for new "
-                    #                                           "worker {} for this actor. System administrators "
-                    #                                           "have been notified. Actor will be put in error state and "
-                    #                                           "must be updated before it will process "
-                    #                                           "messages.".format(worker_id))
-                    # Worker.update_worker_status(actor_id, worker_id, ERROR)
-                    try:
-                        client_ch.close()
-                    except Exception as e:
-                        logger.debug(f"got exception trying to close the client_ch: {e}")
-                    self.kill_worker(actor_id, worker_id)
-                    raise SpawnerException("Error generating client") #TODO - clean up error message
-            # else, client was generated successfully:
-            else:
-                logger.info("Got a client: {}, {}, {}".format(client_msg['client_id'],
-                                                              client_msg['access_token'],
-                                                              client_msg['refresh_token']))
-                return client_msg['client_id'], \
-                       client_msg['access_token'],  \
-                       client_msg['refresh_token'], \
-                       client_msg['api_server'], \
-                       client_msg['client_secret']
-
-    def delete_client(self, tenant, actor_id, worker_id, client_id, secret):
-        clients_ch = ClientsChannel()
-        msg = clients_ch.request_delete_client(tenant=tenant,
-                                               actor_id=actor_id,
-                                               worker_id=worker_id,
-                                               client_id=client_id,
-                                               secret=secret)
-        if msg['status'] == 'ok':
-            logger.info("Client delete request completed successfully for "
-                        "worker_id: {}, client_id: {}.".format(worker_id, client_id))
-        else:
-            logger.error("Error deleting client for "
-                         "worker_id: {}, client_id: {}. Message: {}".format(worker_id, msg['message'], client_id, msg))
-        clients_ch.close()
-
     def start_worker(self,
                      image,
                      tenant,
                      actor_id,
                      worker_id,
-                     client_id,
-                     client_access_token,
-                     client_refresh_token,
-                     ch,
-                     api_server,
-                     client_secret):
+                     spawner_ch,
+                     api_server):
 
         # start an actor executor container and wait for a confirmation that image was pulled.
         attempts = 0
@@ -363,13 +238,8 @@ class Spawner(object):
                     image,
                     actor_id,
                     worker_id,
-                    client_id,
-                    client_access_token,
-                    client_refresh_token,
                     tenant,
-                    api_server,
-                    client_secret
-
+                    api_server
                 )
                 logger.debug(f'finished run worker; worker dict: {worker_dict}')
             except DockerError as e:
@@ -421,7 +291,7 @@ class Spawner(object):
         logger.info("calling add_worker for worker: {}.".format(worker))
         Worker.add_worker(actor_id, worker)
 
-        ch.put('READY')  # step 4
+        spawner_ch.put('READY')  # step 4
         logger.info('sent message through channel')
 
     def error_out_actor(self, actor_id, worker_id, message):

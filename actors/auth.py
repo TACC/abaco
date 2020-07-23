@@ -130,10 +130,9 @@ def check_nonce():
 def get_user_sk_roles():
     """
     """
-    roles_obj = t.sk.getUserRoles(tenant='dev', user=t.username)
-    roles_str = str(roles_obj).replace("\nnames: [", "").replace("]", "")
-    roles_array = roles_str.replace("'", "").split(", ")
-    g.roles = roles_array
+    roles_obj = t.sk.getUserRoles(tenant=conf.service_tenant_id, user=t.username)
+    roles_list = roles_obj.names 
+    g.roles = roles_list
 
 def authorization():
     """
@@ -187,11 +186,8 @@ def authorization():
     #    g.roles = ['Internal/everyone']
 
     # all other requests require some kind of abaco role:
-    if set(g.roles).isdisjoint(codes.roles):
-        logger.info("NOT allowing request - user has no abaco role.")
-        raise PermissionsException("Not authorized -- missing required role.")
-    else:
-        logger.debug("User has an abaco role.")
+    # THIS IS NO LONGER TRUE. Only rules are admin and privileged.
+
     logger.debug("request.path: {}".format(request.path))
 
     # the admin role when JWT auth is configured:

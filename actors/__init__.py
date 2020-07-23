@@ -1,8 +1,3 @@
-from tapipy.tapis import Tapis
+from common.auth import get_service_tapy_client
 
-t = Tapis(base_url=base_url,
-            username=username,
-            account_type=account_type,
-            tenant_id=tenant_id,
-            password=password)
-t.get_tokens()
+t = get_service_tapy_client(tenant_id='master', base_url='https://master.develop.tapis.io')

@@ -17,7 +17,7 @@ from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SU
 from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
-from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
+from stores import actors_store, alias_store, executions_store, logs_store, nonce_store, \
     permissions_store, workers_store, abaco_metrics_store
 
 from common.logs import get_logger
@@ -1822,56 +1822,6 @@ class Worker(AbacoDAO):
         self['last_health_check_time'] = display_time(last_health_check_time_str)
         self['create_time'] = display_time(create_time_str)
         return self.case()
-
-class PregenClient(AbacoDAO):
-    """
-    Data access object for pregenerated OAuth clients for worker. Use of these clients requires an initial
-    load script to populate the pregen_clients store with clients available for use.
-
-    Each client object
-    """
-    pass
-
-class Client(AbacoDAO):
-    """
-    Data access object for OAuth clients generated for workers.
-    NOTE: this is not the public python API for interacting with clients. Managing clients should be
-    done through the ClientsChannel/clientg actor, since client management involves managing these models but
-    also objects in the third party systems (agave APIM).
-    """
-
-    PARAMS = [
-        # param_name, required/optional/provided/derived, attr_name, type, help, default
-        ('tenant', 'required', 'tenant', str, 'The tenant of the worker owning the client.', None),
-        ('actor_id', 'required', 'actor_id', str, 'The actor id of the worker owning the client.', None),
-        ('worker_id', 'required', 'worker_id', list, 'The id of the worker owning the client.', None),
-        ('client_key', 'required', 'client_key', str, 'The key of the client.', None),
-        ('client_name', 'required', 'client_name', str, 'The name of the client.', None),
-        ('id', 'derived', 'id', str, 'Unique id in the database for this client', None)
-        ]
-
-    def get_derived_value(self, name, d):
-        """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
-        # first, see if the id attribute is already in the object:
-        try:
-            if d[name]:
-                return d[name]
-        except KeyError:
-            pass
-        # combine the tenant_id and client_key to get the unique id
-        return Client.get_client_id(d['tenant'], d['client_key'])
-
-    @classmethod
-    def get_client_id(cls, tenant, key):
-        return '{}_{}'.format(tenant, key)
-
-    @classmethod
-    def get_client(cls, tenant, client_key):
-        return Client(clients_store[Client.get_client_id(tenant, client_key)])
-
-    @classmethod
-    def delete_client(cls, tenant, client_key):
-        del clients_store[Client.get_client_id(tenant, client_key)]
 
 def get_permissions(actor_id):
     """ Return all permissions for an actor

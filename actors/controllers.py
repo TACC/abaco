@@ -22,7 +22,7 @@ from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Executi
 
 from mounts import get_all_mounts
 import codes
-from stores import actors_store, alias_store, clients_store, workers_store, executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
+from stores import actors_store, alias_store, workers_store, executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
 
@@ -35,10 +35,6 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
-
-clients_gauge = Gauge('clients_count_for_clients_store',
-                      'Number of clients currently in the clients_store')
-
 
 
 ACTOR_MAX_WORKERS = conf.spawner_max_workers_per_actor or int(os.environ.get('MAX_WORKERS_PER_ACTOR', 20))

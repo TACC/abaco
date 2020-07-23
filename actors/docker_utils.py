@@ -165,14 +165,9 @@ def run_container_with_docker(image,
                               mounts=[],
                               log_file=None,
                               auto_remove=False,
-                              client_id=None,
-                              client_access_token=None,
-                              client_refresh_token=None,
                               actor_id=None,
                               tenant=None,
                               api_server=None,
-                              client_secret=None
-
 ):
     """
     Run a container with docker mounted in it.
@@ -208,12 +203,6 @@ def run_container_with_docker(image,
     if 'abaco_conf_host_path' not in environment:
         environment['abaco_conf_host_path'] = abaco_conf_host_path
 
-    if 'client_id' not in environment:
-        environment['client_id'] = client_id
-
-    if 'client_access_token' not in environment:
-        environment['client_access_token'] = client_access_token
-
     if 'actor_id' not in environment:
         environment['actor_id'] = actor_id
 
@@ -223,16 +212,10 @@ def run_container_with_docker(image,
     if 'api_server' not in environment:
         environment['api_server'] = api_server
 
-    if 'client_secret' not in environment:
-        environment['client_secret'] = client_secret
-
-    if 'client_refresh_token' not in environment:
-        environment['client_refresh_token'] = client_refresh_token
-
     # if not passed, determine what log file to use
     if not log_file:
-        if conf.log_filing_strategy == 'split':
-            log_file = 'worker.log'
+        if conf.log_filing_strategy == 'split' and conf.get('worker_log_file'):
+            log_file = conf.get('worker_log_file')
         else:
             log_file = 'abaco.log'
 
@@ -276,12 +259,8 @@ def run_container_with_docker(image,
 def run_worker(image,
                actor_id,
                worker_id,
-               client_id,
-               client_access_token,
-               client_refresh_token,
                tenant,
-               api_server,
-               client_secret):
+               api_server):
     """
     Run an actor executor worker with a given channel and image.
     :return:
@@ -323,13 +302,9 @@ def run_worker(image,
             log_file=None,
             auto_remove=auto_remove,
             name='worker_{}_{}'.format(actor_id, worker_id),
-            client_id=client_id,
-            client_access_token=client_access_token,
-            client_refresh_token=client_refresh_token,
             actor_id=actor_id,
             tenant=tenant,
-            api_server=api_server,
-            client_secret=client_secret
+            api_server=api_server
     )
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
