@@ -8,9 +8,9 @@ import time
 
 import channelpy
 
+from __init__ import t
 from auth import get_tenant_verify
 from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
-from clients import get_delegation_token
 from codes import SHUTDOWN_REQUESTED, SHUTTING_DOWN, ERROR, READY, BUSY, COMPLETE
 from common.config import conf
 from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
@@ -18,7 +18,6 @@ from errors import WorkerException
 import globals
 from models import Actor, Execution, Worker
 from stores import actors_store, workers_store
-from clients import get_delegated_token
 
 from common.logs import get_logger
 logger = get_logger(__name__)
@@ -148,6 +147,25 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
             _thread.interrupt_main()
             logger.info("main thread interrupted, worker {}_{} issuing os._exit()...".format(actor_id, worker_id))
             os._exit(0)
+
+def get_delegation_token(sub_tenant, sub_user, access_token_ttl=14400):
+    """
+    Process to generate Agave clients for workers.
+    """
+
+    try:
+        token_res = t.tokens.create_token(account_type='user',
+                                          token_tenant_id=conf.sub_tenant,
+                                          token_username=conf.sub_user,
+                                          access_token_ttl=access_token_ttl,
+                                          generate_refresh_token=False,
+                                          refresh_token_ttl=0,
+                                          use_basic_auth=False)
+        return token_res.access_token.access_token
+    except Exception as e:
+        msg = f"Got exception trying to create actor access_token; exception: {e}"
+        logger.error(msg)
+        raise WorkerException(msg)
 
 def subscribe(tenant,
               actor_id,
