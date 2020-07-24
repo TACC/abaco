@@ -4,24 +4,37 @@ import os
 import pytest
 import requests
 import time
-from common.auth import get_service_tapy_client
+from actors.__init__ import t
 from common.config import conf
 
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
 case = os.environ.get('case', 'snake')
 
 
+# In dev:
+# _abaco_admin user owns abaco_admin and abaco_privileged roles
+# _abaco_testuser_admin is granted abaco_admin role
+# _abaco_testuser_privileged is granted abaco_privileged role
+# _abaco_testuser_regular is granted nothing
 @pytest.fixture(scope='session')
-def headers():
-    t = get_service_tapy_client(tenant_id=conf.service_tenant_id, base_url=conf.service_tenant_base_url)
-    header_dat = {"X-Tapis-Token": t.access_token.access_token}
+def admin_headers():
+    return get_tapis_token_headers('_abaco_testuser_admin')
+
+def privileged_headers():
+    return get_tapis_token_headers('_abaco_testuser_privileged')
+
+def regular_headers():
+    return get_tapis_token_headers('_abaco_testuser_regular')
+
+def get_tapis_token_headers(user):
+    token_res = t.tokens.create_token(account_type='user',
+                                      token_tenant_id='dev',
+                                      token_username=user,
+                                      access_token_ttl=9999,
+                                      generate_refresh_token=False,
+                                      use_basic_auth=False)
+    header_dat = {"X-Tapis-Token": token_res.access_token.access_token}
     return header_dat
-
-def priv_headers():
-    return get_jwt_headers('/home/tapis/tests/jwt-abaco_privileged')
-
-def limited_headers():
-    return get_jwt_headers('/home/tapis/tests/jwt-abaco_limited')
 
 def get_jwt_headers(file_path='/home/tapis/tests/jwt-abaco_admin'):
     with open(file_path, 'r') as f:

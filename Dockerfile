@@ -17,7 +17,6 @@ RUN pip3 install -r /home/tapis/requirements.txt
 
 # copy service source code
 COPY configschema.json /home/tapis/configschema.json
-COPY config-local.json /home/tapis/config.json
 COPY actors /home/tapis/service
 COPY actors /home/tapis/actors
 COPY actors /actors

@@ -42,6 +42,7 @@ services:
     nginx:
         image: abaco/nginx:$TAG
         volumes:
+            - ./config-local.json:/home/tapis/config.json
             - ./local-dev.conf:/etc/service.conf
 #            - ./images/nginx/nginx.conf:/etc/nginx/nginx.conf
 #            - ./images/nginx/sites-enabled:/etc/nginx/sites-enabled
@@ -58,6 +59,7 @@ services:
         ports:
             - "5000:5000"
         volumes:
+            - ./config-local.json:/home/tapis/config.json
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
@@ -74,6 +76,7 @@ services:
     mes:
         image: abaco/core:$TAG
         volumes:
+            - ./config-local.json:/home/tapis/config.json
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
@@ -93,6 +96,7 @@ services:
     admin:
         image: abaco/core:$TAG
         volumes:
+            - ./config-local.json:/home/tapis/config.json
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
@@ -112,6 +116,7 @@ services:
         image: abaco/core:$TAG
         command: "python3 -u /actors/spawner.py"
         volumes:
+            - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
@@ -132,6 +137,7 @@ services:
         command: /home/tapis/actors/health_check.sh
         volumes:
             - /:/host
+            - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
@@ -150,10 +156,11 @@ services:
         networks:
             - abaco
 
-            events:
+    events:
         image: abaco/core:$TAG
         command: "python3 -u /actors/events.py"
         volumes:
+            - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
@@ -215,6 +222,7 @@ services:
         networks:
             - abaco
         volumes:
+            - ./config-local.json:/home/tapis/config.json
             - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
