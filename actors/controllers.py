@@ -1388,7 +1388,7 @@ class MessagesResource(Resource):
             ch.close()
             if box_len > 3:
                 raise ResourceError("Cannot issue synchronous execution when actor message queue > 0.")
-        if hasattr(g, 'user'):
+        if hasattr(g, 'username'):
             d['_abaco_username'] = g.username
             logger.debug("_abaco_username: {} added to message.".format(g.username))
         if hasattr(g, 'api_server'):

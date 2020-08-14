@@ -17,7 +17,7 @@ case = os.environ.get('case', 'snake')
 # _abaco_testuser_privileged is granted abaco_privileged role
 # _abaco_testuser_regular is granted nothing
 @pytest.fixture(scope='session')
-def admin_headers():
+def headers():
     return get_tapis_token_headers('_abaco_testuser_admin')
 
 def privileged_headers():
@@ -26,9 +26,15 @@ def privileged_headers():
 def regular_headers():
     return get_tapis_token_headers('_abaco_testuser_regular')
 
-def get_tapis_token_headers(user):
+def limited_headers():
+    return get_tapis_token_headers('_abaco_testuser_limited')
+
+def master_tenant_headers():
+    return get_tapis_token_headers('_abaco_testuser_admin', 'master')
+
+def get_tapis_token_headers(user, tenant='dev'):
     token_res = t.tokens.create_token(account_type='user',
-                                      token_tenant_id='dev',
+                                      token_tenant_id=tenant,
                                       token_username=user,
                                       access_token_ttl=9999,
                                       generate_refresh_token=False,
@@ -184,4 +190,3 @@ def create_delete_actor():
         print("deleted actor")
     except Exception as e:
         print("Got exception tring to delete actor: {}".format(e.response.content))
-

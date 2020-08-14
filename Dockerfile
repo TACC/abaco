@@ -22,6 +22,8 @@ COPY actors /home/tapis/actors
 COPY actors /actors
 
 RUN mkdir -p /home/tapis/service/resources /home/tapis/runtime_files/logs /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files
+# touch config.json
+RUN touch /home/tapis/config.json
 # create abaco.log file for logs
 RUN touch /home/tapis/runtime_files/logs/service.log
 RUN touch /home/tapis/runtime_files/logs/common.log

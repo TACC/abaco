@@ -148,18 +148,16 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
             logger.info("main thread interrupted, worker {}_{} issuing os._exit()...".format(actor_id, worker_id))
             os._exit(0)
 
-def get_delegation_token(sub_tenant, sub_user, access_token_ttl=14400):
+def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
     """
     Process to generate Agave clients for workers.
     """
-
     try:
         token_res = t.tokens.create_token(account_type='user',
-                                          token_tenant_id=conf.sub_tenant,
-                                          token_username=conf.sub_user,
+                                          token_tenant_id=token_tenant,
+                                          token_username=token_user,
                                           access_token_ttl=access_token_ttl,
                                           generate_refresh_token=False,
-                                          refresh_token_ttl=0,
                                           use_basic_auth=False)
         return token_res.access_token.access_token
     except Exception as e:
@@ -346,12 +344,14 @@ def subscribe(tenant,
         tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
         generate_clients = tenant_auth_object.get("generate_clients") or conf.global_auth_object.get('generate_clients')
         logger.debug(f"final generate_clients: {generate_clients}")
+        logger.debug(actor)
         if generate_clients:
-            logger.debug("client generation was configured to be available; adding client")
-            token = get_delegation_token(tenant, user)
+            logger.debug(f"execution token generation is configured on, creating token for user: {user} and tenant: {tenant}.")
+            token = get_execution_token(actor.tenant, actor.owner)
             environment['_abaco_access_token'] = token
         logger.info("Passing update environment: {}".format(environment))
         logger.info("About to execute actor; worker_id: {}".format(worker_id))
+        logger.info("Executed actor mounts: {}".format(mounts))
         try:
             stats, logs, final_state, exit_code, start_time = execute_actor(actor_id,
                                                                             worker_id,
@@ -517,7 +517,7 @@ if __name__ == '__main__':
             worker_id = os.environ.get('worker_id')
         except:
             worker_id = ''
-        msg = "worker caught exception from main loop. worker exiting. e" \
+        msg = "worker caught exception from main loop. worker exiting. " \
               "Exception: {} worker_id: {}".format(e, worker_id)
         logger.info(msg)
     sys.exit()

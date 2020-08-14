@@ -1,37 +1,21 @@
-"""Set up the loggers for the Abaco system."""
+"""Set up the loggers for the system."""
 
 import logging
+import sys
+from .config import conf
 
-from common.config import conf
-
-def get_log_file_strategy():
+def get_module_log_level(name: str) -> str:
     """
-    Returns the strategy for writing logs to files based on the config.
-    The string "combined" means the logs should be written to a single file, abaco.log, while the string
-    "split" means the logs should be split to different files, depending on the Abaco agent.
+    Get the log level to use for this module.
     """
-    strategy = conf.log_filing_strategy
-    return strategy.lower()
+    # look for a log level configuration with name equal to the current module name. if one does not exist, that's fine
+    # we just fall back on the "global" service log level:
+    try:
+        return getattr(conf, f'{name}_log_level')
+    except AttributeError:
+        return conf.log_level
 
-def get_module_log_level(name):
-    """Reads config file for a log level set for this module."""
-    log_level = conf.get(f"log_level_{name}") or conf.log_level
-    return log_level
-
-def get_log_file(name):
-    """
-    Reads config file for a log file to record logs for this module.
-    If a file isn't specified for the module, looks for a global config. Otherwise, returns the
-    default.
-
-    Note: These paths refer to container paths, and the files must already exist. Since separate host files can be
-    mounted to the container, it it likely that this configuration is not needed.
-    """
-    log_file = conf.get(f"log_file_{name}") or conf.log_file
-    return log_file
-
-
-def get_logger(name):
+def get_logger(name: str) -> logging.Logger:
     """
     Returns a properly configured logger.
          name (str) should be the module name.
@@ -39,12 +23,20 @@ def get_logger(name):
     logger = logging.getLogger(name)
     level = get_module_log_level(name)
     logger.setLevel(level)
-    handler = logging.FileHandler(get_log_file(name))
-    handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s: %(message)s '
-        '[in %(pathname)s:%(lineno)d]'
-    ))
-    handler.setLevel(level)
-    logger.addHandler(handler)
+    if not logger.hasHandlers():
+        if conf.log_filing_strategy == 'combined':
+            log_file = conf.get('log_file')
+        else:
+            log_file = conf.get(f'{name}_log_file') or conf.get('log_file')
+        if log_file:
+            handler = logging.FileHandler(log_file)
+        else:
+            handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s '
+            '[in %(pathname)s:%(lineno)d]'
+        ))
+        handler.setLevel(level)
+        logger.addHandler(handler)
     logger.info("returning a logger set to level: {} for module: {}".format(level, name))
     return logger

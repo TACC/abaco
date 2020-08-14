@@ -1,8 +1,7 @@
 from flask import Flask
 from flask_cors import CORS 
 
-from agaveflask.utils import AgaveApi
-from common.utils import handle_error
+from common.utils import handle_error, TapisApi
 
 
 from auth import authn_and_authz
@@ -10,7 +9,7 @@ from controllers import MessagesResource
 
 app = Flask(__name__)
 CORS(app)
-api = AgaveApi(app)
+api = TapisApi(app)
 
 # Authn/z
 @app.before_request

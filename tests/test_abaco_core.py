@@ -30,8 +30,8 @@
 
 # Design Notes
 # 1. The *headers() functions in the util.py module provides the JWTs used for the tests. The plain headers() returns a
-#    JWT for a user with the Abaco admin role (username='testuser'), but there is also limited_headers() and
-#    priv_headers()
+#    JWT for a user with the Abaco admin role (username='testuser'), but there is also regular_headers() and
+#    privileged_headers()
 #    for getting JWTs for other users.
 # 2. The get_actor_id() function by default returns the abaco_test_suite actor_id but takes an optional name parameter
 #     for getting the id of a different actor.
@@ -45,8 +45,8 @@
 # abaco_test_suite_func
 # abaco_test_suite_sleep_loop
 #
-# 4. Actors registered and owned by testotheruser user (limited):
-# abaco_test_suite_limited_user
+# 4. Actors registered and owned by testotheruser user (regular):
+# abaco_test_suite_regular_user
 #
 
 # # --- Original notes for running natively ------
@@ -84,7 +84,8 @@ from actors import controllers, health, models, codes, stores, spawner
 from channels import ActorMsgChannel, CommandChannel
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
-    execute_actor, get_tenant, priv_headers, limited_headers
+    execute_actor, get_tenant, privileged_headers, regular_headers, \
+    get_tapis_token_headers, master_tenant_headers
 
 
 # #################
@@ -92,7 +93,7 @@ from util import headers, base_url, case, \
 # #################
 
 @pytest.mark.regapi
-def test_dict_to_camel():
+def test_dict_to_camel(): 
     dic = {"_links": {"messages": "http://localhost:8000/actors/v2/ca39fac2-60a7-11e6-af60-0242ac110009-059/messages",
                       "owner": "http://localhost:8000/profiles/v2/anonymous",
                       "self": "http://localhost:8000/actors/v2/ca39fac2-60a7-11e6-af60-0242ac110009-059/executions/458ab16c-60a8-11e6-8547-0242ac110008-053"
@@ -188,7 +189,7 @@ def test_register_actor(headers):
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testuser'
+    assert result['owner'] == '_abaco_testuser_admin'
     assert result['image'] == 'jstubbs/abaco_test'
     assert result['name'] == 'abaco_test_suite'
     assert result['id'] is not None
@@ -202,7 +203,7 @@ def test_register_alias_actor(headers):
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testuser'
+    assert result['owner'] == '_abaco_testuser_admin'
     assert result['image'] == 'jstubbs/abaco_test'
     assert result['name'] == 'abaco_test_suite_alias'
     assert result['id'] is not None
@@ -217,7 +218,7 @@ def test_register_stateless_actor(headers):
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testuser'
+    assert result['owner'] == '_abaco_testuser_admin'
     assert result['image'] == 'jstubbs/abaco_test'
     assert result['name'] == 'abaco_test_suite_statelesss'
     assert result['id'] is not None
@@ -230,7 +231,7 @@ def test_register_hints_actor(headers):
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testuser'
+    assert result['owner'] == '_abaco_testuser_admin'
     assert result['image'] == 'abacosamples/wc'
     assert result['name'] == 'abaco_test_suite_hints'
     assert result['id'] is not None
@@ -253,7 +254,7 @@ def test_register_actor_default_env(headers):
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testuser'
+    assert result['owner'] == '_abaco_testuser_admin'
     assert result['image'] == 'abacosamples/test'
     assert result['name'] == 'abaco_test_suite_default_env'
     assert result['id'] is not None
@@ -267,22 +268,22 @@ def test_register_actor_func(headers):
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testuser'
+    assert result['owner'] == '_abaco_testuser_admin'
     assert result['image'] == 'abacosamples/py3_func'
     assert result['name'] == 'abaco_test_suite_func'
     assert result['id'] is not None
 
 @pytest.mark.regapi
-def test_register_actor_limited_user(headers):
+def test_register_actor_regular_user(headers):
     url = '{}/{}'.format(base_url, '/actors')
-    data = {'image': 'abacosamples/test', 'name': 'abaco_test_suite_limited_user'}
-    rsp = requests.post(url, data=data, headers=limited_headers())
+    data = {'image': 'abacosamples/test', 'name': 'abaco_test_suite_regular_user'}
+    rsp = requests.post(url, data=data, headers=regular_headers())
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testotheruser'
+    assert result['owner'] == '_abaco_testuser_regular'
     assert result['image'] == 'abacosamples/test'
-    assert result['name'] == 'abaco_test_suite_limited_user'
+    assert result['name'] == 'abaco_test_suite_regular_user'
     assert result['id'] is not None
 
 
@@ -294,7 +295,7 @@ def test_register_actor_sleep_loop(headers):
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert 'owner' in result
-    assert result['owner'] == 'testuser'
+    assert result['owner'] == '_abaco_testuser_admin'
     assert result['image'] == 'abacosamples/sleep_loop'
     assert result['name'] == 'abaco_test_suite_sleep_loop'
     assert result['id'] is not None
@@ -456,7 +457,7 @@ def test_cant_update_stateless_actor_state(headers):
 
 # invalid check having to do with authorization
 @pytest.mark.regapi
-def test_cant_set_max_workers_limited(headers):
+def test_cant_set_max_workers_regular(headers):
     url = '{}/{}'.format(base_url, '/actors')
     field = 'max_workers'
     if case == 'camel':
@@ -465,12 +466,12 @@ def test_cant_set_max_workers_limited(headers):
             'name': 'abaco_test_suite_invalid',
             field: 3,
             }
-    rsp = requests.post(url, json=data, headers=limited_headers())
+    rsp = requests.post(url, json=data, headers=regular_headers())
     response_format(rsp)
     assert rsp.status_code not in range(1, 399)
 
 @pytest.mark.regapi
-def test_cant_set_max_cpus_limited(headers):
+def test_cant_set_max_cpus_regular(headers):
     url = '{}/{}'.format(base_url, '/actors')
     field = 'max_cpus'
     if case == 'camel':
@@ -479,13 +480,13 @@ def test_cant_set_max_cpus_limited(headers):
             'name': 'abaco_test_suite_invalid',
             field: 3000000000,
             }
-    rsp = requests.post(url, json=data, headers=limited_headers())
+    rsp = requests.post(url, json=data, headers=regular_headers())
     response_format(rsp)
     assert rsp.status_code not in range(1, 399)
 
 
 @pytest.mark.regapi
-def test_cant_set_mem_limit_limited(headers):
+def test_cant_set_mem_limit_regular(headers):
     url = '{}/{}'.format(base_url, '/actors')
     field = 'mem_limit'
     if case == 'camel':
@@ -494,7 +495,7 @@ def test_cant_set_mem_limit_limited(headers):
             'name': 'abaco_test_suite_invalid',
             field: '3g',
             }
-    rsp = requests.post(url, json=data, headers=limited_headers())
+    rsp = requests.post(url, json=data, headers=regular_headers())
     response_format(rsp)
     assert rsp.status_code not in range(1, 399)
 
@@ -612,27 +613,8 @@ def test_cors_options_list_messages(headers):
     assert 'Access-Control-Allow-Methods' in rsp.headers
     assert 'Access-Control-Allow-Headers' in rsp.headers
 
-def check_execution_details(result, actor_id, exc_id):
-    if case == 'snake':
-        assert result.get('actor_id') == actor_id
-        assert 'worker_id' in result
-        assert 'exit_code' in result
-        assert 'final_state' in result
-        assert 'message_received_time' in result
-        assert 'start_time' in result
-    else:
-        assert result.get('actorId') == actor_id
-        assert 'workerId' in result
-        assert 'exitCode' in result
-        assert 'finalState' in result
-        assert 'messageReceivedTime' in result
-        assert 'startTime' in result
-
-    assert result.get('id') == exc_id
-    # note: it is possible for io to be 0 in which case an `assert result['io']` will fail.
-    assert 'io' in result
-    assert 'runtime' in result
-
+def check_execution_details_function(result, actor_id, exc_id):
+    check_execution_details(result, actor_id, exc_id)
 
 def test_execute_basic_actor(headers):
     actor_id = get_actor_id(headers)
@@ -828,7 +810,7 @@ def test_update_actor_other_user(headers):
     orig_actor = basic_response_checks(rsp)
 
     # give other user UPDATE access
-    user = 'testshareuser'
+    user = '_abaco_testuser_privileged'
     url = '{}/actors/{}/permissions'.format(base_url, actor_id)
     data = {'user': user, 'level': 'UPDATE'}
     rsp = requests.post(url, data=data, headers=headers)
@@ -837,7 +819,7 @@ def test_update_actor_other_user(headers):
     # now, update the actor with another user:
     data = {'image': 'jstubbs/abaco_test2', 'stateless': False}
     url = '{}/actors/{}'.format(base_url, actor_id)
-    rsp = requests.put(url, data=data, headers=priv_headers())
+    rsp = requests.put(url, data=data, headers=privileged_headers())
     result = basic_response_checks(rsp)
     assert 'description' in result
     assert result['image'] == 'jstubbs/abaco_test2'
@@ -1077,7 +1059,7 @@ def test_list_alias_permission(headers):
 
 @pytest.mark.aliastest
 def test_update_alias(headers):
-    # alias UPDATE permissions alone are not sufficient to change the definition of the alias to an actor -
+    # alias UPDATE permissions alone are not sufficient to change the definition of actor an alias points at -
     # the user must have UPDATE access to the underlying actor_id as well.
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
     # change the alias to point to the "abaco_test_suite" actor:
@@ -1099,8 +1081,9 @@ def test_update_alias(headers):
 
 @pytest.mark.aliastest
 def test_other_user_cant_list_alias(headers):
+    # ensuring privileged user cannot list other users alias
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     data = response_format(rsp)
     assert rsp.status_code == 400
     assert 'you do not have access to this alias' in data['message']
@@ -1108,7 +1091,8 @@ def test_other_user_cant_list_alias(headers):
 
 @pytest.mark.aliastest
 def test_add_alias_permission(headers):
-    user = 'testshareuser'
+    # adding privileged user access to alias permissions
+    user = '_abaco_testuser_privileged'
     data = {'user': user, 'level': 'UPDATE'}
     url = '{}/actors/aliases/{}/permissions'.format(base_url, ALIAS_1)
     rsp = requests.post(url, data=data, headers=headers)
@@ -1119,8 +1103,9 @@ def test_add_alias_permission(headers):
 
 @pytest.mark.aliastest
 def test_other_user_can_now_list_alias(headers):
+    # privileged user should now be able to list alias
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     result = basic_response_checks(rsp)
     assert 'alias' in result
 
@@ -1129,7 +1114,7 @@ def test_other_user_can_now_list_alias(headers):
 def test_other_user_still_cant_list_actor(headers):
     # alias permissions do not confer access to the actor itself -
     url = '{}/actors/{}'.format(base_url, ALIAS_1)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     assert rsp.status_code == 400
     data = response_format(rsp)
     assert 'you do not have access to this actor' in data['message']
@@ -1145,17 +1130,18 @@ def test_other_user_still_cant_update_alias_wo_actor(headers):
         field = 'actorId'
     data = {field: get_actor_id(headers, name="abaco_test_suite_alias")}
 
-    rsp = requests.put(url, data=data, headers=priv_headers())
+    rsp = requests.put(url, data=data, headers=privileged_headers())
     assert rsp.status_code == 400
     data = response_format(rsp)
-    assert 'ou do not have UPDATE access to the actor you want to associate with this alias' in data['message']
+    print(f'data: {data}')
+    assert 'you do not have UPDATE access to the actor you want to associate with this alias' in data['message']
 
 @pytest.mark.aliastest
 def test_other_user_still_cant_create_alias_nonce(headers):
     # alias permissions do not confer access to the actor itself, and alias nonces require BOTH
     # permissions on the alias AND on the actor
     url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_1)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     assert rsp.status_code == 400
     data = response_format(rsp)
     assert 'you do not have access to this alias and actor' in data['message']
@@ -1232,7 +1218,7 @@ def test_owner_can_delete_alias(headers):
 @pytest.mark.aliastest
 def test_other_user_can_delete_shared_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
-    rsp = requests.delete(url, headers=priv_headers())
+    rsp = requests.delete(url, headers=privileged_headers())
     basic_response_checks(rsp)
 
     # list aliases and make sure it is gone -
@@ -1605,21 +1591,20 @@ def test_modify_user_perissions(headers):
 # The above tests were done with an admin user. In the following tests, we check RBAC with users with different Abaco
 # roles. The following defines the role types we check. These strings need to much the sufixes on the jwt files in this
 # tests directory.
-ROLE_TYPES = ['limited', 'privileged', 'user']
+ROLE_TYPES = ['privileged', 'regular']
 
 def get_role_headers(role_type):
     """
     Return headers with a JWT representing a user with a specific Abaco role. Each role type is represented by a
     *different* user. The valid role_type values are listed above.
      """
-    with open('/home/tapis/tests/jwt-abaco_{}'.format(role_type), 'r') as f:
-        jwt = f.read()
-    jwt_header = os.environ.get('jwt_header', 'X-Jwt-Assertion-AGAVE-PROD')
-    return {jwt_header: jwt}
+    role_user_dict = {'privileged': "privileged_headers()",
+                      'regular': "regular_headers()"}
+    return exec(role_user_dict[role_type])
 
 def test_other_users_can_create_basic_actor():
     for r_type in ROLE_TYPES:
-        headers = get_role_headers(r_type)
+        headers = get_tapis_token_headers(r_type)
         url = '{}/{}'.format(base_url, '/actors')
         data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_{}'.format(r_type)}
         rsp = requests.post(url, data=data, headers=headers)
@@ -1654,9 +1639,9 @@ def test_other_users_can_delete_basic_actor():
         rsp = requests.delete(url, headers=headers)
         basic_response_checks(rsp)
 
-# limited role:
-def test_limited_user_cannot_create_priv_actor():
-    headers = get_role_headers('limited')
+# regular role:
+def test_regular_user_cannot_create_priv_actor():
+    headers = get_role_headers('regular')
     url = '{}/{}'.format(base_url, '/actors')
     data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite', 'privileged': True}
     rsp = requests.post(url, data=data, headers=headers)
@@ -1793,7 +1778,7 @@ def test_search_workers_details(headers):
 def test_search_permissions_priv(headers):
     # Logs
     url = '{}/actors/search/logs'.format(base_url)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -1809,7 +1794,7 @@ def test_search_permissions_priv(headers):
     
     # Executions
     url = '{}/actors/search/executions'.format(base_url)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -1825,7 +1810,7 @@ def test_search_permissions_priv(headers):
 
     # Actors
     url = '{}/actors/search/actors'.format(base_url)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -1841,7 +1826,7 @@ def test_search_permissions_priv(headers):
 
     # Workers
     url = '{}/actors/search/workers'.format(base_url)
-    rsp = requests.get(url, headers=priv_headers())
+    rsp = requests.get(url, headers=privileged_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -1855,11 +1840,11 @@ def test_search_permissions_priv(headers):
         assert result['_metadata']['recordsSkipped'] == 0
         assert result['_metadata']['totalCount'] == 1
 
-# limited role
-def test_search_permissions_limited(headers):
+# regular role
+def test_search_permissions_regular(headers):
     # Logs
     url = '{}/actors/search/logs'.format(base_url)
-    rsp = requests.get(url, headers=limited_headers())
+    rsp = requests.get(url, headers=regular_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -1875,7 +1860,7 @@ def test_search_permissions_limited(headers):
     
     # Executions
     url = '{}/actors/search/executions'.format(base_url)
-    rsp = requests.get(url, headers=limited_headers())
+    rsp = requests.get(url, headers=regular_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -1891,7 +1876,7 @@ def test_search_permissions_limited(headers):
 
     # Actors
     url = '{}/actors/search/actors'.format(base_url)
-    rsp = requests.get(url, headers=limited_headers())
+    rsp = requests.get(url, headers=regular_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -1907,7 +1892,7 @@ def test_search_permissions_limited(headers):
 
     # Workers
     url = '{}/actors/search/workers'.format(base_url)
-    rsp = requests.get(url, headers=limited_headers())
+    rsp = requests.get(url, headers=regular_headers())
     result = basic_response_checks(rsp)
     print(result['_metadata'])
     if case == 'snake':
@@ -2016,15 +2001,12 @@ def test_search_skip_limit(headers):
 # ##############################
 # tenancy - tests for bleed over
 # ##############################
-
-def switch_tenant_in_header(headers):
-    jwt = headers.get('X-Jwt-Assertion-DEV-DEVELOP')
-    return {'X-Jwt-Assertion-DEV-STAGING': jwt}
+# Testing things, this time with the usual headers, but on the 'master' tenant rather than 'dev'.
 
 @pytest.mark.tenant
 def test_tenant_list_actors(headers):
     # passing another tenant should result in 0 actors.
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     url = '{}/{}'.format(base_url, '/actors')
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -2032,7 +2014,7 @@ def test_tenant_list_actors(headers):
 
 @pytest.mark.tenant
 def test_tenant_register_actor(headers):
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     url = '{}/{}'.format(base_url, '/actors')
     data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant', 'stateless': False}
     rsp = requests.post(url, json=data, headers=headers)
@@ -2044,7 +2026,7 @@ def test_tenant_register_actor(headers):
 
 @pytest.mark.tenant
 def test_tenant_actor_is_ready(headers):
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     count = 0
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     while count < 10:
@@ -2060,7 +2042,7 @@ def test_tenant_actor_is_ready(headers):
 @pytest.mark.tenant
 def test_tenant_list_registered_actors(headers):
     # passing another tenant should result in 1 actor.
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     url = '{}/{}'.format(base_url, '/actors')
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -2068,7 +2050,7 @@ def test_tenant_list_registered_actors(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_actor(headers):
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2080,7 +2062,7 @@ def test_tenant_list_actor(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_executions(headers):
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2089,7 +2071,7 @@ def test_tenant_list_executions(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_messages(headers):
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}/messages'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2098,7 +2080,7 @@ def test_tenant_list_messages(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_workers(headers):
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}/workers'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2373,7 +2355,7 @@ def test_remove_final_actors(headers):
         result = basic_response_checks(rsp)
 
 def test_tenant_remove_final_actors(headers):
-    headers = switch_tenant_in_header(headers)
+    headers = master_tenant_headers()
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -2382,8 +2364,8 @@ def test_tenant_remove_final_actors(headers):
         rsp = requests.delete(url, headers=headers)
         result = basic_response_checks(rsp)
 
-def test_limited_remove_final_actors(headers):
-    headers = limited_headers()
+def test_regular_remove_final_actors(headers):
+    headers = regular_headers()
     #headers = switch_tenant_in_header(headers)
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)

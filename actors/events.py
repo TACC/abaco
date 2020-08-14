@@ -16,8 +16,8 @@ import os
 import rabbitpy
 import requests
 import time
-from agaveflask.auth import get_api_server
 
+from auth import get_api_server
 from codes import SUBMITTED
 from channels import ActorMsgChannel, EventsChannel
 from models import Execution

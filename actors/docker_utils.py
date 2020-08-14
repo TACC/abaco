@@ -199,9 +199,28 @@ def run_container_with_docker(image,
         msg = "Did not find the abaco_conf_host_path in Config. Exception: {}".format(e)
         logger.error(msg)
         raise DockerError(msg)
+
+    # mount config.json
+    try:
+        abaco_json_host_path = os.environ.get('abaco_json_host_path')
+        if not abaco_json_host_path:
+            abaco_json_host_path = conf.abaco_json_host_path
+        logger.debug("docker_utils using abaco_json_host_path={}".format(abaco_json_host_path))
+        # mount config file at the root of the container as r/o
+        volumes.append('/home/tapis/config.json')
+        binds[abaco_json_host_path] = {'bind': '/home/tapis/config.json', 'ro': True}
+    except AttributeError as e:
+        # if we're here, it's bad. we don't have a config file. better to cut and run,
+        msg = "Did not find the abaco_json_host_path in Config. Exception: {}".format(e)
+        logger.error(msg)
+        raise DockerError(msg)
+    
     # also add it to the environment if not already there
     if 'abaco_conf_host_path' not in environment:
         environment['abaco_conf_host_path'] = abaco_conf_host_path
+
+    if 'abaco_json_host_path' not in environment:
+        environment['abaco_json_host_path'] = abaco_json_host_path
 
     if 'actor_id' not in environment:
         environment['actor_id'] = actor_id

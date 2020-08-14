@@ -2,8 +2,7 @@
 from flask import Flask
 from flask_cors import CORS
 
-from agaveflask.utils import AgaveApi
-from common.utils import handle_error
+from common.utils import handle_error, TapisApi
 
 
 from controllers import ActorResource, AliasesResource, AliasResource, AliasNoncesResource, AliasNonceResource, \
@@ -16,7 +15,7 @@ from errors import errors
 
 app = Flask(__name__)
 CORS(app)
-api = AgaveApi(app, errors=errors)
+api = TapisApi(app, errors=errors)
 
 # Authn/z
 @app.before_request

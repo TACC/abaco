@@ -14,7 +14,6 @@ import shutil
 import time
 import datetime
 
-from agaveflask.auth import get_api_server
 import channelpy
 
 from aga import Agave

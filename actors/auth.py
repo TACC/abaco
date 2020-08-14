@@ -11,7 +11,6 @@ import jwt
 import requests
 
 from __init__ import t
-from agaveflask.auth import get_api_server
 from common.auth import Tenants, authn_and_authz as flaskbase_az
 from common.logs import get_logger
 logger = get_logger(__name__)
@@ -28,6 +27,38 @@ jwt.verify_methods['SHA256WITHRSA'] = (
     lambda msg, key, sig: PKCS1_v1_5.new(key).verify(SHA256.new(msg), sig))
 jwt.prepare_key_methods['SHA256WITHRSA'] = jwt.prepare_RS_key
 
+
+def get_api_server(tenant_name):
+    # todo - lookup tenant in tenants table
+    if tenant_name.upper() == '3DEM':
+        return 'https://api.3dem.org'
+    if tenant_name.upper() == 'AGAVE-PROD':
+        return 'https://public.agaveapi.co'
+    if tenant_name.upper() == 'ARAPORT-ORG':
+        return 'https://api.araport.org'
+    if tenant_name.upper() == 'DESIGNSAFE':
+        return 'https://agave.designsafe-ci.org'
+    if tenant_name.upper() == 'DEV-STAGING':
+        return 'https://dev.tenants.aloestaging.tacc.cloud'
+    if tenant_name.upper() == 'DEV':
+        return 'https://dev.tenants.aloestaging.tacc.cloud'
+    if tenant_name.upper() == 'DEV-DEVELOP':
+        return 'https://dev.tenants.aloedev.tacc.cloud'
+    if tenant_name.upper() == 'IPLANTC-ORG':
+        return 'https://agave.iplantc.org'
+    if tenant_name.upper() == 'IREC':
+        return 'https://irec.tenants.prod.tacc.cloud'
+    if tenant_name.upper() == 'PORTALS':
+        return 'https://portals-api.tacc.utexas.edu'
+    if tenant_name.upper() == 'TACC-PROD':
+        return 'https://api.tacc.utexas.edu'
+    if tenant_name.upper() == 'SD2E':
+        return 'https://api.sd2e.org'
+    if tenant_name.upper() == 'SGCI':
+        return 'https://agave.sgci.org'
+    if tenant_name.upper() == 'VDJSERVER-ORG':
+        return 'https://vdj-agave-api.tacc.utexas.edu'
+    return 'http://172.17.0.1:8000'
 
 def get_pub_key():
     pub_key = conf.web_apim_public_key
@@ -55,9 +86,11 @@ def authn_and_authz():
     """
     tenants = Tenants()
     if conf.web_accept_nonce:
+        logger.debug("Config allows nonces, using nonces.")
         flaskbase_az(tenants, check_nonce, authorization)
     else:
         # we use the flaskbase authn_and_authz function, passing in our authorization callback.
+        logger.debug("Config does now allow nonces, not using nonces.")
         flaskbase_az(tenants, authorization)
 
 def required_level(request):
@@ -73,7 +106,7 @@ def required_level(request):
 
 def check_nonce():
     """
-    This function is an agaveflask authentication callback used to process the existence of a query parameter,
+    This function is an flaskbase authentication callback used to process the existence of a query parameter,
     x-nonce, an alternative authentication mechanism to JWT.
     
     When an x-nonce query parameter is provided, the request context is updated with the identity of the user owning
@@ -123,21 +156,25 @@ def check_nonce():
         nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
     g.username = nonce.owner
     # update roles data with that stored on the nonce:
-    g.roles = nonce.roles
-    # now, manually call our authorization function:
-    authorization()
+    g.roles = [nonce.roles]
+    logger.debug(f"setting g.tenant_id: {g.tenant_id}; g.username: {g.username}")
+
 
 def get_user_sk_roles():
     """
     """
-    roles_obj = t.sk.getUserRoles(tenant=conf.service_tenant_id, user=t.username)
-    roles_list = roles_obj.names 
+    logger.debug(f"Getting SK roles on tenant {g.tenant_id} and user {g.username}")
+    t.x_tenant_id=g.tenant_id
+    roles_obj = t.sk.getUserRoles(tenant=g.tenant_id, user=g.username)
+    roles_list = roles_obj.names
+    logger.debug(f"Roles received: {roles_list}")
+    t.x_tenant_id="master"
     g.roles = roles_list
 
 def authorization():
     """
-    This is the agaveflask authorization callback and implements the main Abaco authorization
-    logic. This function is called by agaveflask after all authentication processing and initial
+    This is the flaskbase authorization callback and implements the main Abaco authorization
+    logic. This function is called by flaskbase after all authentication processing and initial
     authorization logic has run.
     """
     # first check whether the request is even valid -

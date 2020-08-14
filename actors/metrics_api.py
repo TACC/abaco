@@ -2,8 +2,7 @@ from flask import Flask, render_template
 from flask_cors import CORS
 from prometheus_client import Summary, MetricsHandler, Counter
 
-from agaveflask.utils import AgaveApi
-from common.utils import handle_error
+from common.utils import handle_error, TapisApi
 
 
 from controllers import MetricsResource
@@ -12,7 +11,7 @@ from errors import errors
 
 app = Flask(__name__)
 CORS(app)
-api = AgaveApi(app, errors=errors)
+api = TapisApi(app, errors=errors)
 
 REQUEST_TIME = Summary('request_processing_seconds', 'DESC: Time spent processing request')
 
