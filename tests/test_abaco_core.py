@@ -80,7 +80,7 @@ import requests
 import json
 import pytest
 
-from actors import controllers, health, models, codes, stores, spawner
+from actors import controllers, health, models, codes, stores
 from channels import ActorMsgChannel, CommandChannel
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
@@ -1598,13 +1598,13 @@ def get_role_headers(role_type):
     Return headers with a JWT representing a user with a specific Abaco role. Each role type is represented by a
     *different* user. The valid role_type values are listed above.
      """
-    role_user_dict = {'privileged': "privileged_headers()",
-                      'regular': "regular_headers()"}
-    return exec(role_user_dict[role_type])
+    role_user_dict = {'privileged': privileged_headers,
+                      'regular': regular_headers}
+    return role_user_dict[role_type]()
 
 def test_other_users_can_create_basic_actor():
     for r_type in ROLE_TYPES:
-        headers = get_tapis_token_headers(r_type)
+        headers = get_role_headers(r_type)
         url = '{}/{}'.format(base_url, '/actors')
         data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_{}'.format(r_type)}
         rsp = requests.post(url, data=data, headers=headers)
@@ -1621,7 +1621,10 @@ def test_other_users_actor_list():
         print(rsp.content)
         result = basic_response_checks(rsp)
         # this list should only include the actors for this user.
-        assert len(result) == 1
+        # we gave the privileged user UPDATE access to the abaco_test_suite actor in
+        # the test_update_actor_other_user() and the regular user has two actors,
+        # "abaco_test_suite_regular_user" and "abaco_test_suite_regular"
+        assert len(result) == 2
 
 def test_other_users_get_actor():
     for r_type in ROLE_TYPES:
