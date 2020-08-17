@@ -1669,7 +1669,7 @@ class Worker(AbacoDAO):
         worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant, 'actor_id': actor_id}
         workers_for_actor = len(workers_store.items({'actor_id': actor_id}))
         if workers_for_actor:
-            logger.debug("did not get worker from add_if_empty.")
+            logger.debug(f"workers_for_actor was: {workers_for_actor}; returning None.")
             return None
         else:
             val = workers_store[f'{actor_id}_{worker_id}'] = worker
