@@ -8,7 +8,7 @@ from notchristiangarcia/flaskbase
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api
 
-RUN apt-get install python3-dev g++ sudo -y
+RUN apt-get update  && apt-get install python3-dev g++ sudo -y
 
 # install additional requirements for the service.
 COPY actors/requirements.txt /home/tapis/requirements.txt

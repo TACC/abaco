@@ -5,7 +5,7 @@
 #from tapis/flaskbase
 from notchristiangarcia/flaskbase
 
-RUN apt-get install python3-dev g++ -y
+RUN apt-get update && apt-get install python3-dev g++ -y
 
 # install additional requirements for the service.
 COPY actors/requirements.txt /home/tapis/requirements.txt
