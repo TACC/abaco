@@ -218,14 +218,14 @@ class Spawner(object):
         # worker['status'] = PULLING_IMAGE
         Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE)
         try:
-            logger.debug("Worker pulling image {}...".format(image))
+            logger.debug("spawner pulling image {}...".format(image))
             pull_image(image)
         except DockerError as e:
             # return a message to the spawner that there was an error pulling image and abort.
             # this is not necessarily an error state: the user simply could have provided an
             # image name that does not exist in the registry. This is the first time we would
             # find that out.
-            logger.info("worker got a DockerError trying to pull image. Error: {}.".format(e))
+            logger.info("spawner got a DockerError trying to pull image. Error: {}.".format(e))
             raise e
         logger.info("Image {} pulled successfully.".format(image))
         # Done pulling image
