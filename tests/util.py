@@ -5,6 +5,7 @@ import pytest
 import requests
 import time
 from actors.__init__ import t
+from common.errors import BaseTapisError
 from common.config import conf
 
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
@@ -36,10 +37,16 @@ def get_tapis_token_headers(user, tenant='dev'):
     token_res = t.tokens.create_token(account_type='user',
                                       token_tenant_id=tenant,
                                       token_username=user,
-                                      access_token_ttl=9999,
+                                      access_token_ttl=999999,
                                       generate_refresh_token=False,
                                       use_basic_auth=False)
+    if not token_res.access_token or not token_res.access_token.access_token:
+        raise BaseTapisError(f"Did not get access token; token response: {token_res}")
     header_dat = {"X-Tapis-Token": token_res.access_token.access_token}
+    # t.set_access_token(token_res.access_token)
+    # if not t.access_token.access_token:
+    #     raise BaseTapisError(f"Did not get access token; token response: {token_res}")
+    # header_dat = {"X-Tapis-Token": t.access_token.access_token}
     return header_dat
 
 def get_jwt_headers(file_path='/home/tapis/tests/jwt-abaco_admin'):
@@ -56,11 +63,9 @@ def get_jwt_headers(file_path='/home/tapis/tests/jwt-abaco_admin'):
 
 
 def get_tenant(headers):
-    for k, v in headers.items():
-        if k.startswith('X-Jwt-Assertion-'):
-            return k.split('X-Jwt-Assertion-')[1]
-    # didn't find tenant header
-    assert False
+    """ Get the tenant_id associated with the test suite requests."""
+    return t.tenant_id
+
 
 def test_remove_initial_actors(headers):
     url = '{}/actors'.format(base_url)
