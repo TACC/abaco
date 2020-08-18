@@ -58,10 +58,6 @@
       "type": "string",
       "description": "Sets abaco conf host path if it is not set by environment variable"
     },
-    "abaco_json_host_path": {
-      "type": "string",
-      "description": "Sets abaco json conf host path if it is not set by environment variable"
-    },
     "docker_dd": {
       "type": "string",
       "description": "url to use for docker daemon by spawners and workers."

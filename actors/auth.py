@@ -167,7 +167,14 @@ def get_user_sk_roles():
     logger.debug(f"Getting SK roles on tenant {g.tenant_id} and user {g.username}")
     t.x_tenant_id=g.tenant_id
     start_timer = timeit.default_timer()
-    roles_obj = t.sk.getUserRoles(tenant=g.tenant_id, user=g.username)
+    try:
+        roles_obj = t.sk.getUserRoles(tenant=g.tenant_id, user=g.username)
+    except Exception as e:
+        end_timer = timeit.default_timer()
+        total = (end_timer - start_timer) * 1000
+        if total > 4000:
+            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.tenant_id}")
+        raise e
     end_timer = timeit.default_timer()
     total = (end_timer - start_timer) * 1000
     if total > 4000:

@@ -21,7 +21,6 @@
         "default",
         "special"
     ],
-    "abaco_json_host_path": "",
     "spawner_host_ip": "172.17.0.1",
     "spawner_max_cmd_length": 12,
     "spawner_max_workers_per_host": 75,

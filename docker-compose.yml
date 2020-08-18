@@ -43,7 +43,6 @@ services:
         image: abaco/nginx:$TAG
         volumes:
             - ./config-local.json:/home/tapis/config.json
-            - ./local-dev.conf:/etc/service.conf
 #            - ./images/nginx/nginx.conf:/etc/nginx/nginx.conf
 #            - ./images/nginx/sites-enabled:/etc/nginx/sites-enabled
         ports:
@@ -60,7 +59,6 @@ services:
             - "5000:5000"
         volumes:
             - ./config-local.json:/home/tapis/config.json
-            - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
             api: reg
@@ -77,7 +75,6 @@ services:
         image: abaco/core:$TAG
         volumes:
             - ./config-local.json:/home/tapis/config.json
-            - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
             - "5001:5000"
@@ -97,7 +94,6 @@ services:
         image: abaco/core:$TAG
         volumes:
             - ./config-local.json:/home/tapis/config.json
-            - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
             - "5003:5000"
@@ -118,10 +114,9 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
-            - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
-            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            abaco_conf_host_path: ${abaco_path}/config-local.json
             _abaco_secret: 123
             mongo_password:
             TAS_ROLE_ACCT:
@@ -139,10 +134,9 @@ services:
             - /:/host
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
-            - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
-            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            abaco_conf_host_path: ${abaco_path}/config-local.json
             mongo_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
@@ -162,11 +156,10 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
-            - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
 
         environment:
-            abaco_conf_host_path: ${abaco_path}/local-dev.conf
+            abaco_conf_host_path: ${abaco_path}/config-local.json
             _abaco_secret: 123
             mongo_password:
             TAS_ROLE_ACCT:
@@ -223,7 +216,6 @@ services:
             - abaco
         volumes:
             - ./config-local.json:/home/tapis/config.json
-            - ./local-dev.conf:/etc/service.conf
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         ports:
             - "5004:5000"

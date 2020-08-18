@@ -153,14 +153,19 @@ def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
     Process to generate Agave clients for workers.
     """
     try:
+        start = time.time()
         token_res = t.tokens.create_token(account_type='user',
                                           token_tenant_id=token_tenant,
                                           token_username=token_user,
                                           access_token_ttl=access_token_ttl,
                                           generate_refresh_token=False,
                                           use_basic_auth=False)
+        elasped_time = time.time() - start
+        if elasped_time >= 2:
+            logger.error(f"Time to create execution token: {elasped_time}")
         return token_res.access_token.access_token
     except Exception as e:
+        logger.error(f"Time to fail at creating execution token: {time.time() - start}")
         msg = f"Got exception trying to create actor access_token; exception: {e}"
         logger.error(msg)
         raise WorkerException(msg)
