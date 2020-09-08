@@ -61,6 +61,7 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
+            abaco_host_path: ${abaco_path}
             api: reg
             server: gunicorn
             mongo_password:
@@ -79,6 +80,7 @@ services:
         ports:
             - "5001:5000"
         environment:
+            abaco_host_path: ${abaco_path}
             server: gunicorn
             api: mes
             threads: 12
@@ -98,6 +100,7 @@ services:
         ports:
             - "5003:5000"
         environment:
+            abaco_host_path: ${abaco_path}
             server: gunicorn
             api: admin
             mongo_password:
@@ -110,13 +113,13 @@ services:
 
     spawner:
         image: abaco/core:$TAG
-        command: "python3 -u /actors/spawner.py"
+        command: "python3 -u /home/tapis/actors/spawner.py"
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
-            abaco_conf_host_path: ${abaco_path}/config-local.json
+            abaco_host_path: ${abaco_path}
             _abaco_secret: 123
             mongo_password:
             TAS_ROLE_ACCT:
@@ -136,7 +139,7 @@ services:
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
         environment:
-            abaco_conf_host_path: ${abaco_path}/config-local.json
+            abaco_host_path: ${abaco_path}
             mongo_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
@@ -152,14 +155,14 @@ services:
 
     events:
         image: abaco/core:$TAG
-        command: "python3 -u /actors/events.py"
+        command: "python3 -u /home/tapis/actors/events.py"
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
 
         environment:
-            abaco_conf_host_path: ${abaco_path}/config-local.json
+            abaco_host_path: ${abaco_path}
             _abaco_secret: 123
             mongo_password:
             TAS_ROLE_ACCT:
@@ -220,6 +223,7 @@ services:
         ports:
             - "5004:5000"
         environment:
+            abaco_host_path: ${abaco_path}
             server: dev
             api: metrics
             mongo_password:

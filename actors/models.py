@@ -831,7 +831,7 @@ class Actor(AbacoDAO):
         return actors_store[db_id]
 
     def get_uuid_code(self):
-        """ Return the Agave code for this object.
+        """ Return the uuid code for this object.
         :return: str
         """
         return '059'
@@ -1458,7 +1458,7 @@ class Execution(AbacoDAO):
             logger.critical(f"Execution.set_logs took {ms} to run for execution: {exc_id}.")
 
     def get_uuid_code(self):
-        """ Return the Agave code for this object.
+        """ Return the uuid code for this object.
         :return: str
         """
         return '053'
@@ -1808,7 +1808,7 @@ class Worker(AbacoDAO):
         logger.info(f"worker status updated to: {status}. worker_id: {worker_id}")
 
     def get_uuid_code(self):
-        """ Return the Agave code for this object.
+        """ Return the uuid code for this object.
         :return: str
         """
         return '058'

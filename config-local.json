@@ -16,6 +16,7 @@
     "store_mongo_host": "mongo",
     "store_mongo_port": 27017,
     "rabbit_uri": "amqp://rabbit:5672",
+    "spawner_abaco_conf_host_path": "$env{abaco_host_path}/config-local.json",
     "spawner_host_id": 0,
     "spawner_host_queues": [
         "default",
@@ -35,8 +36,8 @@
     "worker_sync_max_idle_time": 600,
     "worker_auto_remove": true,
     "worker_privileged_mounts": [
-        "/data1:/home/tapis/runtime_files/_abaco_data1:ro",
-        "/data2:/home/tapis/runtime_files/_abaco_data2:rw"
+        "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
+        "$env{abaco_host_path}/runtime_files/data2:/home/tapis/runtime_files/_abaco_data2:rw"
     ],
     "worker_leave_containers": true,
     "worker_socket_host_path_dir": "/home/tapis/runtime_files/_abaco_results_sockets",
@@ -60,16 +61,16 @@
         "default_token": false,
         "generate_clients": true,
         "global_mounts": [
-        "/data1:/home/tapis/runtime_files/_abaco_data1:ro",
-        "/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
+        "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
+        "$env{abaco_host_path}/runtime_files/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
         ]
     },
     "designsafe_auth_object": {
         "actor_uid": 458981,
         "actor_gid": 816877,
         "global_mounts": [
-        "/data1:/home/tapis/runtime_files/_abaco_data1:ro",
-        "/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
+        "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
+        "$env{abaco_host_path}/runtime_files/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
         ]
     },
     "sd2e_auth_object": {
@@ -80,7 +81,7 @@
     },
     "DEV-DEVELOP_auth_object": {
         "global_mounts": [
-        "/data1:/home/tapis/runtime_files/_abaco_data1:ro"
+        "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro"
         ]
     }
 }

@@ -16,22 +16,28 @@ import datetime
 
 import channelpy
 
-from aga import Agave
 from auth import get_tenants, get_tenant_verify
 import codes
 from common.config import conf
+from common.logs import get_logger
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
 from models import Actor, Worker, is_hashid
 from channels import CommandChannel, WorkerChannel
 from stores import actors_store, executions_store, workers_store
 from worker import shutdown_worker
 
+
 TAG = os.environ.get('TAG') or conf.version or ""
 if not TAG[0] == ":":
     TAG = f":{TAG}"
 AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core')}{TAG}"
 
-from common.logs import get_logger
+# Give permissions to Docker copied folders and files.
+# Have to do this as we are running as Tapis user, not root.
+# This script requires no permissions.
+os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
+os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+
 logger = get_logger(__name__)
 
 # max executions allowed in a mongo document; if the total executions for a given actor exceeds this number,

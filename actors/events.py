@@ -17,14 +17,19 @@ import rabbitpy
 import requests
 import time
 
-from auth import get_api_server
 from codes import SUBMITTED
 from channels import ActorMsgChannel, EventsChannel
 from models import Execution
 from stores import actors_store
-
-
 from common.logs import get_logger
+
+
+# Give permissions to Docker copied folders and files.
+# Have to do this as we are running as Tapis user, not root.
+# This script requires no permissions.
+os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
+os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+
 logger = get_logger(__name__)
 
 def process_event_msg(msg):
@@ -47,7 +52,6 @@ def process_event_msg(msg):
     d = {}
     d['_abaco_Content_Type'] = 'application/json'
     d['_abaco_username'] = 'Abaco Event'
-    d['_abaco_api_server'] = get_api_server(tenant_id)
     if link:
         process_link(link, msg, d)
     if webhook:
@@ -130,7 +134,7 @@ def main():
             else:
                 ch = EventsChannel()
             logger.info("events processor made connection to rabbit, entering main loop")
-            logger.info("events processor using abaco_conf_host_path={}".format(os.environ.get('abaco_conf_host_path')))
+            logger.info("events processor using abaco_host_path={}".format(os.environ.get('abaco_host_path')))
             run(ch)
         except (rabbitpy.exceptions.ConnectionException, RuntimeError):
             # rabbit seems to take a few seconds to come up

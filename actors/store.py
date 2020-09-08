@@ -6,7 +6,6 @@ import os
 import urllib.parse
 
 import pprint
-import redis
 from pymongo.errors import WriteError, DuplicateKeyError
 from pymongo import MongoClient
 

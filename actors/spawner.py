@@ -9,6 +9,7 @@ from channelpy.exceptions import ChannelTimeoutException
 from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
 from common.config import conf
+from common.logs import get_logger
 from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
 from models import Actor, Worker
@@ -16,7 +17,13 @@ from stores import actors_store, workers_store
 from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from health import get_worker
 
-from common.logs import get_logger
+
+# Give permissions to Docker copied folders and files.
+# Have to do this as we are running as Tapis user, not root.
+# This script requires no permissions.
+os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
+os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+
 logger = get_logger(__name__)
 
 MAX_WORKERS = conf.spawner_max_workers_per_host
@@ -354,7 +361,7 @@ def main():
         try:
             sp = Spawner()
             logger.info("spawner made connection to rabbit, entering main loop")
-            logger.info("spawner using abaco_conf_host_path={}".format(os.environ.get('abaco_conf_host_path')))
+            logger.info("spawner using abaco_host_path={}".format(os.environ.get('abaco_host_path')))
             sp.run()
         except (rabbitpy.exceptions.ConnectionException, RuntimeError):
             # rabbit seems to take a few seconds to come up

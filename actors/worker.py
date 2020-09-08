@@ -150,7 +150,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
 
 def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
     """
-    Process to generate Agave clients for workers.
+    Process to generate OAuth2 tokens for workers.
     """
     try:
         start = time.time()
@@ -202,7 +202,7 @@ def subscribe(tenant,
     # subscribe to the actor message queue -----
     logger.info("Worker subscribing to actor channel. worker_id: {}".format(worker_id))
     # keep track of whether we need to update the worker's status back to READY; otherwise, we
-    # will hit redis with an UPDATE every time the subscription loop times out (i.e., every 2s)
+    # will hit mongo with an UPDATE every time the subscription loop times out (i.e., every 2s)
     update_worker_status = True
 
     # global tracks whether this worker should keep running.
@@ -291,9 +291,9 @@ def subscribe(tenant,
             fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
             try:
                 os.mkfifo(fifo_host_path)
-                logger.info("Created fifo at path: {}".format(fifo_host_path))
+                logger.info(f"Created fifo at path: {fifo_host_path}")
             except Exception as e:
-                logger.error("Could not create fifo_path. Nacking message. Exception: {}".format(e))
+                logger.error(f"Could not create fifo_path at {fifo_host_path}. Nacking message. Exception: {e}")
                 msg_obj.nack(requeue=True)
                 logger.info("worker exiting. worker_id: {}".format(worker_id))
                 raise e
@@ -514,8 +514,8 @@ if __name__ == '__main__':
 
     # call the main() function:
     try:
-        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files/_abaco_fifos')
-        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files/_abaco_results_sockets')
+        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
+        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
         main()
     except Exception as e:
         try:

@@ -185,12 +185,15 @@ def run_container_with_docker(image,
                                      'ro': m.get('format') == 'ro'}
         volumes.append(m.get('host_path'))
 
+    # This should exist if config.json is using environment variables.
+    # But there's a chance that it's not being used and isn't needed.
+    abaco_host_path = os.environ.get('abaco_host_path')
+    logger.debug(f"docker_utils using abaco_host_path={abaco_host_path}")
+
     try:
-        abaco_conf_host_path = os.environ.get('abaco_conf_host_path')
-        if not abaco_conf_host_path:
-            abaco_conf_host_path = conf.spawner_abaco_conf_host_path
-        logger.debug("docker_utils using abaco_conf_host_path={}".format(abaco_conf_host_path))
-        # mount config file at the root of the container as r/o
+        # Get config path and mount to root of the container as r/o
+        abaco_conf_host_path = conf.spawner_abaco_conf_host_path
+        logger.debug(f"docker_utils using abaco_conf_host_path={abaco_conf_host_path}")
         volumes.append('/home/tapis/config.json')
         binds[abaco_conf_host_path] = {'bind': '/home/tapis/config.json', 'ro': True}
     except AttributeError as e:
@@ -198,10 +201,9 @@ def run_container_with_docker(image,
         msg = "Did not find the abaco_conf_host_path in Config. Exception: {}".format(e)
         logger.error(msg)
         raise DockerError(msg)
-    
-    # also add it to the environment if not already there
-    if 'abaco_conf_host_path' not in environment:
-        environment['abaco_conf_host_path'] = abaco_conf_host_path
+
+    if 'abaco_host_path' not in environment:
+        environment['abaco_host_path'] = abaco_host_path
 
     if 'actor_id' not in environment:
         environment['actor_id'] = actor_id
@@ -297,6 +299,7 @@ def run_worker(image,
         environment={
             'image': image,
             'worker_id': worker_id,
+            'abaco_host_path': os.environ.get('abaco_host_path'),
             '_abaco_secret': os.environ.get('_abaco_secret')},
             mounts=mounts,
             log_file=None,

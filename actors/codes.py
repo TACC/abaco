@@ -72,7 +72,7 @@ ALIAS_NONCE_PERMISSION_LEVELS = (NONE.name, READ.name, EXECUTE.name)
 # role set by flaskbase in case the access_control_type is none
 ALL_ROLE = 'ALL'
 
-# roles - only used when Agave's JWT Auth is activated.
+# roles - only used when Tapis's JWT Auth is activated.
 # the admin role allows users full access to Abaco, including modifying workers assigned to actors.
 ADMIN_ROLE = 'abaco_admin'
 

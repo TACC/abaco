@@ -20,11 +20,6 @@ class RequestParser(reqparse.RequestParser):
         except ClientDisconnected as exc:
             raise BaseAbacoError(exc.data['message'], 400)
 
-class AgaveApi(Api):
-    """General flask_restful Api subclass for all the Agave APIs."""
-    pass
-
-
 def handle_error(exc):
     show_traceback = conf.web_show_traceback
     if show_traceback == 'true':

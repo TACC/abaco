@@ -12,7 +12,7 @@ from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from common.utils import RequestParser, ok
 
-from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
+from auth import check_permissions, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from common.config import conf
@@ -1391,9 +1391,6 @@ class MessagesResource(Resource):
         if hasattr(g, 'username'):
             d['_abaco_username'] = g.username
             logger.debug("_abaco_username: {} added to message.".format(g.username))
-        if hasattr(g, 'api_server'):
-            d['_abaco_api_server'] = g.api_server
-            logger.debug("_abaco_api_server: {} added to message.".format(g.api_server))
         if hasattr(g, 'jwt_header_name'):
             d['_abaco_jwt_header_name'] = g.jwt_header_name
             logger.debug("abaco_jwt_header_name: {} added to message.".format(g.jwt_header_name))
