@@ -115,6 +115,23 @@ all-samples:
 	done
 
 
+# These are recreations of what docker-compose-local.yml, docker-compose-local-db.yml,
+# and docker-compose-prom.yml used to do. But without the extra files.
+# docker-compose-local.yml
+old-compute:
+    docker-compose up -d nginx reg mes admin spawner metrics health
+
+
+# docker-compose-local-db.yml
+old-db:
+	docker-compose up -d rabbit mongo
+
+
+# docker-compose-prom.yml
+old-prometheus:
+	docker-compose up -d prometheus grafana 
+
+
 # Test setting of environment variables
 vars:
 	@echo $$TAG

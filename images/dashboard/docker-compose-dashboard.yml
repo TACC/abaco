@@ -4,9 +4,9 @@
 dashnginx:
     image: nginx
     volumes:
-        - ./dashboard/nginx/nginx.conf:/etc/nginx/nginx.conf
-        - ./dashboard/nginx/ssl/reactors.tacc.cloud.crt:/etc/ssl/abaco/reactors.tacc.cloud.crt
-        - ./dashboard/nginx/ssl/reactors.tacc.cloud.key:/etc/ssl/abaco/reactors.tacc.cloud.key
+        - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+        - ./nginx/ssl/reactors.tacc.cloud.crt:/etc/ssl/abaco/reactors.tacc.cloud.crt
+        - ./nginx/ssl/reactors.tacc.cloud.key:/etc/ssl/abaco/reactors.tacc.cloud.key
     ports:
         - "4080:80"
         - "443:443"
@@ -21,7 +21,7 @@ django:
     extra_hosts:
         - "reactors.tacc.cloud:172.17.0.1"
     volumes:
-        - ./dashboard/requests:/requests
+        - ./requests:/requests
     environment:
         # for TACC instance
 #        "AGAVE_CLIENT_KEY": "ReT0YKpfQPQLQVRXObTEgKtideka"

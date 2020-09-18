@@ -1,1 +1,0 @@
--e git://github.com/TACC/agavepy.git#egg=agavepy

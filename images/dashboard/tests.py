@@ -13,11 +13,6 @@ import json
 import pytest
 
 
-
-
-
-
-
 class DashboardClassCase(TestCase):
     def setup(self):
         self.client = Client()

@@ -180,11 +180,11 @@ services:
 
 
     prometheus:
-        # build: ./prometheus
+        # build: ./images/prometheus
         image: abaco/prom:$TAG
         volumes:
-            - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-            - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
+            - ./images/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+            - ./images/prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
         command:
           - '--config.file=/etc/prometheus/prometheus.yml'
         #   - '-storage.local.path=/prometheus'
@@ -205,9 +205,9 @@ services:
             - 3000:3000
         volumes:
             - grafana_data:/var/lib/grafana
-            - ./prometheus/grafana/provisioning/:/etc/grafana/provisioning/
+            - ./images/prometheus/grafana/provisioning/:/etc/grafana/provisioning/
         env_file:
-            - ./prometheus/grafana/config.monitoring
+            - ./images/prometheus/grafana/config.monitoring
         networks:
             - abaco
         restart: always
