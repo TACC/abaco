@@ -40,8 +40,8 @@
         "$env{abaco_host_path}/runtime_files/data2:/home/tapis/runtime_files/_abaco_data2:rw"
     ],
     "worker_leave_containers": true,
-    "worker_socket_host_path_dir": "/home/tapis/runtime_files/_abaco_results_sockets",
-    "worker_fifo_host_path_dir": "/home/tapis/runtime_files/_abaco_fifos",
+    "worker_socket_paths": "$env{abaco_host_path}/runtime_files/_abaco_results_sockets:/home/tapis/runtime_files/_abaco_results_sockets",
+    "worker_fifo_paths": "$env{abaco_host_path}/runtime_files/_abaco_fifos:/home/tapis/runtime_files/_abaco_fifos",
     "web_access_control": "jwt",
     "web_user_role": "Internal/everyone",
     "web_accept_nonce": true,

@@ -11,8 +11,11 @@ services:
         image: mongo:4.2.6
         ports:
             - "27017:27017"
-        #    uncomment to add auth
-        #    command: --auth
+        environment:
+            # You can now initialize abaco db with user/pass below
+            MONGO_INITDB_DATABASE: abaco
+            #MONGO_INITDB_ROOT_USERNAME: userhere
+            #MONGO_INITDB_ROOT_PASSWORD: passhere
         networks:
             - abaco
         ulimits:

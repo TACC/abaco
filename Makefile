@@ -119,7 +119,7 @@ all-samples:
 # and docker-compose-prom.yml used to do. But without the extra files.
 # docker-compose-local.yml
 old-compute:
-    docker-compose up -d nginx reg mes admin spawner metrics health
+	docker-compose up -d nginx reg mes admin spawner metrics health
 
 
 # docker-compose-local-db.yml

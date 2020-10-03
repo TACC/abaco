@@ -110,14 +110,14 @@
       "description": "Whether to leave the actor containers or remove them. True is helpful for debugging.",
       "default": false
     },
-    "worker_socket_host_path_dir": {
+    "worker_socket_paths": {
       "type": "string",
-      "description": "Path on workers host to use for mounting temp socekts for processing exec results.",
+      "description": "Where to mount worker sockets on host and in container for results. Formatted as host_path:container_path.",
       "default": null
     },
-    "worker_fifo_host_path_dir": {
+    "worker_fifo_paths": {
       "type": "string",
-      "description": "Path on workers host to use for mounting temp fifo's for processing binary messages.",
+      "description": "Where to mount worker fifos on host and in container for binary messages. Formatted as host_path:container_path.",
       "default": null
     },
     "web_access_control": {
@@ -348,8 +348,8 @@
     "store_mongo_port",
     "rabbit_uri",
     "global_auth_object",
-    "worker_socket_host_path_dir",
+    "worker_socket_paths",
     "spawner_host_id",
-    "worker_fifo_host_path_dir"
+    "worker_fifo_paths"
  ]
 }

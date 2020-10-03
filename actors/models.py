@@ -1287,7 +1287,7 @@ class Execution(AbacoDAO):
         executions_store[f'{actor_id}_{execution.id}'] = execution
         abaco_metrics_store.full_update(
             {'_id': 'stats'},
-            {'$inc': {'executions_total': 1},
+            {'$inc': {'execution_total': 1},
              '$addToSet': {'execution_dbids': f'{actor_id}_{execution.id}'}},
              upsert=True)
 

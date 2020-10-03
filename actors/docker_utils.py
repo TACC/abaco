@@ -272,26 +272,24 @@ def run_worker(image,
     logger.debug("docker_utils running worker. image:{}, command:{}".format(
         image, command))
 
+    mounts = []
     # mount the directory on the host for creating fifos
-    fifo_host_path_dir = conf.worker_fifo_host_path_dir
-    logger.info("Using fifo_host_path_dir: {}".format(fifo_host_path_dir))
-    if fifo_host_path_dir:
-        mounts = [{'host_path': os.path.join(fifo_host_path_dir, worker_id),
-                   'container_path': os.path.join(fifo_host_path_dir, worker_id),
-                   'format': 'rw'}]
-    else:
-        mounts = []
+    # Paths should be formatted as host_path:container_path for split
+    fifo_host_path_dir, fifo_container_path_dir = conf.worker_fifo_paths.split(':')
+    logger.info(f"Using fifo paths - {fifo_host_path_dir}:{fifo_container_path_dir}")
+    mounts.append({'host_path': os.path.join(fifo_host_path_dir, worker_id),
+                   'container_path': os.path.join(fifo_container_path_dir, worker_id),
+                   'format': 'rw'})
 
     # mount the directory on the host for creating result sockets
-    socket_host_path_dir = conf.worker_socket_host_path_dir
-    logger.info(f"Using socket_host_path_dir: {socket_host_path_dir}")
-    if socket_host_path_dir:
-        mounts.append({'host_path': os.path.join(socket_host_path_dir, worker_id),
-                       'container_path': os.path.join(socket_host_path_dir, worker_id),
-                       'format': 'rw'})
+    # Paths should be formatted as host_path:container_path for split
+    socket_host_path_dir, socket_container_path_dir = conf.worker_socket_paths.split(':')
+    logger.info(f"Using socket paths - {socket_host_path_dir}:{socket_container_path_dir}")
+    mounts.append({'host_path': os.path.join(socket_host_path_dir, worker_id),
+                   'container_path': os.path.join(socket_container_path_dir, worker_id),
+                   'format': 'rw'})
 
-    logger.info("Final fifo_host_path_dir: {}; socket_host_path_dir: {}".format(fifo_host_path_dir,
-                                                                                socket_host_path_dir))
+    logger.info(f"Final fifo and socket mounts: {mounts}")
     auto_remove = conf.worker_auto_remove
     container = run_container_with_docker(
         image=AE_IMAGE,

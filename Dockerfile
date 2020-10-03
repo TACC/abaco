@@ -2,7 +2,7 @@
 # Image: abaco/core
 
 # inherit from the flaskbase iamge:
-from tapis/flaskbase
+FROM tapis/flaskbase
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api
 
@@ -30,7 +30,7 @@ RUN chmod +x /home/tapis/entry.sh
 
 
 ## PACKAGE INITIALIZATION
-RUN apt-get update  && apt-get install python3-dev g++ sudo -y
+RUN apt-get update && apt-get install python3-dev g++ sudo -y
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/actors/requirements.txt
 

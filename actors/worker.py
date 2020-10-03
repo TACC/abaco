@@ -275,19 +275,21 @@ def subscribe(tenant,
             raise e
 
         # for results, create a socket in the configured directory.
-
-        socket_host_path_dir = conf.worker_socket_host_path_dir
-        socket_host_path = '{}.sock'.format(os.path.join(socket_host_path_dir, worker_id, execution_id))
-        logger.info("Create socket at path: {}".format(socket_host_path))
+        # Paths should be formatted as host_path:container_path for split
+        socket_host_path_dir, socket_container_path_dir = conf.worker_socket_paths.split(':')
+        socket_host_path = f'{os.path.join(socket_host_path_dir, worker_id, execution_id)}.sock'
+        socket_container_path = f'{os.path.join(socket_container_path_dir, worker_id, execution_id)}.sock'
+        logger.info(f"Create socket at path: {socket_host_path}")
         # add the socket as a mount:
         mounts.append({'host_path': socket_host_path,
                        'container_path': '/_abaco_results.sock',
                        'format': 'ro'})
+
         # for binary data, create a fifo in the configured directory. The configured
         # fifo_host_path_dir is equal to the fifo path in the worker container:
         fifo_host_path = None
         if content_type == 'application/octet-stream':
-            fifo_host_path_dir = conf.worker_fifo_host_path_dir
+            fifo_host_path_dir = conf.worker_fifo_paths.split(':')[0]
             fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
             try:
                 os.mkfifo(fifo_host_path)
@@ -369,7 +371,7 @@ def subscribe(tenant,
                                                                             mounts,
                                                                             leave_containers,
                                                                             fifo_host_path,
-                                                                            socket_host_path,
+                                                                            socket_container_path,
                                                                             mem_limit,
                                                                             max_cpus,
                                                                             tenant)
@@ -526,4 +528,3 @@ if __name__ == '__main__':
               "Exception: {} worker_id: {}".format(e, worker_id)
         logger.info(msg)
     sys.exit()
-
