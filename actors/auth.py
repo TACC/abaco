@@ -23,11 +23,6 @@ from models import Actor, Alias, get_permissions, is_hashid, Nonce
 from errors import ClientException, ResourceError, PermissionsException
 
 
-jwt.verify_methods['SHA256WITHRSA'] = (
-    lambda msg, key, sig: PKCS1_v1_5.new(key).verify(SHA256.new(msg), sig))
-jwt.prepare_key_methods['SHA256WITHRSA'] = jwt.prepare_RS_key
-
-
 def get_api_server(tenant_name):
     # todo - lookup tenant in tenants table
     if tenant_name.upper() == '3DEM':
