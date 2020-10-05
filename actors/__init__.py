@@ -3,7 +3,7 @@ from common.logs import get_logger
 logger = get_logger(__name__)
 
 try:
-    t = get_service_tapis_client(tenant_id='master', base_url='https://master.develop.tapis.io')
+    t = get_service_tapis_client()
 except Exception as e:
     logger.error(f'Could not instantiate tapy service client. Exception: {e}')
     raise e
