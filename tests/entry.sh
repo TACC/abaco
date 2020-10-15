@@ -12,7 +12,7 @@ echo $maxErrors
 
 # if nothing passed, run the full suite
 if [ -z $TEST ]; then
-  pytest --maxfail $maxErrors /home/tapis/tests/test_abaco_core.py
+  pytest --maxfail $maxErrors --ignore=tests/util.py --ignore=tests/entry.sh --ignore-glob=tests/archive/* tests
 elif [ "$#" -eq 2 ]; then
   TEST="$1 $2"
   echo $TEST

@@ -27,24 +27,26 @@ Setting up an ``AgavePy`` object with token and API address information:
 
 .. code-block:: python
 
-    from agavepy.agave import Agave
-    ag = Agave(api_server='https://api.tacc.utexas.edu',
-               username='<username>', password='<password>',
-               client_name='JPEG_classifier',
-               api_key='<api_key>',
-               api_secret='<api_secret>')
+    # Import the Tapis object
+    from tapipy import Tapis
 
-    ag.get_access_token()
-    ag = Agave(api_server='https://api.tacc.utexas.edu/', token=ag.token)
+    # Log into you the Tapis service by providing user/pass and url.
+    t = Tapis(base_url='https://master.tapis.io',
+              tenant_id='master',
+              account_type='user',
+              username='myuser',
+              password='mypass')
+        
+    # Get tokens that will be used for authentication function calls
+    t.get_tokens()
 
-Creating actor with the TensorFlow image classifier docker image:
+    Creating actor with the TensorFlow image classifier docker image:
 
 .. code-block:: python
 
-    my_actor = {'image': 'abacosamples/binary_message_classifier',
-                'name': 'JPEG_classifier',
-                'description': 'Labels a read in binary image'}
-    actor_data = ag.actors.add(body=my_actor)
+    actor_data = t.actors.createActor(image='abacosamples/binary_message_classifier',
+                                      name='JPEG_classifier',
+                                      description='Labels a read in binary image')
 
 The following creates a binary message from a JPEG image file:
 
@@ -57,23 +59,23 @@ Sending binary JPEG file to actor as message with the ``application/octet-stream
 
 .. code-block:: python
 
-    result = ag.actors.sendMessage(actorId=actor_data['id'],
-                                   body={'binary': binary_image},
-                                   headers={'Content-Type': 'application/octet-stream'})
+    result = t.actors.sendMessage(actor_id = actor_data.id,
+                                  request_body = {'body': 'd'},
+                                  headers = {'Content-Type': 'application/octet-stream'})
 
 The following returns information pertaining to the execution:
 
 .. code-block:: python
 
-    execution = ag.actors.getExecution(actorId=actor_data['id'],
-                                       executionId = result['executionId'])
+    execution = t.actors.getExecution(actor_id = actor_data.id,
+                                      execution_id = result.executionId)
 
 Once the execution has complete, the logs can be called with the following:
 
 .. code-block:: python
     
-    exec_info = requests.get('{}/actors/v2/{}/executions/{}'.format(url, actor_id, exec_id),
-                             headers={'Authorization': 'Bearer {}'.format(token)})
+    logs = t.actors.getExecutionLogs(actor_id = actor_data.id,
+                                     execution_id = result.executionId)
 
 Extra info
 ~~~~~~~~~~

@@ -93,6 +93,9 @@ test-snake: build-testsuite
 	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=snake -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 	@echo "Converting back to camel"; sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 
+test-remote: build-testsuite
+	docker run $$interactive -e base_url=http://master.staging.tapis.io/v3/ -e maxErrors=$$maxErrors -e case=camel -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
+
 
 # Pulls all Docker images not yet available but needed to run Abaco suite
 pull:

@@ -7,6 +7,7 @@ from tapis/flaskbase
 
 ## FILE INITIALIZATION
 COPY configschema.json /home/tapis/configschema.json
+COPY config-local.json /home/tapis/config-local.json
 COPY config-local.json /home/tapis/config.json
 COPY actors /home/tapis/actors
 RUN chmod +x /home/tapis/actors/health_check.sh
@@ -28,6 +29,10 @@ RUN apt-get update && apt-get install python3-dev g++ -y
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/actors/requirements.txt
 RUN pip3 install pytest ipython #locustio
+
+
+# Special flag for tests
+ENV _called_from_within_test=True
 
 
 ## PERMISSION INITIALIZATION
