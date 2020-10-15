@@ -35,7 +35,7 @@ paths:
     get:
       tags:
       - Actors
-      summary: List actors
+      summary: listActors
       description: List summary of all actors owned by user
       operationId: listActors
       parameters:
@@ -68,7 +68,7 @@ paths:
     post:
       tags:
       - Actors
-      summary: Register an actor
+      summary: createActor
       description: Register an actor
       operationId: createActor
       requestBody:
@@ -93,7 +93,7 @@ paths:
     get:
       tags:
       - Actors
-      summary: Get actor details
+      summary: getActor
       description: Get details of a specific actor by its id.
       operationId: getActor
       parameters:
@@ -117,7 +117,7 @@ paths:
     put:
       tags:
       - Actors
-      summary: Update an actor
+      summary: updateActor
       description: Update an actor's definition.
       operationId: updateActor
       parameters:
@@ -147,7 +147,7 @@ paths:
     delete:
       tags:
       - Actors
-      summary: Delete actor
+      summary: deleteActor
       description: Permenantly delete an actor.
       operationId: deleteActor
       parameters:
@@ -178,7 +178,7 @@ paths:
       tags:
       - Actors
       - Messages
-      summary: Get number of pending messages for an actor.
+      summary: getMessages
       description: Get number of pending messages for an actor.
       operationId: getMessages
       parameters:
@@ -203,7 +203,7 @@ paths:
       tags:
       - Actors
       - Messages
-      summary: Send a message
+      summary: sendMessage
       description: Send an actor a message
       operationId: sendMessage
       parameters:
@@ -256,7 +256,7 @@ paths:
       tags:
       - Actors
       - Messages
-      summary: Delete all pending messages.
+      summary: deletePendingMessages
       description: Delete all pending messages actor's inbox.
       operationId: deletePendingMessages
       parameters:
@@ -287,7 +287,7 @@ paths:
       tags:
       - Actors
       - Executions
-      summary: List executions for an actor.
+      summary: listExecutions
       description: List executions for an actor.
       operationId: listExecutions
       parameters:
@@ -330,7 +330,7 @@ paths:
       tags:
       - Actors
       - Nonces
-      summary: List nonces for an actor.
+      summary: listNonces
       description: List nonces for an actor.
       operationId: listNonces
       parameters:
@@ -356,7 +356,7 @@ paths:
       tags:
       - Actors
       - Nonces
-      summary: Create a nonce for an actor.
+      summary: createNonce
       description: Create a nonce for an actor.
       operationId: createNonce
       parameters:
@@ -391,7 +391,7 @@ paths:
       tags:
       - Actors
       - Nonces
-      summary: Get details about a nonce for an actor.
+      summary: getNonce
       description: Get details about a nonce for an actor.
       operationId: getNonce
       parameters:
@@ -422,7 +422,7 @@ paths:
       tags:
       - Actors
       - Nonces
-      summary: Delete a nonce.
+      summary: deleteNonce
       description: Delete a nonce.
       operationId: deleteNonce
       parameters:
@@ -458,7 +458,7 @@ paths:
       tags:
       - Actors
       - State
-      summary: Retrieve the state for an actor.
+      summary: getState
       description: List nonces for an actor.
       operationId: getState
       parameters:
@@ -485,7 +485,7 @@ paths:
       tags:
       - Actors
       - State
-      summary: Update state for an actor.
+      summary: updateState
       description: Update state for an actor.
       operationId: updateState
       parameters:
@@ -520,7 +520,7 @@ paths:
       tags:
       - Actors
       - Executions
-      summary: Get details about an execution.
+      summary: getExecution
       description: Get details about an execution.
       operationId: getExecution
       parameters:
@@ -553,7 +553,7 @@ paths:
       tags:
       - Actors
       - Executions
-      summary: Get an execution's logs.
+      summary: getExecutionLogs
       description: Get an execution's logs.
       operationId: getExecutionLogs
       parameters:
@@ -602,7 +602,7 @@ paths:
       tags:
       - Actors
       - Permissions
-      summary: List permissions for an actor.
+      summary: listPermissions
       description: List permissions for an actor.
       operationId: listPermissions
       parameters:
@@ -627,7 +627,7 @@ paths:
       tags:
       - Actors
       - Permissions
-      summary: Add or update permissions for an actor.
+      summary: updatePermissions
       description: Add or update permissions for an actor.
       operationId: updatePermissions
       parameters:
@@ -662,7 +662,7 @@ paths:
       tags:
       - Actors
       - Workers
-      summary: List workers for an actor.
+      summary: listWorkers
       description: List workers for an actor.
       operationId: listWorkers
       parameters:
@@ -704,7 +704,7 @@ paths:
       tags:
       - Actors
       - Workers
-      summary: Manage number of workers in actor's worker pool
+      summary: manageWorkerPoolSize
       description: Manage number of workers in actor's worker pool. Pool size will not decrease as a result of this action.
       operationId: manageWorkerPoolSize
       parameters:
@@ -749,7 +749,7 @@ paths:
       tags:
       - Actors
       - Aliases
-      summary: List actor aliases
+      summary: listAliases
       description: List all actor aliases available to user
       operationId: listAliases
       parameters:
@@ -778,7 +778,7 @@ paths:
       tags:
       - Actors
       - Aliases
-      summary: Register an alias
+      summary: createAlias
       description: Register an actor alias
       operationId: createAlias
       requestBody:
@@ -804,7 +804,7 @@ paths:
       tags:
       - Actors
       - Aliases
-      summary: Get alias details
+      summary: getAlias
       description: Get details of a specific actor alias.
       operationId: getAlias
       parameters:
@@ -829,7 +829,7 @@ paths:
       tags:
       - Actors
       - Aliases
-      summary: Update an actor alias
+      summary: updateActorAlias
       description: Update an alias definition.
       operationId: updateActorAlias
       parameters:
@@ -860,7 +860,7 @@ paths:
       tags:
       - Actors
       - Aliases
-      summary: Delete actor alias
+      summary: deleteAlias
       description: Permenantly delete an actor alias.
       operationId: deleteAlias
       parameters:
@@ -893,7 +893,7 @@ paths:
       - Executions
       - Workers
       - Logs
-      summary: Search a specified Abaco database
+      summary: searchDatabase
       description: Return db records that match query
       operationId: searchDatabase
       parameters:
