@@ -237,13 +237,75 @@ paths:
                 properties:
                   result:
                     $ref: '#/components/schemas/MessageJsonResponse'
+
+    post:
+      tags:
+      - Messages
+      summary: sendBinaryMessage
+      description: Send an actor a binary message (bytes string)
+      operationId: sendBinaryMessage
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: _abaco_synchronous
+        in: query
+        description: Whether to use a synchronous execution
+        schema:
+          type: string
+          enum: [true, false]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Binary message receieved
+          content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
+
+    post:
+      tags:
+      - Messages
+      summary: sendStringMessage
+      description: Send an actor a string message
+      operationId: sendStringMessage
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: _abaco_synchronous
+        in: query
+        description: Whether to use a synchronous execution
+        schema:
+          type: string
+          enum: [true, false]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Message'
+      responses:
+        '200':
+          description: Message receieved
+          content:
             text/html:
               schema:
                 type: string
+                
     delete:
       tags:
       - Messages
