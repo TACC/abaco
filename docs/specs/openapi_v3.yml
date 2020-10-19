@@ -193,6 +193,34 @@ paths:
                 properties:
                   result:
                     $ref: '#/components/schemas/ActorMessages'
+    delete:
+      tags:
+      - Messages
+      summary: deletePendingMessages
+      description: Delete all pending messages actor's inbox.
+      operationId: deletePendingMessages
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
     post:
       tags:
       - Messages
@@ -238,11 +266,12 @@ paths:
                   result:
                     $ref: '#/components/schemas/MessageJsonResponse'
 
+  /actors/{actor_id}//messages:
     post:
       tags:
       - Messages
       summary: sendBinaryMessage
-      description: Send an actor a binary message (bytes string)
+      description: Send an actor a binary message
       operationId: sendBinaryMessage
       parameters:
       - name: actor_id
@@ -257,28 +286,33 @@ paths:
         schema:
           type: string
           enum: [true, false]
+
       requestBody:
         required: true
         content:
           application/octet-stream:
             schema:
-              type: string
-              format: binary
+              $ref: '#/components/schemas/BinaryMessage'
       responses:
         '200':
           description: Binary message receieved
           content:
-            application/octet-stream:
+            application/json:
               schema:
-                type: string
-                format: binary
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/MessageJsonResponse'
 
+
+  /actors/{actor_id}///messages:
     post:
       tags:
       - Messages
-      summary: sendStringMessage
-      description: Send an actor a string message
-      operationId: sendStringMessage
+      summary: sendJSONMessage
+      description: Send an actor a JSON message
+      operationId: sendJSONMessage
       parameters:
       - name: actor_id
         in: path
@@ -295,34 +329,12 @@ paths:
       requestBody:
         required: true
         content:
-          application/x-www-form-urlencoded:
+          application/json:
             schema:
-              $ref: '#/components/schemas/Message'
+              $ref: '#/components/schemas/JSONMessage'
       responses:
         '200':
           description: Message receieved
-          content:
-            text/html:
-              schema:
-                type: string
-                
-    delete:
-      tags:
-      - Messages
-      summary: deletePendingMessages
-      description: Delete all pending messages actor's inbox.
-      operationId: deletePendingMessages
-      parameters:
-      - name: actor_id
-        in: path
-        description: Unique ID of the actor
-        required: true
-        schema:
-          type: string
-
-      responses:
-        '200':
-          description: OK
           content:
             application/json:
               schema:
@@ -330,9 +342,7 @@ paths:
                   - $ref: '#/components/schemas/BasicResponse'
                 properties:
                   result:
-                    type: string
-                    nullable: true
-                    enum: [null]
+                    $ref: '#/components/schemas/MessageJsonResponse'
 
 
   /v3/actors/{actor_id}/executions:
