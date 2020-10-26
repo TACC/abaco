@@ -94,9 +94,9 @@ from util import headers, base_url, case, \
 
 @pytest.mark.regapi
 def test_dict_to_camel(): 
-    dic = {"_links": {"messages": "http://localhost:8000/actors/v3/ca39fac2-60a7-11e6-af60-0242ac110009-059/messages",
-                      "owner": "http://localhost:8000/profiles/v3/anonymous",
-                      "self": "http://localhost:8000/actors/v3/ca39fac2-60a7-11e6-af60-0242ac110009-059/executions/458ab16c-60a8-11e6-8547-0242ac110008-053"
+    dic = {"_links": {"messages": "http://localhost:8000/v3/actors/ca39fac2-60a7-11e6-af60-0242ac110009-059/messages",
+                      "owner": "http://localhost:8000/v3/oauth2/profiles/anonymous",
+                      "self": "http://localhost:8000/v3/actors/ca39fac2-60a7-11e6-af60-0242ac110009-059/executions/458ab16c-60a8-11e6-8547-0242ac110008-053"
     },
            "execution_id": "458ab16c-60a8-11e6-8547-0242ac110008-053",
            "msg": "test"

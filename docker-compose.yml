@@ -32,6 +32,8 @@ services:
         environment:
             RABBITMQ_NODENAME: abaco-rabbit
             RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+A 128"
+            #RABBITMQ_DEFAULT_USER: userhere
+            #RABBITMQ_DEFAULT_PASS: passhere
         ulimits:
           nproc: 65535
           nofile:

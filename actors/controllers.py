@@ -755,7 +755,7 @@ class ActorsResource(Resource):
         if max_workers and 'stateless' in args and not args.get('stateless'):
             raise DAOError("Invalid actor description: stateful actors can only have 1 worker.")
         args['mounts'] = get_all_mounts(args)
-        logger.debug("create args: {}".format(args))
+        logger.debug(f"create args: {args}")
         actor = Actor(**args)
         # Change function
         actors_store.add_if_empty([actor.db_id], actor)
@@ -1222,9 +1222,9 @@ class ActorExecutionResultsResource(Resource):
 class ActorExecutionLogsResource(Resource):
     def get(self, actor_id, execution_id):
         def get_hypermedia(actor, exc):
-            return {'_links': {'self': '{}/actors/v3/{}/executions/{}/logs'.format(actor.api_server, actor.id, exc.id),
-                                'owner': '{}/profiles/v3/{}'.format(actor.api_server, actor.owner),
-                                'execution': '{}/actors/v3/{}/executions/{}'.format(actor.api_server, actor.id, exc.id)},
+            return {'_links': {'self': '{}/v3/actors/{}/executions/{}/logs'.format(actor.api_server, actor.id, exc.id),
+                               'owner': '{}/v3/oauth2/profiles/{}'.format(actor.api_server, actor.owner),
+                               'execution': '{}/v3/actors/{}/executions/{}'.format(actor.api_server, actor.id, exc.id)},
                     }
         logger.debug("top of GET /actors/{}/executions/{}/logs.".format(actor_id, execution_id))
         if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
@@ -1257,8 +1257,8 @@ class ActorExecutionLogsResource(Resource):
 
 
 def get_messages_hypermedia(actor):
-    return {'_links': {'self': '{}/actors/v3/{}/messages'.format(actor.api_server, actor.id),
-                       'owner': '{}/profiles/v3/{}'.format(actor.api_server, actor.owner),
+    return {'_links': {'self': '{}/v3/actors/{}/messages'.format(actor.api_server, actor.id),
+                       'owner': '{}/v3/oauth2/profiles/{}'.format(actor.api_server, actor.owner),
                        },
             }
 
@@ -1346,9 +1346,9 @@ class MessagesResource(Resource):
     def post(self, actor_id):
         start_timer = timeit.default_timer()
         def get_hypermedia(actor, exc):
-            return {'_links': {'self': '{}/actors/v3/{}/executions/{}'.format(actor.api_server, actor.id, exc),
-                               'owner': '{}/profiles/v3/{}'.format(actor.api_server, actor.owner),
-                               'messages': '{}/actors/v3/{}/messages'.format(actor.api_server, actor.id)}, }
+            return {'_links': {'self': '{}/v3/actors/{}/executions/{}'.format(actor.api_server, actor.id, exc),
+                               'owner': '{}/v3/oauth2/profiles/{}'.format(actor.api_server, actor.owner),
+                               'messages': '{}/v3/actors/{}/messages'.format(actor.api_server, actor.id)}, }
 
         logger.debug("top of POST /actors/{}/messages.".format(actor_id))
         synchronous = False

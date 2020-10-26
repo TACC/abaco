@@ -331,9 +331,9 @@ class Search():
                         id = result['id']
                         executor = result['executor']
                         search_list[i]['_links'] = {
-                            'self': f'{api_server}/actors/v3/{aid}/executions/{id}',
-                            'owner': f'{api_server}/profiles/v3/{executor}',
-                            'logs': f'{api_server}/actors/v3/{aid}/logs'}
+                            'self': f'{api_server}/v3/actors/{aid}/executions/{id}',
+                            'owner': f'{api_server}/v3/oauth2/profiles/{executor}',
+                            'logs': f'{api_server}/v3/actors/{aid}/logs'}
                         search_list[i].pop('api_server')
                     except KeyError:
                         pass
@@ -376,9 +376,9 @@ class Search():
                     owner = result['owner']
                     id = result['id']
                     search_list[i]['_links'] = {
-                        'self': f'{api_server}/actors/v3/{id}',
-                        'owner': f'{api_server}/profiles/v3/{owner}',
-                        'executions': f'{api_server}/actors/v3/{id}/executions'}
+                        'self': f'{api_server}/v3/actors/{id}',
+                        'owner': f'{api_server}/v3/oauth2/profiles/{owner}',
+                        'executions': f'{api_server}/v3/actors/{id}/executions'}
                     search_list[i].pop('api_server')
                 except KeyError:
                     pass
@@ -401,9 +401,9 @@ class Search():
                     exec_id = result['_id']
                     actor = Actor.from_db(actors_store[actor_id])
                     search_list[i]['_links'] = {
-                        'self': f'{actor.api_server}/actors/v3/{actor.id}/executions/{exec_id}/logs',
-                        'owner': f'{actor.api_server}/profiles/v3/{actor.owner}',
-                        'execution': f'{actor.api_server}/actors/v3/{actor.id}/executions/{exec_id}'}
+                        'self': f'{actor.api_server}/v3/actors/{actor.id}/executions/{exec_id}/logs',
+                        'owner': f'{actor.api_server}/v3/oauth2/profiles/{actor.owner}',
+                        'execution': f'{actor.api_server}/v3/actors/{actor.id}/executions/{exec_id}'}
                 except KeyError:
                     pass
                 search_list[i].pop('_id', None)
@@ -850,9 +850,9 @@ class Actor(AbacoDAO):
         return self.case()
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/actors/v3/{}'.format(self.api_server, self.id),
-                            'owner': '{}/profiles/v3/{}'.format(self.api_server, self.owner),
-                            'executions': '{}/actors/v3/{}/executions'.format(self.api_server, self.id)
+        return {'_links': { 'self': '{}/v3/actors/{}'.format(self.api_server, self.id),
+                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
+                            'executions': '{}/v3/actors/{}/executions'.format(self.api_server, self.id)
         }}
 
     def generate_id(self, name, tenant):
@@ -980,9 +980,9 @@ class Alias(AbacoDAO):
         return Alias(**obj)
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/actors/v3/aliases/{}'.format(self.api_server, self.alias),
-                            'owner': '{}/profiles/v3/{}'.format(self.api_server, self.owner),
-                            'actor': '{}/actors/v3/{}'.format(self.api_server, self.actor_id)
+        return {'_links': { 'self': '{}/v3/actors/aliases/{}'.format(self.api_server, self.alias),
+                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
+                            'actor': '{}/v3/actors/{}'.format(self.api_server, self.actor_id)
         }}
 
     def display(self):
@@ -1103,9 +1103,9 @@ class Nonce(AbacoDAO):
         return '{}_{}'.format(tenant, uuid)
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/actors/v3/{}/nonces/{}'.format(self.api_server, self.actor_id, self.id),
-                            'owner': '{}/profiles/v3/{}'.format(self.api_server, self.owner),
-                            'actor': '{}/actors/v3/{}'.format(self.api_server, self.actor_id)
+        return {'_links': { 'self': '{}/v3/actors/{}/nonces/{}'.format(self.api_server, self.actor_id, self.id),
+                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
+                            'actor': '{}/v3/actors/{}'.format(self.api_server, self.actor_id)
         }}
 
     def display(self):
@@ -1465,9 +1465,9 @@ class Execution(AbacoDAO):
 
     def get_hypermedia(self):
         aid = Actor.get_display_id(self.tenant, self.actor_id)
-        return {'_links': { 'self': '{}/actors/v3/{}/executions/{}'.format(self.api_server, aid, self.id),
-                            'owner': '{}/profiles/v3/{}'.format(self.api_server, self.executor),
-                            'logs': '{}/actors/v3/{}/executions/{}/logs'.format(self.api_server, aid, self.id)
+        return {'_links': { 'self': '{}/v3/actors/{}/executions/{}'.format(self.api_server, aid, self.id),
+                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.executor),
+                            'logs': '{}/v3/actors/{}/executions/{}/logs'.format(self.api_server, aid, self.id)
         }}
 
     def display(self):
@@ -1563,8 +1563,8 @@ class ExecutionsSummary(AbacoDAO):
         return tot[name]
 
     def get_hypermedia(self):
-        return {'_links': {'self': '{}/actors/v3/{}/executions'.format(self.api_server, self.actor_id),
-                           'owner': '{}/profiles/v3/{}'.format(self.api_server, self.owner),
+        return {'_links': {'self': '{}/v3/actors/{}/executions'.format(self.api_server, self.actor_id),
+                           'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
         }}
 
     def display(self):

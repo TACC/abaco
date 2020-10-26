@@ -88,9 +88,9 @@ def get_all_mounts(actor):
     time to set the mounts parameter for the actor.
     """
     # get the global mounts first and then get the privileged mounts so that privileged mounts overlay.
-    logger.debug("top of get_all_mounts for actor: {}".format(actor))
+    logger.debug(f"top of get_all_mounts for actor: {actor}")
     result = get_global_mounts(actor)
-    logger.debug("just got the global mounts: {}".format(result))
+    logger.debug(f"just got the global mounts: {result}")
     if actor.get('privileged'):
         logger.debug("getting the privileged mounts for actor: {}".format(actor))
         result.extend(get_privileged_mounts(actor))
