@@ -62,7 +62,7 @@
         "generate_clients": true
     },
     "tacc_auth_object": {
-        "use_tas_uid": true,
+        "use_tas_uid": false,
         "default_token": false,
         "generate_clients": true,
         "global_mounts": [

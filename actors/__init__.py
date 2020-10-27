@@ -5,12 +5,12 @@ import os
 if os.environ.get('_called_from_within_test'):
     pass
 else:
-    from common.auth import get_service_tapis_client
+    from common.auth import get_service_tapis_client, Tenants
     from common.logs import get_logger
     logger = get_logger(__name__)
 
     try:
-        t = get_service_tapis_client()
+        t = get_service_tapis_client(tenants=Tenants())
     except Exception as e:
         logger.error(f'Could not instantiate tapy service client. Exception: {e}')
         raise e
