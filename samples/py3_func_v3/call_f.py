@@ -1,6 +1,6 @@
 import os
 import cloudpickle
-from agavepy.actors import get_binary_message, send_python_result
+from tapipy.tapis.actors import get_binary_message, send_python_result
 
 def main():
     raw_message = get_binary_message()

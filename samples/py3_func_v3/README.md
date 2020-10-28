@@ -1,7 +1,7 @@
-## Image: abacosamples/py3_func ##
+## Image: abacosamples/py3_func_v3 ##
 
 This actor will execute an arbitrary Python3 function that is passed to it after serialization via the cloudpickle
-library. At the moment, it is important that the function is built in Python 3.5 (or is based on the py3_base
+library. At the moment, it is important that the function is built in Python 3.7 (or is based on the py3_base_v3
 image) and serialized using cloudpickle.
 
 In time, we will build up tooling to automate the process below
@@ -14,7 +14,7 @@ In time, we will build up tooling to automate the process below
             return a+b+c
     ```
 
-2. create a "message" containg the function and the parameters to pass it. Put the function,
+2. create a "message" containing the function and the parameters to pass it. Put the function,
 the args and the kwargs into separate keys in a dictionary using the keys `func`, `args`,
 and `kwargs`, repectively:
     ```shell
