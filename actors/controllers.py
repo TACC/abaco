@@ -80,6 +80,8 @@ class CronResource(Resource):
                         logger.debug("execution has been added, now making message")
                         # Create & add message to the queue 
                         d['Time_msg_queued'] = before_exc_time
+                        d['_abaco_execution_id'] = exc
+                        d['_abaco_Content_Type'] = 'str'
                         ch = ActorMsgChannel(actor_id=actor_id)
                         ch.put_msg(message="This is your cron execution", d=d)
                         ch.close()
