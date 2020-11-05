@@ -61,6 +61,12 @@ def get_docker_credentials():
     cnt = 1
     while True:
         try:
+            # Format in config should be
+            # dockerhub_username_1
+            # dockerhub_password_1
+            # dockerhub_username_2
+            # dockerhub_password_2 
+            # See stache entry "CIC (Abaco) DockerHub credentials" for credentials.
             username = conf.get(f'dockerhub_username_{cnt}')
             password = conf.get(f'dockerhub_password_{cnt}')
         except:
