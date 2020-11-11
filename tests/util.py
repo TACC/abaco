@@ -13,14 +13,14 @@ case = os.environ.get('case', 'snake')
 def get_service_tapis_client():
     with open('config-local.json') as json_file:
         conf = json.load(json_file)
-    sk_url = os.environ.get('sk_url', conf['service_tenant_base_url'])
+    sk_url = os.environ.get('sk_url', conf['primary_site_master_tenant_base_url'])
     tenant_id = os.environ.get('tenant', None)
     service_password = os.environ.get('service_password', conf['service_password'])
     jwt = os.environ.get('jwt', None)
     resource_set = os.environ.get('resource_set', 'tapipy')
     custom_spec_dict = os.environ.get('custom_spec_dict', None)
     download_latest_specs = os.environ.get('download_latest_specs', None)
-    # if there is no tenant_id, use the service_tenant_id and service_tenant_base_url configured for the service:
+    # if there is no tenant_id, use the service_tenant_id and primary_site_master_tenant_base_url configured for the service:
     t = Tapis(base_url=sk_url or base_url,
               tenant_id=tenant_id,
               username='abaco',

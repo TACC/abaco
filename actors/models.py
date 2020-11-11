@@ -1831,7 +1831,8 @@ def get_permissions(actor_id):
     try:
         return permissions_store[actor_id]
     except KeyError:
-        raise PermissionsException("Actor {} does not exist".format(actor_id))
+        logger.error(f"Actor {actor_id} does not have entries in the permissions store, returning []")
+        return []
 
 def set_permission(user, actor_id, level):
     """Set the permission for a user and level to an actor."""

@@ -213,7 +213,7 @@ def authorization():
     g.db_id = db_id
     logger.debug("db_id: {}".format(db_id))
 
-    g.api_server = conf.service_tenant_base_url
+    g.api_server = conf.primary_site_master_tenant_base_url
 
     g.admin = False
     if request.method == 'OPTIONS':
