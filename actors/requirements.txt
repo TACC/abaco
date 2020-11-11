@@ -10,7 +10,7 @@ flask-cors
 pika==0.9.13
 docker==2.7.0
 pycrypto==2.6.1
-PyJWT==0.2.3
+PyJWT==1.7.1
 gunicorn==19.9.0
 rabbitpy==1.0.0
 #pyzmq==14.3.0

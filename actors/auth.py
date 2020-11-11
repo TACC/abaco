@@ -23,11 +23,6 @@ from models import Actor, Alias, get_permissions, is_hashid, Nonce
 from errors import ClientException, ResourceError, PermissionsException
 
 
-jwt.verify_methods['SHA256WITHRSA'] = (
-    lambda msg, key, sig: PKCS1_v1_5.new(key).verify(SHA256.new(msg), sig))
-jwt.prepare_key_methods['SHA256WITHRSA'] = jwt.prepare_RS_key
-
-
 def get_api_server(tenant_name):
     # todo - lookup tenant in tenants table
     if tenant_name.upper() == '3DEM':
@@ -508,9 +503,7 @@ def get_tenants():
 def tenant_can_use_tas(tenant):
     """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
     the TACC IdP"""
-    if tenant == 'DESIGNSAFE' or \
-       tenant == 'SD2E' or \
-       tenant == 'TACC-PROD':
+    if tenant in ['DESIGNSAFE', 'SD2E', 'TACC', 'tacc']:
         return True
     # all other tenants use some other IdP so username will not be a TAS account:
     return False
@@ -523,7 +516,7 @@ TAS_ROLE_PASS = os.environ.get('TAS_ROLE_PASS')
 
 def get_tas_data(username, tenant):
     """Get the TACC uid, gid and homedir for this user from the TAS API."""
-    logger.debug("Top of get_tas_data for username: {}; tenant: {}".format(username, tenant))
+    logger.debug(f"Top of get_tas_data for username: {username}; tenant: {tenant}")
     if not TAS_ROLE_ACCT:
         logger.error("No TAS_ROLE_ACCT configured. Aborting.")
         return None, None, None
@@ -531,9 +524,53 @@ def get_tas_data(username, tenant):
         logger.error("No TAS_ROLE_PASS configured. Aborting.")
         return None, None, None
     if not tenant_can_use_tas(tenant):
-        logger.debug("Tenant {} cannot use TAS".format(tenant))
+        logger.debug(f"Tenant {tenant} cannot use TAS")
         return None, None, None
-    raise ResourceError("TAS data usage needs to be reconfigured to work. Currently not used.")
+    url = f'{TAS_URL_BASE}/users/username/{username}'
+    headers = {'Content-type': 'application/json',
+               'Accept': 'application/json'}
+    try:
+        rsp = requests.get(url,
+                           headers=headers,
+                           auth=(TAS_ROLE_ACCT, TAS_ROLE_PASS))
+    except Exception as e:
+        logger.error("Got an exception from TAS API. "
+                     f"Exception: {e}. url: {url}. TAS_ROLE_ACCT: {TAS_ROLE_ACCT}")
+        return None, None, None
+    try:
+        data = rsp.json()
+    except Exception as e:
+        logger.error("Did not get JSON from TAS API. rsp: {}"
+                     f"Exception: {e}. url: {url}. TAS_ROLE_ACCT: {TAS_ROLE_ACCT}")
+        return None, None, None
+    try:
+        tas_uid = data['result']['uid']
+        tas_homedir = data['result']['homeDirectory']
+    except Exception as e:
+        logger.error("Did not get attributes from TAS API. rsp: {}"
+                     f"Exception: {e}. url: {url}. TAS_ROLE_ACCT: {TAS_ROLE_ACCT}")
+        return None, None, None
+
+    # first look for an "extended profile" record in Tapis v3 metadata. such a record might have the
+    # gid to use for this user. to do this search we need a service client for the tenant:
+    tas_gid = None
+    
+    
+    # Not currently using extended profiles because they both use meta v2 which use agavepy, and
+    # none of the service_tokens necessary to test are on SD2E or Tacc tenant, so I assume that they
+    # weren't used. To implement again, just add in the code to get the profiles from meta v2 and search for "gid"
+
+
+    # if we are here, we didn't get a TAS_GID from the extended profile.
+    logger.debug("did not get an extended profile.")
+    # if the instance has a configured TAS_GID to use we will use that; otherwise,
+    # we fall back on using the user's uid as the gid, which is (almost) always safe)
+    tas_gid = os.environ.get('TAS_GID', tas_uid)
+    logger.info("Setting the following TAS data: uid:{} gid:{} homedir:{}".format(tas_uid,
+                                                                                  tas_gid,
+                                                                                  tas_homedir))
+    return tas_uid, tas_gid, tas_homedir
+
 
 def get_token_default():
     """

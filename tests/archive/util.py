@@ -4,107 +4,50 @@ import os
 import pytest
 import requests
 import time
-from tapipy.tapis import Tapis
+from actors.__init__ import t
+from common.errors import BaseTapisError
+from common.config import conf
 
-# Need base_url as it's where we direct calls. But also need SK url for tapipy.
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
 case = os.environ.get('case', 'snake')
 
-def get_service_tapis_client():
-    with open('config-local.json') as json_file:
-        conf = json.load(json_file)
-    sk_url = os.environ.get('sk_url', conf['service_tenant_base_url'])
-    tenant_id = os.environ.get('tenant', None)
-    service_password = os.environ.get('service_password', conf['service_password'])
-    jwt = os.environ.get('jwt', None)
-    resource_set = os.environ.get('resource_set', 'tapipy')
-    custom_spec_dict = os.environ.get('custom_spec_dict', None)
-    download_latest_specs = os.environ.get('download_latest_specs', None)
-    # if there is no tenant_id, use the service_tenant_id and service_tenant_base_url configured for the service:
-    t = Tapis(base_url=sk_url or base_url,
-              tenant_id=tenant_id,
-              username='abaco',
-              account_type='service',
-              service_password=service_password,
-              jwt=jwt,
-              resource_set=resource_set,
-              custom_spec_dict=custom_spec_dict,
-              download_latest_specs=download_latest_specs)
-    if not jwt:
-        t.get_tokens()
-    return t
-
-t = get_service_tapis_client()
 
 # In dev:
-# service account owns abaco_admin and abaco_privileged roles
+# _abaco_admin user owns abaco_admin and abaco_privileged roles
 # _abaco_testuser_admin is granted abaco_admin role
 # _abaco_testuser_privileged is granted abaco_privileged role
 # _abaco_testuser_regular is granted nothing
-@pytest.fixture(autouse=True)
-def create_test_roles():
-    # Using Tapipy to ensure each abaco environment has proper roles and testusers created before starting
-    all_role_names = t.sk.getRoleNames(tenant=t.tenant_id)
-    if not 'abaco_admin' in all_role_names.names:
-        print('Creating role: abaco_admin')
-        t.sk.createRole(roleTenant=t.tenant_id, roleName='abaco_admin', description='Admin role in Abaco.')
-    if not 'abaco_privileged' in all_role_names.names:
-        print('Creating role: abaco_privileged')
-        t.sk.createRole(roleTenant=t.tenant_id, roleName='abaco_privileged', description='Privileged role in Abaco.')
-    t.sk.grantRole(tenant=t.tenant_id, user='_abaco_testuser_admin', roleName='abaco_admin')
-    t.sk.grantRole(tenant=t.tenant_id, user='_abaco_testuser_privileged', roleName='abaco_privileged')
-
-@pytest.fixture(scope='session', autouse=True)
+@pytest.fixture(scope='session')
 def headers():
-    return get_tapis_token_headers('_abaco_testuser_admin', None)
+    return get_tapis_token_headers('_abaco_testuser_admin')
 
-@pytest.fixture(scope='session', autouse=True)
 def privileged_headers():
-    return get_tapis_token_headers('_abaco_testuser_privileged', None)
+    return get_tapis_token_headers('_abaco_testuser_privileged')
 
-@pytest.fixture(scope='session', autouse=True)
 def regular_headers():
-    return get_tapis_token_headers('_abaco_testuser_regular', None)
+    return get_tapis_token_headers('_abaco_testuser_regular')
 
-@pytest.fixture(scope='session', autouse=True)
 def limited_headers():
-    return get_tapis_token_headers('_abaco_testuser_limited', None)
+    return get_tapis_token_headers('_abaco_testuser_limited')
 
-@pytest.fixture(scope='session', autouse=True)
 def alternative_tenant_headers():
-    # Find an alternative tenant than the one currently being tested, usually
-    # "master", if "master" is used, "dev" will be used. Or otherwise specified.
-    alt_tenant = 'master'
-    alt_alt_tenant = 'dev'
-    curr_tenant = get_tenant()
-    if curr_tenant == alt_tenant:
-        alt_tenant = alt_alt_tenant
-    return get_tapis_token_headers('_abaco_testuser_regular', alt_tenant)
+    return get_tapis_token_headers('_abaco_testuser_admin', 'master')
 
-@pytest.fixture(scope='session', autouse=True)
-def cycling_headers(regular_headers, privileged_headers):
-    return {'regular': regular_headers,
-            'privileged': privileged_headers}
-
-def get_tapis_token_headers(user, alt_tenant):
-    tenant=os.environ.get('tenant', 'master')
-    # Use alternative tenant if provided.
-    if alt_tenant:
-        tenant = alt_tenant
-    token_res = t.tokens.create_token(account_type='user', 
+def get_tapis_token_headers(user, tenant='dev'):
+    token_res = t.tokens.create_token(account_type='user',
                                       token_tenant_id=tenant,
                                       token_username=user,
                                       access_token_ttl=999999,
                                       generate_refresh_token=False,
                                       use_basic_auth=False)
     if not token_res.access_token or not token_res.access_token.access_token:
-        raise KeyError(f"Did not get access token; token response: {token_res}")
+        raise BaseTapisError(f"Did not get access token; token response: {token_res}")
     header_dat = {"X-Tapis-Token": token_res.access_token.access_token}
+    # t.set_access_token(token_res.access_token)
+    # if not t.access_token.access_token:
+    #     raise BaseTapisError(f"Did not get access token; token response: {token_res}")
+    # header_dat = {"X-Tapis-Token": t.access_token.access_token}
     return header_dat
-
-def get_tenant():
-    """ Get the tenant_id associated with the test suite requests."""
-    return t.tenant_id
 
 def get_jwt_headers(file_path='/home/tapis/tests/jwt-abaco_admin'):
     with open(file_path, 'r') as f:
@@ -115,11 +58,25 @@ def get_jwt_headers(file_path='/home/tapis/tests/jwt-abaco_admin'):
         headers = {jwt_header: jwt}
     else:
         token = os.environ.get('token', '')
-        headers = {'Authorization': f'Bearer {token}'}
+        headers = {'Authorization': 'Bearer {}'.format(token)}
     return headers
 
+
+def get_tenant():
+    """ Get the tenant_id associated with the test suite requests."""
+    return t.tenant_id
+
+def delete_actors(headers):
+    url = '{}/actors'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    for act in result:
+        url = '{}/actors/{}'.format(base_url, act.get('id'))
+        rsp = requests.delete(url, headers=headers)
+        basic_response_checks(rsp)
+
 def get_actor_id(headers, name='abaco_test_suite'):
-    url = f'{base_url}/actors'
+    url = '{}/{}'.format(base_url, '/actors')
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     for k in result:
@@ -127,15 +84,6 @@ def get_actor_id(headers, name='abaco_test_suite'):
             return k.get('id')
     # didn't find the test actor
     assert False
-
-def delete_actors(headers):
-    url = f'{base_url}/actors'
-    rsp = requests.get(url, headers=headers)
-    result = basic_response_checks(rsp)
-    for act in result:
-        url = f'{base_url}/actors/{act.get("id")}'
-        rsp = requests.delete(url, headers=headers)
-        basic_response_checks(rsp)
 
 def response_format(rsp):
     assert 'application/json' in rsp.headers['content-type']
@@ -146,9 +94,7 @@ def response_format(rsp):
     return data
 
 def basic_response_checks(rsp, check_tenant=True):
-    if not rsp.status_code in [200, 201]:
-        print(str(rsp.content)[:400])
-        pytest.fail(f'Status code: {rsp.status_code} not in [200, 201].')
+    assert rsp.status_code in [200, 201]
     response_format(rsp)
     data = json.loads(rsp.content.decode('utf-8'))
     assert 'result' in data.keys()
@@ -248,7 +194,7 @@ def check_nonce_fields(nonce, actor_id=None, alias=None, nonce_id=None,
             assert nonce.get('remainingUses') == remaining_uses
 
 def execute_actor(headers, actor_id, data=None, json_data=None, binary=None, synchronous=False):
-    url = f'{base_url}/actors/{actor_id}/messages'
+    url = '{}/actors/{}/messages'.format(base_url, actor_id)
     params = {}
     if synchronous:
         # url += '?_abaco_synchronous=true'
@@ -266,7 +212,7 @@ def execute_actor(headers, actor_id, data=None, json_data=None, binary=None, syn
         assert rsp.status_code in [200]
         logs = rsp.content.decode()
         assert logs is not None
-        print(f"synchronous logs: {logs}")
+        print("synchronous logs: {}".format(logs))
         assert 'Contents of MSG' in logs
         return None
     # asynchronous case -----
@@ -283,13 +229,13 @@ def execute_actor(headers, actor_id, data=None, json_data=None, binary=None, syn
     count = 0
     while count < 10:
         time.sleep(3)
-        url = f'{base_url}/actors/{actor_id}/executions'
+        url = '{}/actors/{}/executions'.format(base_url, actor_id)
         rsp = requests.get(url, headers=headers)
         result = basic_response_checks(rsp)
         ids = result.get('ids')
         if ids:
             assert exc_id in ids
-        url = f'{base_url}/actors/{actor_id}/executions/{exc_id}'
+        url = '{}/actors/{}/executions/{}'.format(base_url, actor_id, exc_id)
         rsp = requests.get(url, headers=headers)
         result = basic_response_checks(rsp)
         status = result.get('status')
@@ -305,54 +251,12 @@ def create_delete_actor():
         jwt_default = f.read()
     headers = {'X-Jwt-Assertion-AGAVE-PROD': jwt_default}
     data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_python'}
-    rsp = requests.post(f'{base_url}/actors', data=data, headers=headers)
+    rsp = requests.post('{}/actors'.format(base_url), data=data, headers=headers)
     result = basic_response_checks(rsp)
     aid = result.get('id')
-    print(f"Created actor: {aid}")
+    print("Created actor: {}".format(aid))
     try:
-        requests.delete(f'{base_url}/actors/{aid}', headers=headers)
+        requests.delete('{}/actors/{}'.format(base_url, aid), headers=headers)
         print("deleted actor")
     except Exception as e:
-        print(f"Got exception tring to delete actor: {e.response.content}")
-
-def has_cycles(links):
-    """
-    FROM actors/controllers.py. Taken for modularization.
-    Checks whether the `links` dictionary contains a cycle.
-    :param links: dictionary of form d[k]=v where k->v is a link
-    :return: 
-    """
-    # consider each link entry as the starting node:
-    for k, v in links.items():
-        # list of visited nodes on this iteration; starts with the two links.
-        # if we visit a node twice, we have a cycle.
-        visited = [k, v]
-        # current node we are on
-        current = v
-        while current:
-            # look up current to see if it has a link:
-            current = links.get(current)
-            # if it had a link, check if it was alread in visited:
-            if current and current in visited:
-                return True
-            visited.append(current)
-    return False
-
-def under_to_camel(value):
-    def camel_case():
-        yield type(value).lower
-        while True:
-            yield type(value).capitalize
-    c = camel_case()
-    return "".join(c.__next__()(x) if x else '_' for x in value.split("_"))
-
-
-def dict_to_camel(d):
-    """
-    FROM actors/models.py. Take for modularization
-    Convert all keys in a dictionary to camel case.
-    """
-    d2 = {}
-    for k,v in d.items():
-        d2[under_to_camel(k)] = v
-    return d2
+        print("Got exception tring to delete actor: {}".format(e.response.content))

@@ -85,7 +85,7 @@ from channels import ActorMsgChannel, CommandChannel
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
     execute_actor, get_tenant, privileged_headers, regular_headers, \
-    get_tapis_token_headers, master_tenant_headers
+    get_tapis_token_headers, alternative_tenant_headers
 
 
 # #################
@@ -94,9 +94,9 @@ from util import headers, base_url, case, \
 
 @pytest.mark.regapi
 def test_dict_to_camel(): 
-    dic = {"_links": {"messages": "http://localhost:8000/actors/v2/ca39fac2-60a7-11e6-af60-0242ac110009-059/messages",
-                      "owner": "http://localhost:8000/profiles/v2/anonymous",
-                      "self": "http://localhost:8000/actors/v2/ca39fac2-60a7-11e6-af60-0242ac110009-059/executions/458ab16c-60a8-11e6-8547-0242ac110008-053"
+    dic = {"_links": {"messages": "http://localhost:8000/v3/actors/ca39fac2-60a7-11e6-af60-0242ac110009-059/messages",
+                      "owner": "http://localhost:8000/v3/oauth2/profiles/anonymous",
+                      "self": "http://localhost:8000/v3/actors/ca39fac2-60a7-11e6-af60-0242ac110009-059/executions/458ab16c-60a8-11e6-8547-0242ac110008-053"
     },
            "execution_id": "458ab16c-60a8-11e6-8547-0242ac110008-053",
            "msg": "test"
@@ -2009,7 +2009,7 @@ def test_search_skip_limit(headers):
 @pytest.mark.tenant
 def test_tenant_list_actors(headers):
     # passing another tenant should result in 0 actors.
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     url = '{}/{}'.format(base_url, '/actors')
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -2017,7 +2017,7 @@ def test_tenant_list_actors(headers):
 
 @pytest.mark.tenant
 def test_tenant_register_actor(headers):
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     url = '{}/{}'.format(base_url, '/actors')
     data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite_other_tenant', 'stateless': False}
     rsp = requests.post(url, json=data, headers=headers)
@@ -2029,7 +2029,7 @@ def test_tenant_register_actor(headers):
 
 @pytest.mark.tenant
 def test_tenant_actor_is_ready(headers):
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     count = 0
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     while count < 10:
@@ -2045,7 +2045,7 @@ def test_tenant_actor_is_ready(headers):
 @pytest.mark.tenant
 def test_tenant_list_registered_actors(headers):
     # passing another tenant should result in 1 actor.
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     url = '{}/{}'.format(base_url, '/actors')
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -2053,7 +2053,7 @@ def test_tenant_list_registered_actors(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_actor(headers):
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2065,7 +2065,7 @@ def test_tenant_list_actor(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_executions(headers):
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}/executions'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2074,7 +2074,7 @@ def test_tenant_list_executions(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_messages(headers):
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}/messages'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2083,7 +2083,7 @@ def test_tenant_list_messages(headers):
 
 @pytest.mark.tenant
 def test_tenant_list_workers(headers):
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     actor_id = get_actor_id(headers, name='abaco_test_suite_other_tenant')
     url = '{}/actors/{}/workers'.format(base_url, actor_id)
     rsp = requests.get(url, headers=headers)
@@ -2348,7 +2348,6 @@ def test_cant_update_link_with_cycle(headers):
 ##############
 
 def test_remove_final_actors(headers):
-    time.sleep(60)
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
@@ -2358,7 +2357,7 @@ def test_remove_final_actors(headers):
         result = basic_response_checks(rsp)
 
 def test_tenant_remove_final_actors(headers):
-    headers = master_tenant_headers()
+    headers = alternative_tenant_headers()
     url = '{}/actors'.format(base_url)
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)

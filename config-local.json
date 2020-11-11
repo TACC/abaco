@@ -59,10 +59,14 @@
     "global_auth_object": {
         "use_tas_uid": false,
         "default_token": false,
+        "generate_clients": true
+    },
+    "tacc_auth_object": {
+        "use_tas_uid": false,
+        "default_token": false,
         "generate_clients": true,
         "global_mounts": [
-        "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
-        "$env{abaco_host_path}/runtime_files/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
+        "/work/{tasdir}:/work:rw"
         ]
     },
     "designsafe_auth_object": {

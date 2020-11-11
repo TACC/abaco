@@ -287,12 +287,13 @@ def subscribe(tenant,
 
         # for binary data, create a fifo in the configured directory. The configured
         # fifo_host_path_dir is equal to the fifo path in the worker container:
-        fifo_host_path = None
+        fifo_container_path = None
         if content_type == 'application/octet-stream':
-            fifo_host_path_dir = conf.worker_fifo_paths.split(':')[0]
+            fifo_host_path_dir, fifo_container_path_dir = conf.worker_fifo_paths.split(':')
             fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
+            fifo_container_path = os.path.join(fifo_container_path_dir, worker_id, execution_id)
             try:
-                os.mkfifo(fifo_host_path)
+                os.mkfifo(fifo_container_path)
                 logger.info(f"Created fifo at path: {fifo_host_path}")
             except Exception as e:
                 logger.error(f"Could not create fifo_path at {fifo_host_path}. Nacking message. Exception: {e}")
@@ -343,6 +344,7 @@ def subscribe(tenant,
         environment['_abaco_worker_id'] = worker_id
         environment['_abaco_container_repo'] = actor.image
         environment['_abaco_actor_state'] = actor.state
+        environment['_abaco_api_server'] = api_server
         environment['_abaco_actor_name'] = actor.name or 'None'
         logger.debug("Overlayed environment: {}; worker_id: {}".format(environment, worker_id))
 
@@ -370,7 +372,7 @@ def subscribe(tenant,
                                                                             privileged,
                                                                             mounts,
                                                                             leave_containers,
-                                                                            fifo_host_path,
+                                                                            fifo_container_path,
                                                                             socket_container_path,
                                                                             mem_limit,
                                                                             max_cpus,
