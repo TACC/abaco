@@ -11,8 +11,8 @@ from flask import g, request
 import jwt
 import requests
 
-from __init__ import t
-from common.auth import Tenants, authn_and_authz as flaskbase_az
+from __init__ import t, Tenants
+from common.auth import authn_and_authz as flaskbase_az
 from common.logs import get_logger
 logger = get_logger(__name__)
 
@@ -79,14 +79,13 @@ def authn_and_authz():
         auth.authn_and_authz()
 
     """
-    tenants = Tenants()
     if conf.web_accept_nonce:
         logger.debug("Config allows nonces, using nonces.")
-        flaskbase_az(tenants, check_nonce, authorization)
+        flaskbase_az(Tenants, check_nonce, authorization)
     else:
         # we use the flaskbase authn_and_authz function, passing in our authorization callback.
         logger.debug("Config does now allow nonces, not using nonces.")
-        flaskbase_az(tenants, authorization)
+        flaskbase_az(Tenants, authorization)
 
 def required_level(request):
     """Returns the required permission level for the request."""
@@ -213,7 +212,7 @@ def authorization():
     g.db_id = db_id
     logger.debug("db_id: {}".format(db_id))
 
-    g.api_server = conf.service_tenant_base_url
+    g.api_server = conf.primary_site_master_tenant_base_url
 
     g.admin = False
     if request.method == 'OPTIONS':

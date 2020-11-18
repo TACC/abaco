@@ -183,7 +183,7 @@ class Spawner(object):
         # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
         Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
         logger.debug("spawner has updated worker status to SPAWNER_SETUP; worker_id: {}".format(worker_id))
-        api_server = conf.service_tenant_base_url
+        api_server = conf.primary_site_master_tenant_base_url
 
         spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
         logger.debug("spawner attempting to start worker; worker_id: {}".format(worker_id))
