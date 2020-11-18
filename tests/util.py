@@ -5,21 +5,23 @@ import pytest
 import requests
 import time
 from tapipy.tapis import Tapis
+from common.auth import Tenants
 
 # Need base_url as it's where we direct calls. But also need SK url for tapipy.
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
 case = os.environ.get('case', 'snake')
+testuser_tenant = os.environ.get('tenant', 'dev')
 
 def get_service_tapis_client():
     with open('config-local.json') as json_file:
         conf = json.load(json_file)
     sk_url = os.environ.get('sk_url', conf['primary_site_master_tenant_base_url'])
-    tenant_id = os.environ.get('tenant', None)
+    tenant_id = os.environ.get('tenant', 'master')
     service_password = os.environ.get('service_password', conf['service_password'])
     jwt = os.environ.get('jwt', None)
-    resource_set = os.environ.get('resource_set', 'tapipy')
+    resource_set = os.environ.get('resource_set', 'local')
     custom_spec_dict = os.environ.get('custom_spec_dict', None)
-    download_latest_specs = os.environ.get('download_latest_specs', None)
+    download_latest_specs = os.environ.get('download_latest_specs', False)
     # if there is no tenant_id, use the service_tenant_id and primary_site_master_tenant_base_url configured for the service:
     t = Tapis(base_url=sk_url or base_url,
               tenant_id=tenant_id,
@@ -29,7 +31,9 @@ def get_service_tapis_client():
               jwt=jwt,
               resource_set=resource_set,
               custom_spec_dict=custom_spec_dict,
-              download_latest_specs=download_latest_specs)
+              download_latest_specs=download_latest_specs,
+              is_tapis_service=True,
+              tenants=Tenants())
     if not jwt:
         t.get_tokens()
     return t
@@ -41,18 +45,19 @@ t = get_service_tapis_client()
 # _abaco_testuser_admin is granted abaco_admin role
 # _abaco_testuser_privileged is granted abaco_privileged role
 # _abaco_testuser_regular is granted nothing
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope='session', autouse=True)
 def create_test_roles():
+    testuser_tenant = os.environ.get('tenant', 'dev')
     # Using Tapipy to ensure each abaco environment has proper roles and testusers created before starting
-    all_role_names = t.sk.getRoleNames(tenant=t.tenant_id)
+    all_role_names = t.sk.getRoleNames(tenant=testuser_tenant)
     if not 'abaco_admin' in all_role_names.names:
         print('Creating role: abaco_admin')
-        t.sk.createRole(roleTenant=t.tenant_id, roleName='abaco_admin', description='Admin role in Abaco.')
+        t.sk.createRole(roleTenant=testuser_tenant, roleName='abaco_admin', description='Admin role in Abaco.')
     if not 'abaco_privileged' in all_role_names.names:
         print('Creating role: abaco_privileged')
-        t.sk.createRole(roleTenant=t.tenant_id, roleName='abaco_privileged', description='Privileged role in Abaco.')
-    t.sk.grantRole(tenant=t.tenant_id, user='_abaco_testuser_admin', roleName='abaco_admin')
-    t.sk.grantRole(tenant=t.tenant_id, user='_abaco_testuser_privileged', roleName='abaco_privileged')
+        t.sk.createRole(roleTenant=testuser_tenant, roleName='abaco_privileged', description='Privileged role in Abaco.')
+    t.sk.grantRole(tenant=testuser_tenant, user='_abaco_testuser_admin', roleName='abaco_admin')
+    t.sk.grantRole(tenant=testuser_tenant, user='_abaco_testuser_privileged', roleName='abaco_privileged')
 
 @pytest.fixture(scope='session', autouse=True)
 def headers():
@@ -73,9 +78,9 @@ def limited_headers():
 @pytest.fixture(scope='session', autouse=True)
 def alternative_tenant_headers():
     # Find an alternative tenant than the one currently being tested, usually
-    # "master", if "master" is used, "dev" will be used. Or otherwise specified.
-    alt_tenant = 'master'
-    alt_alt_tenant = 'dev'
+    # "dev", if "dev" is used, "tacc" will be used. Or otherwise specified.
+    alt_tenant = 'dev'
+    alt_alt_tenant = 'tacc'
     curr_tenant = get_tenant()
     if curr_tenant == alt_tenant:
         alt_tenant = alt_alt_tenant
@@ -87,12 +92,11 @@ def cycling_headers(regular_headers, privileged_headers):
             'privileged': privileged_headers}
 
 def get_tapis_token_headers(user, alt_tenant):
-    tenant=os.environ.get('tenant', 'master')
     # Use alternative tenant if provided.
     if alt_tenant:
         tenant = alt_tenant
     token_res = t.tokens.create_token(account_type='user', 
-                                      token_tenant_id=tenant,
+                                      token_tenant_id=testuser_tenant,
                                       token_username=user,
                                       access_token_ttl=999999,
                                       generate_refresh_token=False,
