@@ -29,6 +29,9 @@ ADD entry.sh /home/tapis/entry.sh
 RUN chmod +x /home/tapis/entry.sh
 
 
+RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
+RUN chmod +x rabbitmqadmin
+
 ## PACKAGE INITIALIZATION
 RUN apt-get update && apt-get install python3-dev g++ sudo -y
 RUN pip3 install --upgrade pip

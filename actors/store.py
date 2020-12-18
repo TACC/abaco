@@ -93,7 +93,7 @@ class AbstractTransactionalStore(AbstractStore):
 
 class MongoStore(AbstractStore):
 
-    def __init__(self, host, port, database='abaco', db='0', user=None, password=None):
+    def __init__(self, host, port, database='abaco_tacc', db='0', user=None, password=None, auth_db=""):
         """
         Note: pop_fromlist, append_tolist, and within_transaction were removed from the Redis
         store functions as they weren't necessary, don't work, or don't work in Mongo.
@@ -103,16 +103,18 @@ class MongoStore(AbstractStore):
         :param port: port of the mongo server.
         :param database: the mongo database to use for abaco.
         :param db: an integer mapping to a mongo collection within the
+        :param auth_db: For sites. This is where we should check auth. Should be abaco_{site}. 
+            Default is usually admin, but Mongo will take care of that for us.
         mongo database.
 
         :return:
         """
-        mongo_uri = 'mongodb://{}:{}'.format(host, port)
+        mongo_uri = f'mongodb://{host}:{port}'
         if user and password:
-            logger.info("Using mongo user {} and passowrd: ***".format(user))
+            logger.info(f"Using mongo user {user} and password: ***")
             u = urllib.parse.quote_plus(user)
             p = urllib.parse.quote_plus(password)
-            mongo_uri = 'mongodb://{}:{}@{}:{}'.format(u, p, host, port)
+            mongo_uri = f'mongodb://{u}:{p}@{host}:{port}/{auth_db}'
         self._mongo_client = MongoClient(mongo_uri)
         self._mongo_database = self._mongo_client[database]
         self._db = self._mongo_database[db]

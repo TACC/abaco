@@ -16,7 +16,7 @@ from channels import ExecutionResultsChannel
 from common.config import conf
 from codes import BUSY, READY, RUNNING
 import globals
-from models import Execution, get_current_utc_time, display_time
+from models import Execution, get_current_utc_time, display_time, site
 from stores import workers_store
 
 
@@ -128,7 +128,7 @@ def check_worker_containers_against_store():
         try:
             # try to get the worker from the store:
             store_key = '{}_{}_{}'.format(w['tenant_id'], w['actor_id'], w['worker_id'])
-            worker = workers_store[store_key]
+            worker = workers_store[site()][store_key]
         except KeyError:
             worker = {}
         status = worker.get('status')
@@ -167,8 +167,7 @@ def run_container_with_docker(image,
                               auto_remove=False,
                               actor_id=None,
                               tenant=None,
-                              api_server=None,
-):
+                              api_server=None):
     """
     Run a container with docker mounted in it.
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().

@@ -81,7 +81,7 @@ test:
 test-camel: build-testsuite
 	@echo "\n\nCamel Case Tests.\n"
 	@echo "Converting config file to camel case and launching Abaco Stack.\n"
-	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=camel -e abaco_host_path=$$abaco_path -e _called_from_within_test=True -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
+	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e TESTS=tests -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=camel -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG
 
 # Builds local everything and performs testsuite for snake case.
 # Converts local-dev.conf back to camel case after test.
@@ -90,7 +90,7 @@ test-camel: build-testsuite
 test-snake: build-testsuite
 	@echo "\n\nSnake Case Tests.\n"
 	@echo "Converting config file to snake case and launching Abaco Stack.\n"
-	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=snake -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
+	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e TEST=tests -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=snake -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG
 	@echo "Converting back to camel"; sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 
 test-remote: build-testsuite

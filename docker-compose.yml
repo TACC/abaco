@@ -32,6 +32,7 @@ services:
         environment:
             RABBITMQ_NODENAME: abaco-rabbit
             RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+A 128"
+            RABBITMQ_DEFAULT_VHOST: abaco_tacc
             #RABBITMQ_DEFAULT_USER: userhere
             #RABBITMQ_DEFAULT_PASS: passhere
         ulimits:
@@ -94,6 +95,7 @@ services:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
+            - reg
         networks:
             - abaco
 
@@ -113,6 +115,7 @@ services:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
+            - reg
         networks:
             - abaco
 
@@ -132,6 +135,7 @@ services:
             queue: default
         depends_on:
             - mongo
+            - reg
         networks:
             - abaco
 
@@ -155,6 +159,7 @@ services:
             _abaco_DEV-STAGING_password: testotheruser
         depends_on:
             - mongo
+            - reg
         networks:
             - abaco
 
@@ -165,14 +170,12 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-
         environment:
             abaco_host_path: ${abaco_path}
             _abaco_secret: 123
             mongo_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
-
             # add the following pair of credentials for each tenant wanting client generation
             _abaco_DEV-DEVELOP_username: testotheruser
             _abaco_DEV-DEVELOP_password: testotheruser
@@ -180,9 +183,9 @@ services:
             _abaco_DEV-STAGING_password: testotheruser
         depends_on:
             - mongo
+            - reg
         networks:
             - abaco
-
 
     prometheus:
         # build: ./images/prometheus
@@ -199,6 +202,7 @@ services:
             - abaco
         depends_on:
             - mongo
+            - reg
 
     grafana:
         image: grafana/grafana
@@ -206,6 +210,7 @@ services:
         depends_on:
             - prometheus
             - mongo
+            - reg
         ports:
             - 3000:3000
         volumes:
@@ -216,7 +221,6 @@ services:
         networks:
             - abaco
         restart: always
-
 
     metrics:
         image: abaco/core:$TAG
@@ -236,6 +240,7 @@ services:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
+            - reg
             - prometheus
 
 volumes:
