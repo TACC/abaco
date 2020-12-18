@@ -63,9 +63,11 @@ def rabbit_initialization():
     gets permissions to it's vhosts. Primary site gets control to each vhost.
     One-time/deployment
     """
+    rabbit_dash_host = conf.rabbit_dash_host
+
     # Creating the subprocess call (Has to be str, list not working due to docker
     # aliasing of rabbit with it's IP address (Could work? But this works too.).).
-    fn_call = '/home/tapis/rabbitmqadmin -H rabbit '
+    fn_call = f'/home/tapis/rabbitmqadmin -H {rabbit_dash_host} '
 
     # Get admin credentials from rabbit_uri. Add auth to fn_call if it exists.
     admin_user = conf.admin_rabbitmq_user or None
@@ -81,14 +83,13 @@ def rabbit_initialization():
     else:
         logger.warning(f"Administrating rabbitmq with no auth.")
 
-    # We first have to poll for rabbit and make sure it's active. docker-compose "depends_on"
-    # does not work with compose files v3. So this is my solution.
-    rabbit_docker_host_alias = conf.rabbit_docker_host_alias
-    while rabbit_docker_host_alias:
-        try:
-            r.get(f'http://{rabbit_docker_host_alias}:15672')
+    # We poll to check rabbitmq is operational. Done by trying to list vhosts, arbitrary command.
+    # Exit code 0 means rabbitmq is running. Need access to rabbitmq dash/management panel.
+    while True:
+        result = subprocess.run(fn_call + f'list vhosts', shell=True)
+        if result.returncode == 0:
             break
-        except r.exceptions.ConnectionError:
+        else:
             time.sleep(3)
 
     # Creating user/pass, vhost, and assigning permissions for rabbitmq.

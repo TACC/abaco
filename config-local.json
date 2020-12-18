@@ -22,7 +22,7 @@
     "admin_rabbitmq_user": "",
     "admin_rabbitmq_pass": "",
     "rabbit_uri": "amqp://rabbit:5672",
-    "rabbit_docker_host_alias": "rabbit",
+    "rabbit_dash_host": "rabbit",
     "spawner_abaco_conf_host_path": "$env{abaco_host_path}/config-local.json",
     "spawner_host_id": 0,
     "spawner_host_queues": [
@@ -52,7 +52,6 @@
     "web_access_control": "jwt",
     "web_user_role": "Internal/everyone",
     "web_accept_nonce": true,
-    "web_tenant_name": "dev_staging",
     "web_apim_public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCUp/oV1vWc8/TkQSiAvTousMzOM4asB2iltr2QKozni5aVFu818MpOLZIr8LMnTzWllJvvaA5RAAdpbECb+48FjbBe0hseUdN5HpwvnH/DW8ZccGvk53I6Orq7hLCv1ZHtuOCokghz/ATrhyPq+QktMfXnRS4HrKGJTzxaCcU7OQIDAQAB",
     "web_show_traceback": false,
     "web_max_log_length": 1000000,
@@ -71,7 +70,9 @@
         "site_rabbitmq_pass": "pass2here"
     }, 
     "examp_site_object": {
-        "web_log_ex": 43200
+        "web_log_ex": 43200,
+        "site_mongo_pass": "pass1here",
+        "site_rabbitmq_pass": "pass2here"
     },
     "global_auth_object": {
         "use_tas_uid": false,
@@ -96,10 +97,7 @@
     "sd2e_auth_object": {
         "use_tas_uid": true
     },
-    "DEV-STAGING_auth_object": {
-        "default_token": true
-    },
-    "DEV-DEVELOP_auth_object": {
+    "dev_auth_object": {
         "global_mounts": [
         "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro"
         ]

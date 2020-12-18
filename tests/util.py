@@ -6,6 +6,7 @@ import requests
 import time
 from tapipy.tapis import Tapis
 from common.auth import Tenants
+import subprocess
 
 # Need base_url as it's where we direct calls. But also need SK url for tapipy.
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
@@ -110,12 +111,27 @@ def wait_for_rabbit():
     with open('config-local.json') as json_file:
         conf = json.load(json_file)
 
-    rabbit_docker_host_alias = conf["rabbit_docker_host_alias"]
+    rabbit_dash_host = conf['rabbit_dash_host']
+
+    fn_call = f'/home/tapis/rabbitmqadmin -H {rabbit_dash_host} '
+
+    # Get admin credentials from rabbit_uri. Add auth to fn_call if it exists.
+    admin_user = conf['admin_rabbitmq_user'] or None
+    admin_pass = conf['admin_rabbitmq_pass'] or None
+
+    if admin_user and admin_pass:
+        fn_call += (f'-u {admin_user} ')
+        fn_call += (f'-p {admin_pass} ')
+    else:
+        fn_call += (f'-u {admin_user} ')
+
+    # We poll to check rabbitmq is operational. Done by trying to list vhosts, arbitrary command.
+    # Exit code 0 means rabbitmq is running. Need access to rabbitmq dash/management panel.
     while True:
-        try:
-            requests.get(f'http://{rabbit_docker_host_alias}:15672')
+        result = subprocess.run(fn_call + f'list vhosts', shell=True)
+        if result.returncode == 0:
             break
-        except requests.exceptions.ConnectionError:
+        else:
             time.sleep(3)
     time.sleep(7)
 
