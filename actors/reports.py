@@ -20,10 +20,10 @@ from pymongo import MongoClient
 # Inputs are mongo user, pass, host, and port.
 try:
     from common.config import conf
-    mongo_user = urllib.parse.quote_plus(conf.store_mongo_user)
-    mongo_pass = urllib.parse.quote_plus(conf.store_mongo_password)
-    mongo_host = conf.store_mongo_host
-    mongo_port = conf.store_mongo_port
+    mongo_user = urllib.parse.quote_plus(conf.admin_mongo_user)
+    mongo_pass = urllib.parse.quote_plus(conf.admin_mongo_pass)
+    mongo_host = conf.mongo_host
+    mongo_port = conf.mongo_port
     mongo_uri = f"mongodb://{mongo_user}:{mongo_pass}@{mongo_host}:{mongo_port}"
     print(f"mongo uri: {mongo_uri}")
 except Exception as e:
@@ -33,7 +33,7 @@ except Exception as e:
     mongo_host = ''
     mongo_port = ''
     mongo_user = urllib.parse.quote_plus(mongo_user)
-    mongo_password = urllib.parse.quote_plus(mongo_pass)
+    mongo_pass = urllib.parse.quote_plus(mongo_pass)
     if mongo_host and not mongo_user and not mongo_pass:
         mongo_uri = f"mongodb://{mongo_host}:{mongo_port}"
         print(f"mongo uri: {mongo_uri}")

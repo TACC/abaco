@@ -4,11 +4,11 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "store_mongo_host": {
+    "mongo_host": {
       "type": "string",
       "description": "The url for the mongo instance."
     },
-    "store_mongo_port": {
+    "mongo_port": {
       "type": "integer",
       "description": "The port to access the mongo instance."
     },
@@ -344,8 +344,8 @@
     "service_name",
     "version",
     "log_level",
-    "store_mongo_host",
-    "store_mongo_port",
+    "mongo_host",
+    "mongo_port",
     "rabbit_uri",
     "global_auth_object",
     "worker_socket_paths",

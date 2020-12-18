@@ -9,8 +9,10 @@ else:
     from common.logs import get_logger
     logger = get_logger(__name__)
 
+    Tenants=Tenants()
+
     try:
-        t = get_service_tapis_client(tenants=Tenants())
+        t = get_service_tapis_client(tenants=Tenants)
     except Exception as e:
         logger.error(f'Could not instantiate tapy service client. Exception: {e}')
         raise e

@@ -1,11 +1,13 @@
 {
     "server": "dev",
-    "service_tenant_base_url": "https://master.develop.tapis.io",
-    "service_tenant_id": "master",
+    "primary_site_admin_tenant_base_url": "https://admin.develop.tapis.io",
+    "service_tenant_id": "admin",
     "service_name": "abaco",
     "service_password": "",
     "tenants": [
-        "dev-develop"
+        "tacc",
+        "dev",
+        "admin"
     ],
     "version": ":dev",
     "log_file": "/home/tapis/runtime_files/logs/service.log",
@@ -13,9 +15,14 @@
     "log_filing_strategy": "split",
     "common.auth_log_file": "/home/tapis/runtime_files/logs/common.log",
     "common.log_log_file": "/home/tapis/runtime_files/logs/common.log",
-    "store_mongo_host": "mongo",
-    "store_mongo_port": 27017,
+    "admin_mongo_user": "",
+    "admin_mongo_pass": "",
+    "mongo_host": "mongo",
+    "mongo_port": 27017,
+    "admin_rabbitmq_user": "",
+    "admin_rabbitmq_pass": "",
     "rabbit_uri": "amqp://rabbit:5672",
+    "rabbit_docker_host_alias": "rabbit",
     "spawner_abaco_conf_host_path": "$env{abaco_host_path}/config-local.json",
     "spawner_host_id": 0,
     "spawner_host_queues": [
@@ -48,7 +55,6 @@
     "web_tenant_name": "dev_staging",
     "web_apim_public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCUp/oV1vWc8/TkQSiAvTousMzOM4asB2iltr2QKozni5aVFu818MpOLZIr8LMnTzWllJvvaA5RAAdpbECb+48FjbBe0hseUdN5HpwvnH/DW8ZccGvk53I6Orq7hLCv1ZHtuOCokghz/ATrhyPq+QktMfXnRS4HrKGJTzxaCcU7OQIDAQAB",
     "web_show_traceback": false,
-    "web_log_ex": 43200,
     "web_max_log_length": 1000000,
     "web_case": "camel",
     "web_max_content_length": 500000000,
@@ -56,6 +62,17 @@
         "default",
         "special"
     ],
+    "site_id": "tacc",
+    "global_site_object": {
+        "web_log_ex": 43200
+    },
+    "tacc_site_object": {
+        "site_mongo_pass": "pass1here",
+        "site_rabbitmq_pass": "pass2here"
+    }, 
+    "examp_site_object": {
+        "web_log_ex": 43200
+    },
     "global_auth_object": {
         "use_tas_uid": false,
         "default_token": false,
@@ -66,7 +83,6 @@
         "default_token": false,
         "generate_clients": true,
         "global_mounts": [
-        "/work/{tasdir}:/work:rw"
         ]
     },
     "designsafe_auth_object": {

@@ -4,7 +4,16 @@ import rabbitpy
 import threading
 import time
 
+from flask import g
 from common.config import conf
+from stores import get_site_rabbitmq_uri
+
+
+def site():
+    try:
+        return g.site_id
+    except:
+        return conf.get('site_id')
 
 
 class ChannelClosedException(Exception):
@@ -13,7 +22,8 @@ class ChannelClosedException(Exception):
 
 class RabbitConnection(object):
     def __init__(self, retries=100):
-        self._uri = conf.rabbit_uri
+        RABBIT_URI = get_site_rabbitmq_uri(site())
+        self._uri = RABBIT_URI
         tries = 0
         connected = False
         while tries < retries and not connected:

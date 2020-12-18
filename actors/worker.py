@@ -16,7 +16,7 @@ from common.config import conf
 from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
 import globals
-from models import Actor, Execution, Worker
+from models import Actor, Execution, Worker, site
 from stores import actors_store, workers_store
 
 from common.logs import get_logger
@@ -259,7 +259,7 @@ def subscribe(tenant,
         # set of k:v pairs coming in from the query parameters.
         message = msg.pop('message', '')
         try:
-            actor = Actor.from_db(actors_store[actor_id])
+            actor = Actor.from_db(actors_store[site()][actor_id])
             execution_id = msg['_abaco_execution_id']
             content_type = msg['_abaco_Content_Type']
             mounts = actor.mounts

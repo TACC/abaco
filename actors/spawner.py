@@ -12,7 +12,7 @@ from common.config import conf
 from common.logs import get_logger
 from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
-from models import Actor, Worker
+from models import Actor, Worker, site
 from stores import actors_store, workers_store
 from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from health import get_worker
@@ -70,7 +70,7 @@ class Spawner(object):
         logger.debug("top of get_tot_workers")
         self.tot_workers = 0
         logger.debug('spawner host_id: {}'.format(self.host_id))
-        for worker_info in workers_store.items():
+        for worker_info in workers_store[site()].items():
             try:
                 if worker_info['host_id'] == self.host_id:
                     self.tot_workers += 1
@@ -90,7 +90,7 @@ class Spawner(object):
         """Stop existing workers; used when updating an actor's image."""
         logger.debug("Top of stop_workers() for actor: {}.".format(actor_id))
         try:
-            workers_list = workers_store.items({'actor_id': actor_id})
+            workers_list = workers_store[site()].items({'actor_id': actor_id})
         except KeyError:
             logger.debug("workers_store had no workers for actor: {}".format(actor_id))
             workers_list = []
@@ -123,8 +123,9 @@ class Spawner(object):
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info("top of process; cmd: {}".format(cmd))
         actor_id = cmd['actor_id']
+        site_id = cmd['site_id']
         try:
-            actor = Actor.from_db(actors_store[actor_id])
+            actor = Actor.from_db(actors_store[site()][actor_id])
         except Exception as e:
             msg = f"Exception in spawner trying to retrieve actor object from store. Aborting. Exception: {e}"
             logger.error(msg)
@@ -134,15 +135,16 @@ class Spawner(object):
         tenant = cmd['tenant']
         stop_existing = cmd.get('stop_existing', True)
         num_workers = 1
-        logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {} "
+        logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {} site_id: {}"
                     "stop_existing: {} num_workers: {}".format(actor_id, worker_id,
-                                                               image, tenant, stop_existing, num_workers))
+                                                               image, tenant, site_id,
+                                                               stop_existing, num_workers))
         # if the worker was sent a delete request before spawner received this message to create the worker,
         # the status will be SHUTDOWN_REQUESTED, not REQUESTED. in that case, we simply abort and remove the
         # worker from the collection.
         try:
             logger.debug("spawner checking worker's status for SHUTDOWN_REQUESTED")
-            worker = Worker.get_worker(actor_id, worker_id)
+            worker = Worker.get_worker(actor_id, worker_id, site_id)
             logger.debug(f"spawner got worker; worker: {worker}")
         except Exception as e:
             logger.error(f"spawner got exception trying to retrieve worker. "
@@ -155,7 +157,7 @@ class Spawner(object):
             if status == SHUTDOWN_REQUESTED or status == SHUTTING_DOWN or status == ERROR:
                 logger.debug(f"worker status was {status}; spawner deleting worker and returning..")
                 try:
-                    Worker.delete_worker(actor_id, worker_id)
+                    Worker.delete_worker(actor_id, worker_id, site_id)
                     logger.debug(f"spawner called delete_worker because its status was: {status}. {actor_id}_{worker_id}")
                     return
                 except Exception as e:
@@ -172,7 +174,7 @@ class Spawner(object):
             logger.debug(f"actor {actor_id} was in ERROR status while spawner was starting worker {worker_id} . "
                          f"Aborting creation of worker.")
             try:
-                Worker.delete_worker(actor_id, worker_id)
+                Worker.delete_worker(actor_id, worker_id, site_id)
                 logger.debug("spawner deleted worker because actor was in ERROR status.")
             except Exception as e:
                 logger.error(f"spawner got exception trying to delete a worker was in ERROR status."
@@ -181,9 +183,9 @@ class Spawner(object):
             return
 
         # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
-        Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP)
+        Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP, site_id)
         logger.debug("spawner has updated worker status to SPAWNER_SETUP; worker_id: {}".format(worker_id))
-        api_server = conf.service_tenant_base_url
+        api_server = conf.primary_site_admin_tenant_base_url
 
         spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
         logger.debug("spawner attempting to start worker; worker_id: {}".format(worker_id))
@@ -194,12 +196,13 @@ class Spawner(object):
                 actor_id,
                 worker_id,
                 spawner_ch,
-                api_server
+                api_server,
+                site_id
             )
         except Exception as e:
             msg = "Spawner got an exception from call to start_worker. Exception:{}".format(e)
             logger.error(msg)
-            self.error_out_actor(actor_id, worker_id, msg)
+            self.error_out_actor(actor_id, worker_id, msg, site_id)
             return
 
         logger.debug("Returned from start_worker; Created new worker: {}".format(worker))
@@ -217,13 +220,14 @@ class Spawner(object):
                      actor_id,
                      worker_id,
                      spawner_ch,
-                     api_server):
+                     api_server,
+                     site_id):
 
         # start an actor executor container and wait for a confirmation that image was pulled.
         attempts = 0
         # worker = get_worker(worker_id)
         # worker['status'] = PULLING_IMAGE
-        Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE)
+        Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE, site_id)
         try:
             logger.debug("spawner pulling image {}...".format(image))
             pull_image(image)
@@ -239,7 +243,7 @@ class Spawner(object):
         # Run Worker Container
         while True:
             try:
-                Worker.update_worker_status(actor_id, worker_id, CREATING_CONTAINER)
+                Worker.update_worker_status(actor_id, worker_id, CREATING_CONTAINER, site_id)
                 logger.debug('spawner creating worker container')
                 worker_dict = run_worker(
                     image,
@@ -280,14 +284,14 @@ class Spawner(object):
         # it is possible the actor status is already READY because this request is the autoscaler starting a new worker
         # for an existing actor. It is also possible that another worker put the actor into state ERROR during the
         # time this spawner was setting up the worker; we check for that here.
-        actor = Actor.from_db(actors_store[actor_id])
+        actor = Actor.from_db(actors_store[site()][actor_id])
         if not actor.status == READY:
             # for now, we will allow a newly created, healthy worker to change an actor from status ERROR to READY,
             # but this policy is subject to review.
             if actor.status == ERROR:
                 logger.info(f"actor {actor_id} was in ERROR status; new worker {worker_id} overriding it to READY...")
             try:
-                Actor.set_status(actor_id, READY, status_message=" ")
+                Actor.set_status(actor_id, READY, status_message=" ", site_id=site_id)
             except KeyError:
                 # it is possible the actor was already deleted during worker start up; if
                 # so, the worker should have a stop message waiting for it. starting subscribe
@@ -296,15 +300,16 @@ class Spawner(object):
         # finalize worker with READY status
         worker = Worker(tenant=tenant, **worker_dict)
         logger.info("calling add_worker for worker: {}.".format(worker))
-        Worker.add_worker(actor_id, worker)
+        Worker.add_worker(actor_id, worker, site_id)
 
         spawner_ch.put('READY')  # step 4
         logger.info('sent message through channel')
 
-    def error_out_actor(self, actor_id, worker_id, message):
+    def error_out_actor(self, actor_id, worker_id, message, site_id=None):
         """In case of an error, put the actor in error state and kill all workers"""
+        site_id = site_id or site()
         logger.debug("top of error_out_actor for worker: {}_{}".format(actor_id, worker_id))
-        Actor.set_status(actor_id, ERROR, status_message=message)
+        Actor.set_status(actor_id, ERROR, status_message=message, site_id=site_id)
         # check to see how far the spawner got setting up the worker:
         try:
             worker = Worker.get_worker(actor_id, worker_id)
@@ -333,16 +338,17 @@ class Spawner(object):
             worker_status == ERROR:
             logger.debug(f"worker status was: {worker_status}; trying to kill_worker")
             try:
-                self.kill_worker(actor_id, worker_id)
+                self.kill_worker(actor_id, worker_id, site_id)
                 logger.info("Spawner just killed worker {}_{} in error_out_actor".format(actor_id, worker_id))
             except DockerError as e:
                 logger.info("Received DockerError trying to kill worker: {}. Exception: {}".format(worker_id, e))
                 logger.info("Spawner will continue on since this is exception processing.")
 
-    def kill_worker(self, actor_id, worker_id):
+    def kill_worker(self, actor_id, worker_id, site_id=None):
         logger.debug(f"top of kill_worker: {actor_id}_{worker_id}")
+        site_id = site_id or site()
         try:
-            Worker.delete_worker(actor_id, worker_id)
+            Worker.delete_worker(actor_id, worker_id, site_id)
             logger.debug(f"worker deleted; {actor_id}_{worker_id}")
         except WorkerException as e:
             logger.info("Got WorkerException from delete_worker(). "
