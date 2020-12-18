@@ -19,7 +19,7 @@ import time
 
 from codes import SUBMITTED
 from channels import ActorMsgChannel, EventsChannel
-from models import Execution
+from models import Execution, site
 from stores import actors_store
 from common.logs import get_logger
 
@@ -68,7 +68,7 @@ def process_link(link, msg, d):
     # actor
     logger.debug("top of process_link")
     try:
-        actors_store[link]
+        actors_store[site()][link]
     except KeyError as e:
         logger.error("Processing event message for actor {} that does not exist. Quiting".format(link))
         raise e

@@ -21,7 +21,7 @@ import codes
 from common.config import conf
 from common.logs import get_logger
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
-from models import Actor, Worker, is_hashid
+from models import Actor, Worker, is_hashid, site
 from channels import CommandChannel, WorkerChannel
 from stores import actors_store, executions_store, workers_store
 from worker import shutdown_worker
@@ -46,12 +46,12 @@ MAX_EXECUTIONS_PER_MONGO_DOC = 25000
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
-    return [aid for aid in actors_store]
+    return [aid for aid in actors_store[site()]]
 
 def check_workers_store(ttl):
     logger.debug("Top of check_workers_store.")
-    """Run through all workers in workers_store and ensure there is no data integrity issue."""
-    for worker in workers_store.items():
+    """Run through all workers in workers_store[site()] and ensure there is no data integrity issue."""
+    for worker in workers_store[site()].items():
         aid = worker['actor_id']
         check_worker_health(aid, worker, ttl)
 
@@ -60,7 +60,7 @@ def get_worker(wid):
     Check to see if a string `wid` is the id of a worker in the worker store.
     If so, return it; if not, return None.
     """
-    worker = workers_store.items({'id': wid})
+    worker = workers_store[site()].items({'id': wid})
     if worker:
         return worker
     return None
@@ -103,22 +103,22 @@ def check_worker_health(actor_id, worker, ttl):
     worker_id = worker.get('id')
     logger.info("Checking status of worker from db with worker_id: {}".format(worker_id))
     if not worker_id:
-        logger.error("Corrupt data in the workers_store. Worker object without an id attribute. {}".format(worker))
+        logger.error("Corrupt data in the workers_store[site()]. Worker object without an id attribute. {}".format(worker))
         try:
-            workers_store.pop_field([actor_id])
+            workers_store[site()].pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
         return None
     # make sure the actor id still exists:
     try:
-        actors_store[actor_id]
+        actors_store[site()][actor_id]
     except KeyError:
-        logger.error("Corrupt data in the workers_store. Worker object found but no corresponding actor. {}".format(worker))
+        logger.error("Corrupt data in the workers_store[site()]. Worker object found but no corresponding actor. {}".format(worker))
         try:
             # todo - removing worker objects from db can be problematic if other aspects of the worker are not cleaned
             # up properly. this code should be reviewed.
-            workers_store.pop_field([actor_id])
+            workers_store[site()].pop_field([actor_id])
         except KeyError:
             # it's possible another health agent already removed the worker record.
             pass
@@ -131,8 +131,8 @@ def zero_out_workers_db():
       2) run this function
     :return:
     """
-    for worker in workers_store.items(proj_inp=None):
-        del workers_store[worker['_id']]
+    for worker in workers_store[site()].items(proj_inp=None):
+        del workers_store[site()][worker['_id']]
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
@@ -311,7 +311,7 @@ def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
     logger.info("Entering manage_workers for {}".format(actor_id))
     try:
-        actor = Actor.from_db(actors_store[actor_id])
+        actor = Actor.from_db(actors_store[site()][actor_id])
     except KeyError:
         logger.info("Did not find actor; returning.")
         return
@@ -327,10 +327,10 @@ def shutdown_all_workers():
     Utility function for properly shutting down all existing workers.
     This function is useful when deploying a new version of the worker code.
     """
-    # iterate over the workers_store directly, not the actors_store, since there could be data integrity issue.
+    # iterate over the workers_store[site()] directly, not the actors_store[site()], since there could be data integrity issue.
     logger.debug("Top of shutdown_all_workers.")
     actors_with_workers = set()
-    for worker in workers_store.items():
+    for worker in workers_store[site()].items():
         actors_with_workers.add(worker['actor_id'])
 
     for actor_id in actors_with_workers:

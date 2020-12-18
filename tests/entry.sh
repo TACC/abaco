@@ -1,25 +1,7 @@
 #!/bin/bash
 #
-# Docker entrypoint for the test suite. This script needs the docker daemon mounted. It will
-# To run specific tests, pass the same argument as would be passed to py.test.
-#
+# Docker entrypoint for the test suite. This script needs the docker daemon mounted.
 
-# Parameter to the entrypoint.
-TEST="$1"
-
-echo $maxErrors
-
-
-# if nothing passed, run the full suite
-if [ -z $TEST ]; then
-  pytest --maxfail $maxErrors --ignore=tests/util.py --ignore=tests/entry.sh --ignore-glob=tests/archive/* tests
-elif [ "$#" -eq 2 ]; then
-  TEST="$1 $2"
-  echo $TEST
-  pytest --maxfail $maxErrors $TEST
-elif [ "$#" -eq 3 ]; then
-  TEST="$1 $2 $3"
-  pytest --maxfail $maxErrors $TEST
-else
-  pytest --maxfail $maxErrors $TEST
-fi
+# tests is an environment variable set in the makefile and defaults to 'tests' to run the entire folder.
+# edit to 'tests/test_actors.py' or something else to only run specific test.
+pytest --maxfail $maxErrors --ignore=tests/util.py --ignore=tests/entry.sh --ignore-glob=tests/archive/* $TESTS

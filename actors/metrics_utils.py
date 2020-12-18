@@ -5,7 +5,7 @@ import time
 
 from common.config import conf
 from models import dict_to_camel, Actor, Execution, ExecutionsSummary, Nonce, Worker, get_permissions, \
-    set_permission
+    set_permission, site
 from worker import shutdown_workers, shutdown_worker
 from stores import actors_store, executions_store, logs_store, nonce_store, permissions_store
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
@@ -34,7 +34,7 @@ def create_gauges(actor_ids):
 
         channel_name = None
         try:
-            actor = actors_store[actor_id]
+            actor = actors_store[site()][actor_id]
         except KeyError:
             logger.error("actor {} does not exist.".format(actor_id))
             continue
@@ -146,7 +146,7 @@ def scale_up(actor_id):
     logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
     try:
         # create a worker & add to this actor
-        actor = Actor.from_db(actors_store[actor_id])
+        actor = Actor.from_db(actors_store[site()][actor_id])
         worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
         logger.info("New worker id: {}".format(worker_id))
         if actor.queue:
@@ -158,6 +158,7 @@ def scale_up(actor_id):
                    worker_id=worker_id,
                    image=actor.image,
                    tenant=tenant,
+                   site_id=site(),
                    stop_existing=False)
         ch.close()
         logger.debug('METRICS Added worker successfully for {}'.format(actor_id))

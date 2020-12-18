@@ -22,7 +22,6 @@ from models import Actor, Alias, get_permissions, is_hashid, Nonce
 
 from errors import ClientException, ResourceError, PermissionsException
 
-
 def get_api_server(tenant_name):
     # todo - lookup tenant in tenants table
     if tenant_name.upper() == '3DEM':
@@ -175,6 +174,13 @@ def get_user_sk_roles():
     logger.debug(f"Roles received: {roles_list}")
     g.roles = roles_list
 
+
+def get_user_site_id():
+    user_tenant_obj = t.tenant_cache.get_tenant_config(tenant_id=g.tenant_id)
+    user_site_obj = user_tenant_obj.site
+    g.site_id = user_site_obj.site_id
+
+
 def authorization():
     """
     This is the flaskbase authorization callback and implements the main Abaco authorization
@@ -212,13 +218,15 @@ def authorization():
     g.db_id = db_id
     logger.debug("db_id: {}".format(db_id))
 
-    g.api_server = conf.primary_site_master_tenant_base_url
+    g.api_server = conf.primary_site_admin_tenant_base_url
 
     g.admin = False
     if request.method == 'OPTIONS':
         # allow all users to make OPTIONS requests
         logger.info("Allowing request because of OPTIONS method.")
         return True
+
+    get_user_site_id()
 
     get_user_sk_roles()
 
@@ -380,7 +388,12 @@ def check_permissions(user, identifier, level, roles=None):
         if codes.ADMIN_ROLE in roles:
             return True
     # get all permissions for this actor -
-    permissions = get_permissions(identifier)
+    try:
+        permissions = get_permissions(identifier)
+    except PermissionsException:
+        # There's a chance that a permission doc does not exist, but an actor still does
+        # In this case, no one should have access to it, but we're not just going to delete it
+        pass
     for p_user, p_name in permissions.items():
         # if the actor has been shared with the WORLD_USER anyone can use it
         if p_user == WORLD_USER:

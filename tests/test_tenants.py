@@ -19,7 +19,7 @@ from util import headers, base_url, case, \
 # ##############################
 # tenancy - tests for bleed over
 # ##############################
-# Testing things, this time with the usual headers, but on the 'master' tenant rather than 'dev'.
+# Testing things, this time with the usual headers, but on the 'admin' tenant rather than 'dev'.
 
 def test_tenant_list_actors(alternative_tenant_headers):
     # passing another tenant should result in 0 actors.

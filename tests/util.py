@@ -15,14 +15,14 @@ testuser_tenant = os.environ.get('tenant', 'dev')
 def get_service_tapis_client():
     with open('config-local.json') as json_file:
         conf = json.load(json_file)
-    sk_url = os.environ.get('sk_url', conf['primary_site_master_tenant_base_url'])
-    tenant_id = os.environ.get('tenant', 'master')
+    sk_url = os.environ.get('sk_url', conf['primary_site_admin_tenant_base_url'])
+    tenant_id = os.environ.get('tenant', 'admin')
     service_password = os.environ.get('service_password', conf['service_password'])
     jwt = os.environ.get('jwt', None)
     resource_set = os.environ.get('resource_set', 'local')
     custom_spec_dict = os.environ.get('custom_spec_dict', None)
     download_latest_specs = os.environ.get('download_latest_specs', False)
-    # if there is no tenant_id, use the service_tenant_id and primary_site_master_tenant_base_url configured for the service:
+    # if there is no tenant_id, use the service_tenant_id and primary_site_admin_tenant_base_url configured for the service:
     t = Tapis(base_url=sk_url or base_url,
               tenant_id=tenant_id,
               username='abaco',
@@ -47,7 +47,6 @@ t = get_service_tapis_client()
 # _abaco_testuser_regular is granted nothing
 @pytest.fixture(scope='session', autouse=True)
 def create_test_roles():
-    testuser_tenant = os.environ.get('tenant', 'dev')
     # Using Tapipy to ensure each abaco environment has proper roles and testusers created before starting
     all_role_names = t.sk.getRoleNames(tenant=testuser_tenant)
     if not 'abaco_admin' in all_role_names.names:
@@ -105,6 +104,20 @@ def get_tapis_token_headers(user, alt_tenant):
         raise KeyError(f"Did not get access token; token response: {token_res}")
     header_dat = {"X-Tapis-Token": token_res.access_token.access_token}
     return header_dat
+
+@pytest.fixture(scope='session', autouse=True)
+def wait_for_rabbit():
+    with open('config-local.json') as json_file:
+        conf = json.load(json_file)
+
+    rabbit_docker_host_alias = conf["rabbit_docker_host_alias"]
+    while True:
+        try:
+            requests.get(f'http://{rabbit_docker_host_alias}:15672')
+            break
+        except requests.exceptions.ConnectionError:
+            time.sleep(3)
+    time.sleep(7)
 
 def get_tenant():
     """ Get the tenant_id associated with the test suite requests."""
