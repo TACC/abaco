@@ -84,7 +84,7 @@ def rabbit_initialization():
     # We first have to poll for rabbit and make sure it's active. docker-compose "depends_on"
     # does not work with compose files v3. So this is my solution.
     rabbit_docker_host_alias = conf.rabbit_docker_host_alias
-    while True:
+    while rabbit_docker_host_alias:
         try:
             r.get(f'http://{rabbit_docker_host_alias}:15672')
             break
