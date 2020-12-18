@@ -9,8 +9,7 @@ else:
     from common.logs import get_logger
     logger = get_logger(__name__)
 
-    Tenants=Tenants()
-
+    Tenants = Tenants()
     try:
         t = get_service_tapis_client(tenants=Tenants)
     except Exception as e:
