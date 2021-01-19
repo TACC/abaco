@@ -45,6 +45,10 @@ deploy:
 build-core:
 	@docker build -t abaco/core:$$TAG ./
 
+# Builds prometheus locally
+build-prom:
+	@docker build -t abaco/prom:$$TAG prometheus/.
+
 
 # Builds nginx
 build-nginx:

@@ -27,19 +27,25 @@ command_gauge = Gauge(
     ['name'])
 
 def create_gauges(actor_ids):
-    logger.debug("METRICS: Made it to create_gauges; actor_ids: {}".format(actor_ids))
+    """
+    Creates a Prometheus gauge for each actor id. The gauge is used to track the number of
+    pending messages in the actor's queue.
+    :param actor_ids: list of actors that should be processed. Does not include stateful actors or
+    actors in a shutting down state.
+    :return:
+    """
+    logger.debug("top of create_gauges; actor_ids: {}".format(actor_ids))
+    # dictionary mapping actor_ids to their message queue lengths
     inbox_lengths = {}
     for actor_id in actor_ids:
         logger.debug("top of for loop for actor_id: {}".format(actor_id))
-
-        channel_name = None
+        # first, make sure the actor still exists in the actor store
         try:
             actor = actors_store[actor_id]
         except KeyError:
             logger.error("actor {} does not exist.".format(actor_id))
             continue
-
-            # If the actor doesn't have a gauge, add one
+        # If the actor doesn't have a gauge, add one
         if actor_id not in message_gauges.keys():
             try:
                 g = Gauge(
@@ -58,25 +64,17 @@ def create_gauges(actor_ids):
             except Exception as e:
                 logger.info("got exception trying to instantiate an existing gauge; "
                             "actor: {}: exception:{}".format(actor_id, e))
-
-            # Update this actor's command channel metric
-            channel_name = actor.get("queue")
-
-            queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
-            valid_queues = queues_list.split(',')
-
-            if not channel_name or channel_name not in valid_queues:
-                channel_name = 'default'
-
         # Update this actor's gauge to its current # of messages
         try:
             ch = ActorMsgChannel(actor_id=actor_id)
+            msg_length = len(ch._queue._queue)
         except Exception as e:
             logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
             raise e
-        result = {'messages': len(ch._queue._queue)}
-        inbox_lengths[actor_id] = len(ch._queue._queue)
         ch.close()
+        result = {'messages': msg_length}
+        # add the actor's current message queue length to the inbox_lengths in-memory variable
+        inbox_lengths[actor_id] = msg_length
         g.set(result['messages'])
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
 
@@ -101,8 +99,26 @@ def create_gauges(actor_ids):
         g.set(result['workers'])
         logger.debug("METRICS: {} workers found for actor: {}.".format(result['workers'], actor_id))
 
-    if not channel_name:
-        return
+        # Update this actor's command channel metric
+        # channel_name = actor.get("queue")
+        #
+        # queues_list = Config.get('spawner', 'host_queues').replace(' ', '')
+        # valid_queues = queues_list.split(',')
+        #
+        # if not channel_name or channel_name not in valid_queues:
+        #     channel_name = 'default'
+        #
+        # if not channel_name:
+        #     # TODO -- this must be changed. there is no way returning no arguments will result in
+        #     # anythng but an exception. The calling function is expecting 3 arguments...
+        #     # if we really want to blow up right here we should just raise an appropriate exception.
+        #     return
+
+    # TODO -- this code needs to be fixed. What follows is only a partial fix; what I think we want to do
+    # is set the length of all of the different command channels once at the end of this loop. What was
+    # happening instead was that it was only setting one of the command channel's lengths -- whatever command
+    # channel happened to belong to the last actor in the loop.
+    channel_name = 'default'
     ch = CommandChannel(name=channel_name)
     cmd_length = len(ch._queue._queue)
     command_gauge.labels(channel_name).set(cmd_length)
@@ -130,19 +146,33 @@ def calc_change_rate(data, last_metric, actor_id):
 
 
 def allow_autoscaling(max_workers, num_workers, cmd_length):
+    """
+    This function returns True if the conditions for a specific actor indicate it could be scaled up.
+    Note that this does NOT mean the actor WILL be scaled up, as this function does not take into account
+    the current number of messages queued for the actor.
+    :param max_workers: The maximum number of workers allowed for a specific actor.
+    :param num_workers: The current number of workers for a specific actor.
+    :param cmd_length: The current lenght of the associated command channel for a specific actor.
+    :return:
+    """
+    logger.debug(f"top of allow_autoscaling; max_workers: {max_workers}, num_workers: {num_workers}, "
+                 f"cmd_length: {cmd_length}")
     # first check if the number of messages on the command channel exceeds the limit:
     try:
         max_cmd_length = int(Config.get('spawner', 'max_cmd_length'))
-    except:
+    except Exception as e:
+        logger.info(f"Autoscaler got exception trying to compute the max_cmd_lenght; using 10. E"
+                    f"xception: {e}")
         max_cmd_length = 10
 
     if cmd_length > max_cmd_length:
+        logger.info(f"Will NOT scale up: Current cmd_length ({cmd_length}) is greater than ({max_cmd_length}).")
         return False
     if int(num_workers) >= int(max_workers):
-        logger.debug('METRICS NO AUTOSCALE - criteria not met. {} '.format(num_workers))
+        logger.debug(f'Will NOT scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
         return False
 
-    logger.debug('METRICS AUTOSCALE - criteria met. {} '.format(num_workers))
+    logger.debug(f'Will scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
     return True
 
 def scale_up(actor_id):
@@ -172,12 +202,22 @@ def scale_up(actor_id):
 
 
 def scale_down(actor_id, is_sync_actor=False):
+    """
+    This function determines whether an actor's worker pool should be scaled down and if so,
+    initiates the scaling down.
+    :param actor_id: the actor_id
+    :param is_sync_actor: whether or not the actor has the SYNC hint.
+    :return:
+    """
     logger.debug(f"top of scale_down for actor_id: {actor_id}")
+    # we retrieve the current workers again as we will need the entire worker ojects (not just the number).
     workers = Worker.get_workers(actor_id)
-    logger.debug('METRICS NUMBER OF WORKERS: {}'.format(len(workers)))
+    logger.debug(f'scale_down number of workers: {len(workers)}')
     try:
+        # iterate through all the actor's workers and determine if they should be shut down.
         while len(workers) > 0:
-            logger.debug('METRICS made it STATUS check')
+            # whether to check the TTL for this worker; we only check TTL for SYNC actors; for non-sync,
+            # workers are immediately shut down when the actor has no messages.
             check_ttl = False
             sync_max_idle_time = 0
             if len(workers) == 1 and is_sync_actor:
@@ -189,6 +229,7 @@ def scale_down(actor_id, is_sync_actor=False):
                     sync_max_idle_time = DEFAULT_SYNC_MAX_IDLE_TIME
                 check_ttl = True
             worker = workers.pop()
+            logger.debug(f"check_ttl: {check_ttl} for worker: {worker}")
             if check_ttl:
                 try:
                     last_execution = int(float(worker.get('last_execution_time', 0)))
@@ -210,14 +251,16 @@ def scale_down(actor_id, is_sync_actor=False):
                     # continue onto additional checks below
                 else:
                     logger.info("Autoscaler not shuting down this worker - still time left.")
-                    break
+                    continue
 
-            logger.debug('METRICS SCALE DOWN current worker: {}'.format(worker['status']))
+            logger.debug('based on TTL, worker could be scaled down.')
             # check status of the worker is ready
             if worker['status'] == 'READY':
                 # scale down
+                logger.debug('worker was in READY status; attempting shutdown.')
                 try:
                     shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
+                    logger.debug('sent worker shutdown message.')
                     continue
                 except Exception as e:
                     logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))

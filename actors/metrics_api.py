@@ -4,7 +4,7 @@ from prometheus_client import Summary, MetricsHandler, Counter
 
 from agaveflask.utils import AgaveApi, handle_error
 
-from controllers import MetricsResource
+from controllers import MetricsResource, CronResource
 
 from errors import errors
 
@@ -28,6 +28,7 @@ api.handle_user_exception = handle_error
 
 # Resources
 api.add_resource(MetricsResource, '/metrics')
+api.add_resource(CronResource, '/cron')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)

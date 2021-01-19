@@ -20,6 +20,8 @@ rabbitpy==1.0.0
 pyzmq==14.3.0
 pymongo==3.10.1
 hashids==1.2.0
+parse==1.15.0
+python-dateutil==2.8.1
 
 # we can migrate to a higher version of cloudpickle as soon as we upgrade the samples images (e.g. abacosamples/py3_func:dev)
 # currently, differences in the patch version withing 0.5 of cloudpickle (e.g. 0.5.2 vs 0.5.6) causes compatibility issues.

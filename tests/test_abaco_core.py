@@ -193,6 +193,42 @@ def test_register_actor(headers):
     assert result['name'] == 'abaco_test_suite'
     assert result['id'] is not None
 
+@pytest.mark.regapi
+def test_register_actor_with_cron(headers):
+    url = '{}/{}'.format(base_url, 'actors')
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite', 'cronSchedule': '2020-06-21 14 + 6 hours'} 
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['cronSchedule'] == '2020-06-21 14 + 6 hours'
+
+@pytest.mark.regapi
+def test_register_actor_with_incorrect_cron(headers):
+    url = '{}/{}'.format(base_url, 'actors')
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite', 'cronSchedule': '2020-06-21 14 + 6 flimflams'} 
+    rsp = requests.post(url, data=data, headers=headers)
+    #result = basic_response_checks(rsp)
+    assert rsp.status_code == 500
+
+
+@pytest.mark.regapi
+def test_update_cron(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite')
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    data = {'image': 'jstubbs/abaco_test', 'stateless': False, 'cronSchedule': '2021-09-6 20 + 3 months'}
+    rsp = requests.put(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['cronSchedule'] == '2021-09-6 20 + 3 months'
+
+@pytest.mark.regapi
+def test_update_cron_switch(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite')
+    url = '{}/actors/{}'.format(base_url, actor_id)
+    data = {'image': 'jstubbs/abaco_test', 'stateless': False, 'cronSchedule': '2021-09-6 20 + 3 months', 'cronOn': False}
+    rsp = requests.put(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['image'] == 'jstubbs/abaco_test'
+    assert result['cronOn'] == False
+
 @pytest.mark.log_exp
 def test_register_with_log_ex(headers):
     url = '{}/{}'.format(base_url, '/actors')
