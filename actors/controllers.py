@@ -130,49 +130,62 @@ class CronResource(Resource):
 
 class MetricsResource(Resource):
     def get(self):
+        logger.debug("AUTOSCALER initiating new run --------")
+        do_autoscaling = True
         enable_autoscaling = Config.get('workers', 'autoscaling')
         if hasattr(enable_autoscaling, 'lower'):
             if not enable_autoscaling.lower() == 'true':
-                return
+                logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
+                do_autoscaling = False
         else:
-            return
+            logger.debug("No autoscaler configuration found; exiting.")
+            do_autoscaling = False
         actor_ids, inbox_lengths, cmd_length = self.get_metrics()
+        if len(actor_ids) == 0:
+            do_autoscaling = False
+        if not do_autoscaling:
+            logger.debug("AUTOSCALER run complete --------")
+            return
         self.check_metrics(actor_ids, inbox_lengths, cmd_length)
         # self.add_workers(actor_ids)
+        logger.debug("AUTOSCALER run complete --------")
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
     def get_metrics(self):
-        logger.debug("top of get in MetricResource")
+        logger.debug("top of get_metrics")
         actor_ids = [actor['db_id'] for actor in actors_store.items()
             if actor.get('stateless')
             and not actor.get('status') == 'ERROR'
             and not actor.get('status') == SHUTTING_DOWN]
-
+        logger.debug(f"autoscaler found {len(actor_ids)} actors.")
+        if len(actor_ids) == 0:
+            return [], {}, None
         try:
-            if actor_ids:
-                # Create a gauge for each actor id
-                actor_ids, inbox_lengths, cmd_length = metrics_utils.create_gauges(actor_ids)
-
-                # return the actor_ids so we can use them again for check_metrics
-                return actor_ids, inbox_lengths, cmd_length
+            # Create a gauge for each actor id
+            actor_ids, inbox_lengths, cmd_length = metrics_utils.create_gauges(actor_ids)
+            # return the actor_ids so we can use them again for check_metrics
+            return actor_ids, inbox_lengths, cmd_length
         except Exception as e:
-            logger.info("Got exception in get_metrics: {}".format(e))
+            logger.info("Got exception in call to create_gauges; skipping autoscaler; e: {}".format(e))
             return []
 
     def check_metrics(self, actor_ids, inbox_lengths, cmd_length):
+        logger.debug("top of check_metrics")
         for actor_id in actor_ids:
-            logger.debug("TOP OF CHECK METRICS for actor_id {}".format(actor_id))
-
+            current_message_count = 0
             try:
-                current_message_count = inbox_lengths[actor_id.decode("utf-8")]
+                current_message_count = inbox_lengths[actor_id]
             except KeyError as e:
                 logger.error("Got KeyError trying to get current_message_count. Exception: {}".format(e))
-                current_message_count = 0
+            except Exception as e:
+                logger.error(f"Uncaught exception in check_metrics; e: {e}")
             workers = Worker.get_workers(actor_id)
-            actor = actors_store[actor_id]
-            logger.debug('METRICS: MAX WORKERS TEST {}'.format(actor))
+            current_workers = len(workers)
+            logger.debug(f"actor {actor_id}; Current message count: {current_message_count}; "
+                         f"Current workers: {current_workers}")
 
             # If this actor has a custom max_workers, use that. Otherwise use default.
+            actor = actors_store[actor_id]
             max_workers = None
             if actor.get('max_workers'):
                 try:
@@ -188,19 +201,20 @@ class MetricsResource(Resource):
                     logger.error("Unable to get/cast max_workers_per_actor config ({}) to int. "
                                  "Exception: {}".format(conf, e))
                     max_workers = 1
-
+            logger.debug(f"actor: {actor_id}; Max workers: {max_workers}")
             # Add an additional worker if message count reaches a given number
             try:
-                logger.debug("METRICS current message count: {}".format(current_message_count))
-                if metrics_utils.allow_autoscaling(max_workers, len(workers), cmd_length):
+                if metrics_utils.allow_autoscaling(max_workers, current_workers, cmd_length):
                     if current_message_count >= 1:
                         channel = metrics_utils.scale_up(actor_id)
                         if channel == 'default':
                             cmd_length = cmd_length + 1
-                        logger.debug("METRICS current message count: {}".format(current_message_count))
                 else:
+                    # todo -- this is not necessarily true... the actor's current workers could just be
+                    # at the max workers for this actor.
                     logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
                 if current_message_count == 0:
+                    logger.debug("current message count was 0; checking whether to scale down...")
                     # first check if this is a "sync" actor
                     is_sync_actor = False
                     try:
@@ -211,8 +225,9 @@ class MetricsResource(Resource):
                         if hint == Actor.SYNC_HINT:
                             is_sync_actor = True
                             break
+                    logger.debug(f"actor {actor_id} was a SYNC actor (T/F): {is_sync_actor}.")
                     metrics_utils.scale_down(actor_id, is_sync_actor)
-                    logger.debug("METRICS made it to scale down block")
+                    logger.debug("autoscaler returned from scale_down() call.")
                 else:
                     logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
             except Exception as e:
@@ -852,7 +867,7 @@ class ActorsResource(Resource):
             # It also checks that the cron schedule is greater than or equal to the current UTC time
             r = Actor.set_cron(cron)
             logger.debug(f"r is {r}")
-            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']: 
+            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']:
                 args['cron_schedule'] = cron
                 logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
                 args['cron_next_ex'] = r.fixed[0]
