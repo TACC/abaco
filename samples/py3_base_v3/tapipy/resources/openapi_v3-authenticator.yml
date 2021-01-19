@@ -1,0 +1,318 @@
+openapi: "3.0.2"
+
+info:
+  title: "Authenticator"
+  description: "REST API and web server providing authentication for a Tapis v3 instance."
+  version: "1"
+  termsOfService: "https://tapis-project.org"
+  contact:
+    name: "Authenticator"
+    url: "https://tapis-project.org"
+    email: "cicsupport@tacc.utexas.edu"
+  license:
+    name: "BSD 3"
+    url: "https://github.com/tapis-project/authenticator"
+
+servers:
+- url: http://localhost:5000
+  description: Local Development
+- url: http://{tenant_id_url}.develop.tapis.io
+  description: Tapis Develop instance
+  variables:
+    tenant_id_url:
+      default: dev
+      description: The tenant_id associated with the request.
+- url: /
+  description: catch-all server definition for other Tapis instances.
+
+paths:
+  /v3/oauth2/clients:
+    get:
+      tags:
+        - Clients
+      operationId: list_clients
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of clients returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/arrayOfClients'
+    post:
+      tags:
+        - Clients
+      operationId: create_client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewClient'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Client'
+
+  /v3/oauth2/clients/{client_id}:
+    get:
+      tags:
+      - Clients
+      summary: Get client details
+      description: Get details of a specific client by its id.
+      operationId: get_client
+      parameters:
+      - name: client_id
+        in: path
+        description: Unique ID of the client
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Client'
+    delete:
+      tags:
+      - Clients
+      summary: Delete a tenant
+      description: Permenantly delete a client.
+      operationId: delete_client
+      parameters:
+      - name: client_id
+        in: path
+        description: Unique ID of the client
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+  /v3/oauth2/tokens:
+    post:
+      tags:
+        - Tokens
+      operationId: create_token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewToken'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Token'
+
+  /v3/oauth2/profiles:
+    get:
+      tags:
+        - Profiles
+      operationId: list_profiles
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of profiles returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/arrayOfProfiles'
+
+  /v3/oauth2/profiles/{username}:
+    get:
+      tags:
+        - Profiles
+      operationId: get_profile
+      parameters:
+      - name: username
+        in: path
+        description: Username to retrieve.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Profile'
+
+components:
+  schemas:
+    BasicResponse:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Version of the API
+        message:
+          type: string
+          description: Brief description of the response
+        status:
+          type: string
+          description: Whether the request was a success or failure.
+          enum: [success, failure]
+
+    NewClient:
+      type: object
+      properties:
+        client_id:
+          type: string
+          description: A unique identifier for the client. Must be unique for the tenant.
+        client_key:
+          type: string
+          description: A secret key for authenticating the client.
+        callback_url:
+          type: string
+          description: URL for application to receive OAuth callbacks for executing flows such as authorization_code.
+        display_name:
+          type: string
+          description: A name for this client that will be displayed to a user.
+        description:
+          type: string
+          description: A description of this client. Optional.
+
+    NewToken:
+      type: object
+      properties:
+        username:
+          type: string
+          description: The username being authenticated (for password grant).
+        password:
+          type: string
+          description: The password assoicated with the username being authenticated (for password grant).
+        grant_type:
+          type: string
+          description: The OAuth2 grant type being used; either password, authorization_code or refresh_token.
+        redirect_uri:
+          type: string
+          description: The client's redirect URI (for authorization_code grant).
+        code:
+          type: string
+          description: The authorization code associated with the request (for authorization_code grant).
+        refresh_token:
+          type: string
+          description: The refresh token associated with the request (for refresh_token grant).
+
+
+    Client:
+      type: object
+      properties:
+        client_id:
+          type: string
+          description: A unique identifier for the client. Must be unique for the tenant.
+        client_key:
+          type: string
+          description: A secret key for authenticating the client.
+        callback_url:
+          type: string
+          description: URL for application to receive OAuth callbacks for executing flows such as authorization_code.
+        create_time:
+          type: string
+          description: The time the client was created.
+        last_update_time:
+          type: string
+          description: The time the client was last updated.
+        display_name:
+          type: string
+          description: The display name that will represent this client.
+        description:
+          type: string
+          description: A description of this client.
+
+    Token:
+      type: object
+      properties:
+        token:
+          type: string
+          description: A jwt token.
+
+    arrayOfClients:
+      type: array
+      items:
+        $ref: '#/components/schemas/Client'
+
+    Profile:
+      type: object
+      properties:
+        username:
+          type: string
+          description: The username associated with the profile.
+        email:
+          type: string
+          description: The email address associated with the profile.
+        name:
+          type: string
+          description: The full name of the user.
+
+    arrayOfProfiles:
+      type: array
+      items:
+        $ref: '#/components/schemas/Profile'

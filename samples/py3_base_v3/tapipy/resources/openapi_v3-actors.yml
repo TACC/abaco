@@ -1,0 +1,1289 @@
+openapi: "3.0.2"
+
+info:
+  title: "Abaco API"
+  description: "Abaco (Actor Based Containers) is an API and distributed computing platform funded by the National Science Foundation to provide Functions-as-a-service to the research computing community. Abaco leverages Docker containers and the Actor Model of Concurrent Computation to provide generic function primitives that are portable, composable and scalable."
+  version: "1"
+  termsOfService: "https://useabaco.cloud"
+  contact:
+    name: "Abaco API"
+    url: "https://useabaco.cloud"
+    email: "cicsupport@tacc.utexas.edu"
+  license:
+    name: "BSD 3"
+    url: "https://github.com/TACC/abaco"
+
+servers:
+- url: http://localhost:5000
+  description: Local Development
+- url: http://{tenant_id_url}.develop.tapis.io
+  description: Tapis Develop instance
+  variables:
+    tenant_id_url:
+      default: dev
+      description: The tenant_id associated with the request.
+- url: /
+  description: catch-all server definition for other Tapis instances.
+
+security:
+  - wso2jwtDevAuth: []
+  - nonce: []
+
+
+paths:
+  /v3/actors:
+    get:
+      tags:
+      - Actors
+      summary: List actors
+      description: List summary of all actors owned by user
+      operationId: listActors
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of actors returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ArrayOfActors'
+    post:
+      tags:
+      - Actors
+      summary: Register an actor
+      description: Register an actor
+      operationId: createActor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewActor'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Actor'
+
+  /v3/actors/{actor_id}:
+    get:
+      tags:
+      - Actors
+      summary: Get actor details
+      description: Get details of a specific actor by its id.
+      operationId: getActor
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+#                allOf:
+#                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Actor'
+    put:
+      tags:
+      - Actors
+      summary: Update an actor
+      description: Update an actor's definition.
+      operationId: updateActor
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewActor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+#                allOf:
+#                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Actor'
+    delete:
+      tags:
+      - Actors
+      summary: Delete actor
+      description: Permenantly delete an actor.
+      operationId: deleteActor
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+  /v3/actors/{actor_id}/messages:
+    get:
+      tags:
+      - Actors
+      - Messages
+      summary: Get number of pending messages for an actor.
+      description: Get number of pending messages for an actor.
+      operationId: getMessages
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorMessages'
+    post:
+      tags:
+      - Actors
+      - Messages
+      summary: Send a message
+      description: Send an actor a message
+      operationId: sendMessage
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: _abaco_synchronous
+        in: query
+        description: Whether to use a synchronous execution
+        schema:
+          type: string
+          enum: [true, false]
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JSONMessage'
+          application/octet-stream:
+            schema:
+              $ref: '#/components/schemas/BinaryMessage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Message'
+
+      responses:
+        '200':
+          description: Message receieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/MessageJsonResponse'
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/html:
+              schema:
+                type: string
+    delete:
+      tags:
+      - Actors
+      - Messages
+      summary: Delete all pending messages.
+      description: Delete all pending messages actor's inbox.
+      operationId: deletePendingMessages
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+  /v3/actors/{actor_id}/executions:
+    get:
+      tags:
+      - Actors
+      - Executions
+      summary: List executions for an actor.
+      description: List executions for an actor.
+      operationId: listExecutions
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorExecutionSummaries'
+
+
+  /v3/actors/{actor_id}/nonces:
+    get:
+      tags:
+      - Actors
+      - Nonces
+      summary: List nonces for an actor.
+      description: List nonces for an actor.
+      operationId: listNonces
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonces'
+
+    post:
+      tags:
+      - Actors
+      - Nonces
+      summary: Create a nonce for an actor.
+      description: Create a nonce for an actor.
+      operationId: createNonce
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewActorNonce'
+
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonces'
+
+
+  /v3/actors/{actor_id}/nonces/{nonce_id}:
+    get:
+      tags:
+      - Actors
+      - Nonces
+      summary: Get details about a nonce for an actor.
+      description: Get details about a nonce for an actor.
+      operationId: getNonce
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: nonce_id
+        in: path
+        description: Unique ID of the nonce
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonce'
+    delete:
+      tags:
+      - Actors
+      - Nonces
+      summary: Delete a nonce.
+      description: Delete a nonce.
+      operationId: deleteNonce
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: nonce_id
+        in: path
+        description: Unique ID of the nonce
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+  /v3/actors/{actor_id}/state:
+    get:
+      tags:
+      - Actors
+      - State
+      summary: Retrieve the state for an actor.
+      description: List nonces for an actor.
+      operationId: getState
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: object
+                    description: An arbitrary JSON-serializable object.
+
+    post:
+      tags:
+      - Actors
+      - State
+      summary: Update state for an actor.
+      description: Update state for an actor.
+      operationId: updateState
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: An arbitrary JSON-serializable object.
+
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorNonces'
+
+  /v3/actors/{actor_id}/executions/{execution_id}:
+    get:
+      tags:
+      - Actors
+      - Executions
+      summary: Get details about an execution.
+      description: Get details about an execution.
+      operationId: getExecution
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: execution_id
+        in: path
+        description: Unique ID of the execution
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorExecution'
+
+  /v3/actors/{actor_id}/executions/{execution_id}/logs:
+    get:
+      tags:
+      - Actors
+      - Executions
+      summary: Get an execution's logs.
+      description: Get an execution's logs.
+      operationId: getExecutionLogs
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: execution_id
+        in: path
+        description: Unique ID of the execution
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorExecutionLogs'
+
+  /v3/actors/{actor_id}/executions/{execution_id}/results:
+    get:
+      tags:
+      - Actors
+      - Executions
+      summary: Get an execution's result.
+      description: Get an execution's result.
+      operationId: getExecutionResult
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      - name: execution_id
+        in: path
+        description: Unique ID of the execution
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+
+  /v3/actors/{actor_id}/permissions:
+    get:
+      tags:
+      - Actors
+      - Permissions
+      summary: List permissions for an actor.
+      description: List permissions for an actor.
+      operationId: listPermissions
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorPermissions'
+    post:
+      tags:
+      - Actors
+      - Permissions
+      summary: Add or update permissions for an actor.
+      description: Add or update permissions for an actor.
+      operationId: updatePermissions
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActorPermission'
+
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ActorPermissions'
+
+
+  /v3/actors/{actor_id}/workers:
+    get:
+      tags:
+      - Actors
+      - Workers
+      summary: List workers for an actor.
+      description: List workers for an actor.
+      operationId: listWorkers
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorWorkerResponse'
+
+                # allOf:
+                #   - $ref: '#/components/schemas/BasicResponse'
+                # properties:
+                #   result:
+                #     $ref: '#/components/schemas/ActorWorkers'
+    post:
+      tags:
+      - Actors
+      - Workers
+      summary: Manage number of workers in actor's worker pool
+      description: Manage number of workers in actor's worker pool. Pool size will not decrease as a result of this action.
+      operationId: manageWorkerPoolSize
+      parameters:
+      - name: actor_id
+        in: path
+        description: Unique ID of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                num:
+                  type: integer
+                  description: Ensures the size of the pool is at least this number.
+
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/MessageJsonResponse'
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/html:
+              schema:
+                type: string
+
+  /v3/actors/aliases:
+    get:
+      tags:
+      - Actors
+      - Aliases
+      summary: List actor aliases
+      description: List all actor aliases available to user
+      operationId: listAliases
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of actors returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ArrayOfAliases'
+    post:
+      tags:
+      - Actors
+      - Aliases
+      summary: Register an alias
+      description: Register an actor alias
+      operationId: createAlias
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewAlias'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Alias'
+
+  /v3/actors/aliases/{alias}:
+    get:
+      tags:
+      - Actors
+      - Aliases
+      summary: Get alias details
+      description: Get details of a specific actor alias.
+      operationId: getAlias
+      parameters:
+      - name: alias
+        in: path
+        description: Unique alias of the actor
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Alias'
+    put:
+      tags:
+      - Actors
+      - Aliases
+      summary: Update an actor alias
+      description: Update an alias definition.
+      operationId: updateActorAlias
+      parameters:
+      - name: alias
+        in: path
+        description: Unique alias of the actor
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewAlias'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Alias'
+    delete:
+      tags:
+      - Actors
+      - Aliases
+      summary: Delete actor alias
+      description: Permenantly delete an actor alias.
+      operationId: deleteAlias
+      parameters:
+      - name: alias
+        in: path
+        description: Unique alias of the actor
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+components:
+  securitySchemes:
+    wso2jwtDevAuth:
+      type: apiKey
+      in: header
+      name: X-JWT-Assertion-DEV
+    nonce:
+      type: apiKey
+      in: query
+      name: x-nonce
+
+  schemas:
+    BasicResponse:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Version of the API
+        message:
+          type: string
+          description: Brief description of the response
+        status:
+          type: string
+          description: Whether the request was a success or failure.
+          enum: [success, failure]
+
+    ActorWorkerResponse:
+      # allOf:
+      #   - $ref: '#/components/schemas/BasicResponse'
+      type: object
+      properties:
+        version:
+          type: string
+          description: Version of the API
+        message:
+          type: string
+          description: Brief description of the response
+        status:
+          type: string
+          description: Whether the request was a success or failure.
+          enum: [success, failure]
+        result:
+          $ref: '#/components/schemas/ArrayOfActorWorkers'
+
+    ArrayOfActorWorkers:
+      type: array
+      items:
+        $ref: '#/components/schemas/ActorWorker'
+
+
+    ActorWorker:
+      type: object
+      properties:
+        chName:
+          type: string
+          description: Identifier for the worker channel; used to send management commands to the worker.
+        cid:
+          type: string
+          description: The container id for the worker.
+        createTime:
+          type: string
+          description: The time (UTC) the worker was created.
+        id:
+          type: string
+          description: unique id for the worker.
+        image:
+          type: string
+          description: The docker image for the actor assigned to the worker.
+        lastExecutionTime:
+          type: string
+          description: The last ime (UTC) the worker started an execution.
+        lastHealthCheckTime:
+          type: string
+          description: The last ime (UTC) the worker responded to a health check.
+        location:
+          type: string
+          description: The location of the docker daemon used by this worker.
+        status:
+          type: string
+          enum: [REQUESTED, SPAWNER SETUP, PULLING IMAGE, CREATING CONTAINER, UPDATING STORE, READY, BUSY, ERROR]
+          description: Status of the worker.
+        tenant:
+          type: string
+          description: tenant assoicated with the worker.
+
+    NewActor:
+      type: object
+      properties:
+        image:
+          type: string
+          description: The Docker image associated with the actor.
+        token:
+          type: boolean
+          description: Whether this actor requires an OAuth token.
+          default: False
+        defaultEnvironment:
+          type: object
+          description: The default environment variables and values for the actor.
+        description:
+          type: string
+          description: User provided description of the actor.
+        privileged:
+          type: boolean
+          description: Whether the actor runs in privileged mode (requires admin role).
+          default: False
+        queue:
+          type: string
+          description: The command channel that this actor uses.
+          nullable: true
+          default: null
+        stateless:
+          type: boolean
+          description: Whether the actor stores private state between executions.
+          default: True
+        link:
+          type: string
+          description: Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.
+          nullable: true
+          default: null
+      required: [image]
+
+    Actor:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The unique identifier of the actor.
+        createTime:
+          type: string
+          description: Time (in UTC) the actor was created.
+        image:
+          type: string
+          description: The Docker image associated with the actor.
+        defaultEnvironment:
+          type: object
+          description: The default environment variables and values for the actor.
+        description:
+          type: string
+          description: User provided description of the actor.
+        lastUpdateTime:
+          type: string
+          description: Time (in UTC) the actor was last updated.
+        link:
+          type: string
+          description: Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.
+        mounts:
+          $ref: '#/components/schemas/ArrayOfActorMounts'
+        owner:
+          type: string
+          description: The user who created this actor.
+        privileged:
+          type: boolean
+          description: Whether the actor runs in privileged mode.
+        queue:
+          type: string
+          description: The command channel that this actor uses.
+        state:
+          type: object
+          description: Current state for the actor.
+        stateless:
+          type: boolean
+          description: Whether the actor stores private state between executions.
+        token:
+          type: boolean
+          description: Whether this actor requires an OAuth token.
+        status:
+          type: string
+          description: Current status of the actor.
+        statusMessage:
+          type: string
+          description: Explanation of status.
+        type:
+          type: string
+          description: Return type (none, bin, json) for this actor. Default is none.
+          enum: [none, bin, json]
+
+    ArrayOfActors:
+      type: array
+      items:
+        $ref: '#/components/schemas/Actor'
+
+    ActorMount:
+      type: object
+      properties:
+        container_path:
+          type: string
+          description: Path within the actor container for the mount.
+        host_path:
+          type: string
+          description: Path on the Abaco compute node for the mount.
+        mode:
+          type: string
+          enum: [ro, rw]
+          description: Mode for the mount (ro for read-only, rw for read-write).
+
+    ArrayOfActorMounts:
+      type: array
+      items:
+        $ref: '#/components/schemas/ActorMount'
+
+    Alias:
+      type: object
+      properties:
+        alias:
+          type: string
+          description: Actual alias for the actor; must be unique within a tenant.
+        actorId:
+          type: string
+          description: The id for the actor associated with this alias.
+        owner:
+          type: string
+          description: The username of the owner of the alias.
+
+
+    ActorMessages:
+      type: object
+      properties:
+        messages:
+          type: integer
+
+    ArrayOfAliases:
+      type: array
+      items:
+        $ref: '#/components/schemas/Alias'
+
+    NewAlias:
+      type: object
+      properties:
+        alias:
+          type: string
+          description: Actual alias for the actor; must be unique within a tenant.
+        actorId:
+          type: string
+          description: The id for the actor associated with this alias.
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Text string message to send to actor
+
+    JSONMessage:
+      type: object
+      properties:
+        message:
+          type: object
+          description: a JSON object
+
+    BinaryMessage:
+      type: object
+      properties:
+        message:
+          type: string
+          format: binary
+          description: A binary object
+
+    MessageJsonResponse:
+      type: object
+      properties:
+        executionId:
+          type: string
+          description: the id of the resulting execution.
+
+    ActorExecutionSummaries:
+      type: object
+      properties:
+        actorId:
+          type: string
+          description: the id of the actor
+        apiServer:
+          type: string
+          description: the base URL for this Abaco instance.
+        owner:
+          type: string
+          description: The user who owns the associated actor.
+        totalCpu:
+          type: integer
+        totalExecutions:
+          type: integer
+        totalIo:
+          type: integer
+        totalRuntime:
+          type: integer
+        executions:
+          $ref: '#/components/schemas/ArrayOfExecutionSummaries'
+
+    ExecutionSummary:
+      type: object
+      properties:
+        finish_time:
+          type: string
+          description: the time the execution finished.
+        id:
+          type: string
+          description: the id of the executions
+        start_time:
+          type: string
+          description: the time the execution started.
+        status:
+          type: string
+          enum: [SUBMITTED, RUNNING, COMPLETE]
+          description: the status of the execution.
+        message_received_time:
+          type: string
+          description: the time the message was originally received by Abaco.
+
+    ArrayOfExecutionSummaries:
+      type: array
+      items:
+        $ref: '#/components/schemas/ExecutionSummary'
+
+    ActorExecution:
+      type: object
+      properties:
+        actorId:
+          type: string
+          description: the id of the actor
+        apiServer:
+          type: string
+          description: the base URL for this Abaco instance.
+        owner:
+          type: string
+          description: The user who owns the associated actor.
+        cpu:
+          type: integer
+        id:
+          type: string
+          description: the id of the executions
+        startTime:
+          type: string
+          description: the time the execution started.
+        status:
+          type: string
+          enum: [SUBMITTED, RUNNING, COMPLETE]
+          description: the status of the execution.
+        messageReceivedTime:
+          type: string
+          description: the time the message was originally received by Abaco.
+        io:
+          type: integer
+        runtime:
+          type: integer
+        workerId:
+          type: string
+          description: the id of the Abaco worker that supervised the execution.
+
+    ActorExecutionLogs:
+      type: object
+      properties:
+        logs:
+          type: string
+          description: The (Docker) logs, typically standard out, associated with the execution.
+
+    ActorPermissions:
+      # type: array
+      # items:
+      #   $ref: '#/components/schemas/ActorPermission'
+      type: object
+      description: Key-value pairs where the key is the username and the value is the permission level.
+
+    ActorPermission:
+      type: object
+      properties:
+        user:
+          type: string
+          description: The username associated with the permission.
+        level:
+          type: string
+          enum: [READ, EXECUTE, WRITE]
+          description: The level associated with the permission.
+
+
+    ActorNonces:
+      type: array
+      items:
+        $ref: '#/components/schemas/ActorNonce'
+
+    NewActorNonce:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [READ, WRITE, EXECUTE]
+          description: The permission level associated with the nonce.
+        maxUses:
+          type: integer
+          description: Max uses for the nonce; set to -1 for unlimited uses.
+
+    ActorNonce:
+      type: object
+      properties:
+        id:
+          type: string
+          description: the id of the nonce
+        level:
+          type: string
+          enum: [READ, WRITE, EXECUTE]
+          description: The permission level associated with the nonce.
+        maxUses:
+          type: integer
+          description: Max uses for the nonce; set to -1 for unlimited uses.
+        actorId:
+          type: string
+          description: the id of the actor
+        apiServer:
+          type: string
+          description: the base URL for this Abaco instance.
+        owner:
+          type: string
+          description: The user who owns the associated actor.
+        createTime:
+          type: string
+          description: Time (in UTC) the nonce was created.
+        remainingUses:
+          type: integer
+          description: Number of uses remaining for the nonce; set to -1 for unlimited uses.
+        roles:
+          type: array
+          items:
+            type: string
+          description: The roles associated with the nonce.

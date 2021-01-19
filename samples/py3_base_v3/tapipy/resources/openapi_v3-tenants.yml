@@ -1,0 +1,745 @@
+openapi: "3.0.2"
+
+info:
+  title: "Tenants API"
+  description: "Manage Tapis Tenants."
+  version: "1"
+  termsOfService: "https://tapis-project.org"
+  contact:
+    name: "Tenants API"
+    url: "https://tapis-project.org"
+    email: "cicsupport@tacc.utexas.edu"
+  license:
+    name: "BSD 3"
+    url: "https://github.com/tapis-project/tenants-api"
+
+servers:
+- url: http://localhost:5000
+  description: Local Development
+- url: https://dev.develop.tapis.io
+  description: Develop Instance
+
+#security:
+#  - wso2jwtDevAuth: []
+#  - nonce: []
+
+paths:
+  /v3/sites:
+    get:
+      tags:
+        - Sites
+      summary: List sites.
+      description: List sites.
+      operationId: list_sites
+      x-swagger-router-controller: connexContr
+      parameters:
+        - name: limit
+          in: query
+          description: limit the number of records returned.
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          description: index (offset) to start list.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/arrayOfSites'
+    post:
+      tags:
+        - Sites
+      summary: Create a site.
+      description: Create a site.
+      operationId: create_site
+      x-swagger-router-controller: connexContr
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewSite'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Site'
+
+  /v3/sites/{site_id}:
+    get:
+      tags:
+        - Sites
+      summary: Get site details
+      description: Get details of a specific site by its id.
+      operationId: get_site
+      parameters:
+        - name: site_id
+          in: path
+          description: Unique ID of the site
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Site'
+    delete:
+      tags:
+        - Sites
+      summary: Delete a site
+      description: Permenantly delete a site.
+      operationId: delete_site
+      parameters:
+        - name: site_id
+          in: path
+          description: Unique ID of the site
+          required: true
+          schema:
+            type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+  /v3/tenants:
+    get:
+      tags:
+      - Tenants
+      summary: List tenants.
+      description: List tenants.
+      operationId: list_tenants
+      x-swagger-router-controller: connexContr
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of records returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/arrayOfTenants'
+    post:
+      tags:
+      - Tenants
+      summary: Create a tenant.
+      description: Create a tenant.
+      operationId: create_tenant
+      x-swagger-router-controller: connexContr
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewTenant'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Tenant'
+
+  /v3/tenants/{tenant_id}:
+    get:
+      tags:
+      - Tenants
+      summary: Get tenant details
+      description: Get details of a specific tenant by its id.
+      operationId: get_tenant
+      parameters:
+      - name: tenant_id
+        in: path
+        description: Unique ID of the tenant
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Tenant'
+    delete:
+      tags:
+      - Tenants
+      summary: Delete a tenant
+      description: Permenantly delete a tenant.
+      operationId: delete_tenant
+      parameters:
+      - name: tenant_id
+        in: path
+        description: Unique ID of the tenant
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+  /v3/tenants/ldaps:
+    get:
+      tags:
+      - Tenants
+      - Ldaps
+      summary: List ldaps
+      description: List ldaps
+      operationId: list_ldaps
+      x-swagger-router-controller: connexContr
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of records returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/arrayOfLDAPs'
+    post:
+      tags:
+      - Tenants
+      - Ldaps
+      operationId: create_ldap
+      summary: Create an ldap
+      description: Create an ldap
+      x-swagger-router-controller: connexContr
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewLDAP'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/LDAP'
+
+  /v3/tenants/ldaps/{ldap_id}:
+    get:
+      tags:
+      - Tenants
+      - Ldaps
+      summary: Get ldap details
+      description: Get details of a specific ldap by its id.
+      operationId: get_ldap
+      parameters:
+      - name: ldap_id
+        in: path
+        description: Unique ID of the ldap
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/LDAP'
+    delete:
+      tags:
+      - Tenants
+      - Ldaps
+      summary: Delete ldap
+      description: Permenantly delete an ldap.
+      operationId: delete_ldap
+      parameters:
+      - name: ldap_id
+        in: path
+        description: Unique ID of the ldap
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+  /v3/tenants/owners:
+    get:
+      tags:
+      - Tenants
+      - Owners
+      summary: List owners
+      description: List owners
+      operationId: list_owners
+      x-swagger-router-controller: connexContr
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of records returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/arrayOfOwners'
+    post:
+      tags:
+      - Tenants
+      - Owners
+      summary: Create an owner
+      description: Create an owner
+      operationId: create_owner
+      x-swagger-router-controller: connexContr
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Owner'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Owner'
+
+  /v3/tenants/owners/{email}:
+    get:
+      tags:
+      - Tenants
+      - Owners
+      summary: Get owner details
+      description: Get details of a specific owner by its email address.
+      operationId: get_owner
+      parameters:
+      - name: email
+        in: path
+        description: Email address of the owner
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Owner'
+    delete:
+      tags:
+      - Tenants
+      - Owners
+      summary: Delete owner
+      description: Permenantly delete an owner.
+      operationId: delete_owner
+      parameters:
+      - name: email
+        in: path
+        description: Email addres of the owner
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+components:
+  schemas:
+    BasicResponse:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Version of the API
+        message:
+          type: string
+          description: Brief description of the response
+        status:
+          type: string
+          description: Whether the request was a success or failure.
+          enum: [success, error]
+
+    NewLDAP:
+      type: object
+      properties:
+        ldap_id:
+          type: string
+          description: Unique id for the LDAP object.
+        url:
+          type: string
+          description: url to the LDAP
+        port:
+          type: integer
+          description: port for the LDAP
+        use_ssl:
+          type: boolean
+          description: Whether to use SSL with the LDAP
+        user_dn:
+          type: string
+          description: base DN for users
+        bind_dn:
+          type: string
+          description: DN used for binding to the LDAP.
+        bind_credential:
+          type: string
+          description: Pointed to a Tapis credential for binding to the LDAP.
+        account_type:
+          type: string
+          description: Whether this LDAP is used for service accounts or user accounts.
+          enum: [service, user]
+      required: [ldap_id, url, port, use_ssl, user_dn, bind_dn, bind_credential, account_type]
+
+
+    LDAP:
+      type: object
+      properties:
+        ldap_id:
+          type: string
+          description: Unique id for the LDAP object.
+        url:
+          type: string
+          description: url to the LDAP
+        port:
+          type: integer
+          description: port for the LDAP
+        use_ssl:
+          type: boolean
+          description: Whether to use SSL with the LDAP
+        user_dn:
+          type: string
+          description: base DN for users
+        bind_dn:
+          type: string
+          description: DN used for binding to the LDAP.
+        bind_credential:
+          type: string
+          description: Pointed to a Tapis credential for binding to the LDAP.
+        account_type:
+          type: string
+          description: Whether this LDAP is used for service accounts or user accounts.
+          enum: [service, user]
+        create_time:
+          type: string
+          description: The time the client was created.
+        last_update_time:
+          type: string
+          description: The time the client was last updated.
+
+    arrayOfLDAPs:
+      type: array
+      items:
+        $ref: '#/components/schemas/LDAP'
+
+    NewTenant:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          pattern: "^[a-zA-Z0-9-]*$"
+          description: The unique identifier for the tenant.
+        base_url:
+          type: string
+          description: The base URL for the tenant.
+        site_id:
+          type: string
+          description: The site for which the tenant belongs.
+        token_service:
+          type: string
+          description: The resolvable location of the token service for the tenant.
+        security_kernel:
+          type: string
+          description: The resolvable location of the security kernel for the tenant.
+        authenticator:
+          type: string
+          description: The resolvable location of the authenticator for the tenant.
+        owner:
+          type: string
+          description: The email address of the primary owner and contact for the tenant.
+        admin_user:
+          type: string
+          description: The username of the user that is automatically assigned the tenant_admin role by the Security Kernel.
+        token_gen_services:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-zA-Z0-9-]*$"
+          description: The list of services that are automatically granted the token_generator role for this tenant by the Security Kernel.
+        service_ldap_connection_id:
+          type: string
+          description: The unique identifier for the LDAP object for service accounts in the tenant.
+        user_ldap_connection_id:
+          type: string
+          description: The unique identifier for the LDAP object for user accounts in the tenant.
+        description:
+          type: string
+          description: A description of the tenant.
+      required: [tenant_id, base_url, site_id, token_service, security_kernel, authenticator, owner, admin_user, token_gen_services]
+
+    Tenant:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          pattern: (\w)*
+          description: The unique identifier for the tenant.
+        base_url:
+          type: string
+          description: The base URL for the tenant.
+        is_owned_by_associate_site:
+          type: boolean
+          description: Whether the tenant is hosted by an associate site.
+        site_id:
+          type: string
+          description: The site for which the tenant belongs.
+        token_service:
+          type: string
+          description: The resolvable location of the token service for the tenant.
+        security_kernel:
+          type: string
+          description: The resolvable location of the security kernel for the tenant.
+        authenticator:
+          type: string
+          description: The resolvable location of the authenticator for the tenant.
+        owner:
+          type: string
+          description: The email address of the primary owner and contact for the tenant.
+        admin_user:
+          type: string
+          description: The username of the user that is automatically assigned the tenant_admin role by the Security Kernel.
+        token_gen_services:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-zA-Z0-9-]*$"
+          description: The list of services that are automatically granted the token_generator role for this tenant by the Security Kernel.
+        service_ldap_connection_id:
+          type: string
+          description: The unique identifier for the LDAP object for service accounts in the tenant.
+        user_ldap_connection_id:
+          type: string
+          description: The unique identifier for the LDAP object for user accounts in the tenant.
+        public_key:
+          type: string
+          description: The public key that should be used to validate the signatures of JWTs associated with the tenant.
+        description:
+          type: string
+          description: A description of the tenant.
+        create_time:
+          type: string
+          description: The time the client was created.
+        last_update_time:
+          type: string
+          description: The time the client was last updated.
+      required: [tenant_id, base_url, is_owned_by_associate_site, site_id, token_service, security_kernel, authenticator, owner]
+
+    arrayOfTenants:
+      type: array
+      items:
+        $ref: '#/components/schemas/Tenant'
+
+    NewSite:
+      type: object
+      properties:
+        site_id:
+          type: string
+          description: The unique identifier for the site.
+        base_url:
+          type: string
+          description: The base URL for the site.
+        primary:
+          type: boolean
+          description: Whether the site is the primary site.
+        services:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-zA-Z0-9-]*$"
+          description: The list of services for this site.
+        tenant_base_url_template:
+          type: string
+          description: For primary site only; The template string represening the base URL for a tenant.
+        site_admin_tenant_id:
+          type: string
+          description: Tenant ID of this site's tenant.
+      required: [site_id, base_url, primary, services, site_admin_tenant_id]
+
+    Site:
+      type: object
+      properties:
+        site_id:
+          type: string
+          pattern: (\w)*
+          description: The unique identifier for the site.
+        base_url:
+          type: string
+          description: The base URL for the site.
+        primary:
+          type: boolean
+          description: Whether the site is the primary site.
+        services:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-zA-Z0-9-]*$"
+          description: The list of services for this site.
+        tenant_base_url_template:
+          type: string
+          description: The tenant base url template.
+        site_admin_tenant_id:
+          type: string
+          description: Tenant ID of this site's tenant.
+      required: [site_id, services, site_admin_tenant_id]
+
+    arrayOfSites:
+      type: array
+      items:
+        $ref: '#/components/schemas/Site'
+
+
+    Owner:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Full name of the owner.
+        email:
+          type: string
+          description: Email address for the owner.
+        institution:
+          type: string
+          description: The owner's institution.
+        create_time:
+          type: string
+          description: The time the client was created.
+        last_update_time:
+          type: string
+          description: The time the client was last updated.
+      required: [name, email, institution]
+
+    arrayOfOwners:
+      type: array
+      items:
+        $ref: '#/components/schemas/Owner'
