@@ -258,6 +258,7 @@ def run_container_with_docker(image,
 
 
 def run_worker(image,
+               revision,
                actor_id,
                worker_id,
                tenant,
@@ -270,6 +271,8 @@ def run_worker(image,
     command = 'python3 -u /actors/worker.py'
     logger.debug("docker_utils running worker. image:{}, command:{}".format(
         image, command))
+    logger.debug(f"docker_utils running worker. actor_id: {actor_id}; worker_id: {worker_id}; image:{image}, "
+                 f"revision: {revision}; command:{command}")
 
     mounts = []
     # mount the directory on the host for creating fifos
@@ -295,6 +298,7 @@ def run_worker(image,
         command=command,
         environment={
             'image': image,
+            'revision': revision,
             'worker_id': worker_id,
             'abaco_host_path': os.environ.get('abaco_host_path'),
             '_abaco_secret': os.environ.get('_abaco_secret')},

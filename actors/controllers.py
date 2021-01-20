@@ -865,6 +865,7 @@ class ActorResource(Resource):
         previous_image = actor.image
         previous_status = actor.status
         previous_owner = actor.owner
+        previous_revision = actor.revision
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant_id
@@ -880,9 +881,11 @@ class ActorResource(Resource):
             logger.debug("new image is the same and force was false. not updating actor.")
             logger.debug("Setting status to the actor's previous status which is: {}".format(previous_status))
             args['status'] = previous_status
+            args['revision'] = previous_revision
         else:
             update_image = True
             args['status'] = SUBMITTED
+            args['revision'] = previous_revision + 1
             logger.debug("new image is different. updating actor.")
         args['api_server'] = g.api_server
 
@@ -923,7 +926,12 @@ class ActorResource(Resource):
             # get actor queue name
             ch = CommandChannel(name=actor.queue)
             # stop_existing defaults to True, so this command will also stop existing workers:
-            ch.put_cmd(actor_id=actor.db_id, worker_id=worker_id, image=actor.image, tenant=args['tenant'], site_id=site())
+            ch.put_cmd(actor_id=actor.db_id,
+                       worker_id=worker_id,
+                       image=actor.image,
+                       revision=actor.revision,
+                       tenant=args['tenant'],
+                       site_id=site())
             ch.close()
             logger.debug("put new command on command channel to update actor.")
         # put could have been issued by a user with
@@ -1354,7 +1362,7 @@ class MessagesResource(Resource):
         synchronous = False
         dbid = g.db_id
         try:
-            Actor.from_db(actors_store[site()][dbid])
+            actor = Actor.from_db(actors_store[site()][dbid])
         except KeyError:
             logger.debug("did not find actor: {}.".format(actor_id))
             raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
@@ -1383,7 +1391,7 @@ class MessagesResource(Resource):
         logger.debug("extra fields added to message from query parameters: {}.".format(d))
         if synchronous:
             # actor mailbox length must be 0 to perform a synchronous execution
-            ch = ActorMsgChannel(actor_id=id)
+            ch = ActorMsgChannel(actor_id=actor_id)
             box_len = len(ch._queue._queue)
             ch.close()
             if box_len > 3:
@@ -1405,6 +1413,7 @@ class MessagesResource(Resource):
         logger.info("Execution {} added for actor {}".format(exc, actor_id))
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
+        d['_abaco_actor_revision'] = actor.revision
         logger.debug("Final message dictionary: {}".format(d))
         before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
@@ -1585,6 +1594,7 @@ class WorkersResource(Resource):
                 ch.put_cmd(actor_id=actor.db_id,
                            worker_id=worker_id,
                            image=actor.image,
+                           revision=actor.revision,
                            tenant=g.tenant_id,
                            site_id=site(),
                            stop_existing=False)

@@ -173,6 +173,7 @@ def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
 def subscribe(tenant,
               actor_id,
               image,
+              revision,
               worker_id,
               api_server,
               worker_ch):
@@ -273,6 +274,21 @@ def subscribe(tenant,
             msg_obj.nack(requeue=True)
             logger.info("worker exiting. worker_id: {}".format(worker_id))
             raise e
+
+        # if the actor revision is different from the revision assigned to this worker, the worker is stale, so we
+        # need to nack this message and exit.
+        # NOTE: we could also compare the worker's revision to the revision contained in the message itself so that
+        # a given message was always processed by a worker of the same revision, but this would take more work and is
+        # not the requirement.
+        if not revision == actor.revision:
+            logger.info(f"got msg from get_one() but worker's revision ({revision}) was different "
+                        f"from actor.revision ({actor.revision}). Requeing message and worker will "
+                        f"exit. {actor_id}+{worker_id}")
+            msg_obj.nack(requeue=True)
+            logger.info("message requeued; worker exiting:{}_{}".format(actor_id, worker_id))
+            time.sleep(5)
+            raise Exception()
+
 
         # for results, create a socket in the configured directory.
         # Paths should be formatted as host_path:container_path for split
@@ -483,11 +499,17 @@ def main():
     worker_id = os.environ.get('worker_id')
     image = os.environ.get('image')
     actor_id = os.environ.get('actor_id')
+    revision = os.environ.get('revision')
+    try:
+        revision = int(revision)
+    except ValueError:
+        logger.error(f"worker did not get an integer revision number; got: {revision}; "
+                     f"worker {actor_id}+{worker_id} exiting.")
+        sys.exit()
 
     tenant = os.environ.get('tenant', None)
     api_server = os.environ.get('api_server', None)
-
-    logger.info(f"Top of main() for worker: {worker_id}, image: {image}; "
+    logger.info(f"Top of main() for worker: {worker_id}, image: {image}; revision: {revision};"
                 f"actor_id: {actor_id}; tenant: {tenant}; api_server: {api_server}")
     spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
 
@@ -505,6 +527,7 @@ def main():
     subscribe(tenant,
               actor_id,
               image,
+              revision,
               worker_id,
               api_server,
               worker_ch)

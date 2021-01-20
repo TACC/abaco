@@ -132,6 +132,7 @@ class Spawner(object):
             return
         worker_id = cmd['worker_id']
         image = cmd['image']
+        revision = cmd['revision']
         tenant = cmd['tenant']
         stop_existing = cmd.get('stop_existing', True)
         num_workers = 1
@@ -192,6 +193,7 @@ class Spawner(object):
         try:
             worker = self.start_worker(
                 image,
+                revision,
                 tenant,
                 actor_id,
                 worker_id,
@@ -216,6 +218,7 @@ class Spawner(object):
 
     def start_worker(self,
                      image,
+                     revision,
                      tenant,
                      actor_id,
                      worker_id,
@@ -247,6 +250,7 @@ class Spawner(object):
                 logger.debug('spawner creating worker container')
                 worker_dict = run_worker(
                     image,
+                    revision,
                     actor_id,
                     worker_id,
                     tenant,

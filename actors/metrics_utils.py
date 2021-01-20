@@ -157,6 +157,7 @@ def scale_up(actor_id):
         ch.put_cmd(actor_id=actor.db_id,
                    worker_id=worker_id,
                    image=actor.image,
+                   revision=actor.revision,
                    tenant=tenant,
                    site_id=site(),
                    stop_existing=False)

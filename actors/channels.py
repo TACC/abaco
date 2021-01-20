@@ -65,11 +65,12 @@ class CommandChannel(Channel):
                          connection_type=RabbitConnection,
                          uri=self.uri)
 
-    def put_cmd(self, actor_id, worker_id, image, tenant, site_id, stop_existing=True):
+    def put_cmd(self, actor_id, worker_id, image, revision, tenant, site_id, stop_existing=True):
         """Put a new command on the command channel."""
         msg = {'actor_id': actor_id,
                'worker_id': worker_id,
                'image': image,
+               'revision': revision,
                'tenant': tenant,
                'site_id': site_id,
                'stop_existing': stop_existing}
