@@ -127,12 +127,14 @@ def wait_for_rabbit():
 
     # We poll to check rabbitmq is operational. Done by trying to list vhosts, arbitrary command.
     # Exit code 0 means rabbitmq is running. Need access to rabbitmq dash/management panel.
-    while True:
+    i = 5
+    while i:
         result = subprocess.run(fn_call + f'list vhosts', shell=True)
         if result.returncode == 0:
             break
         else:
             time.sleep(3)
+        i -= 1
     time.sleep(7)
 
 def get_tenant():
