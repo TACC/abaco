@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file.
 
 
+## 1.8.0 -- 2021-01-25
+### Added
+- Each actor now has a ``revision`` number property, a monotonically increasing integer that updates every time the
+actor's image is updated (including updates with ``force=True``). Workers are also started with the current revision 
+  number and stop processing messages once their revision number is less than the actor's current revision. 
+
+### Changed
+- The autoscaler algorithm has been updated to be more resilient to runtime exceptions and other issues.
+- A bug has been fixed that caused the status of an execution to remain in RUNNING state even after the actor was put
+in ERROR state.
+- A bug has been fixed that prevented the actor's mailbox queue in RabbitMQ from being deleted when the actor is deleted.
+- The channels module has been modified to make more use of the BasicTaskQueue class to decrease the RabbitMQ footprint
+of the system. Additionally, we have improved some handling of queues by more aggressively deleting them. 
+
+
 ## 1.7.0 - 2020-11-10
 ### Added
 - Added support for a cron scheduling feature for actors. The cron schedule feature allows users to 
