@@ -16,7 +16,7 @@ from channels import ExecutionResultsChannel
 from common.config import conf
 from codes import BUSY, READY, RUNNING
 import globals
-from models import Execution, get_current_utc_time, display_time, site
+from models import Actor, Execution, get_current_utc_time, display_time, site
 from stores import workers_store
 
 
@@ -562,6 +562,7 @@ def execute_actor(actor_id,
     # a counter of the number of iterations through the main "running" loop;
     # this counter is used to determine when less frequent actions, such as log aggregation, need to run.
     loop_idx = 0
+    log_ex = Actor.get_actor_log_ttl(actor_id)
     while running and not globals.force_quit:
         loop_idx += 1
         logger.debug("top of while running loop; loop_idx: {}".format(loop_idx))
@@ -622,7 +623,7 @@ def execute_actor(actor_id,
         # grab the logs every 5th iteration --
         if loop_idx % 5 == 0:
             logs = cli.logs(container.get('Id'))
-            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id)
+            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id, log_ex)
             logs = None
 
         # checking the container status to see if it is still running ----

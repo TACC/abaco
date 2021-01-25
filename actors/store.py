@@ -1,6 +1,6 @@
 
 import collections
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 import urllib.parse
@@ -245,7 +245,7 @@ class MongoStore(AbstractStore):
             except KeyError:
                 raise KeyError(f"Subscript of {subscripts} does not exist in document of '_id' {key}")
 
-    def set_with_expiry(self, fields, value):
+    def set_with_expiry(self, fields, value, log_ex):
         """
         Atomically:
         Sets 'self[key] = value' or 'self[key][field1][field2][...] = value'
@@ -253,16 +253,18 @@ class MongoStore(AbstractStore):
         Note: MongoDB TTL checks every 60 secs to delete files
         """
         key, dots, _ = self._process_inputs(fields)
+        time_to_expire = datetime.utcnow() + timedelta(seconds=log_ex)
+        logger.debug(f"Set with expiry setting time to expire to : {time_to_expire} ")
         if len(fields) == 1 and isinstance(value, dict):
             result = self._db.update_one(
                 filter={'_id': key},
-                update={'$set': {'exp': datetime.utcnow()},
+                update={'$set': {'exp': time_to_expire},
                         '$set': value},
                 upsert=True)
         else:
             result = self._db.update_one(
                 filter={'_id': key},
-                update={'$set': {'exp': datetime.utcnow(), dots: self._prepset(value)}},
+                update={'$set': {'exp': time_to_expire, dots: self._prepset(value)}},
                 upsert=True)
 
     def full_update(self, key, value, upsert=False):
@@ -280,7 +282,7 @@ class MongoStore(AbstractStore):
             filter={'_id': key, dots: {'$exists': True}},
             update={'$set': {dots: value}})
         if result == None:
-            raise KeyError(f"1Subscript of {subscripts} does not exist in document of '_id' {key}")   
+            raise KeyError(f"Subscript of {subscripts} does not exist in document of '_id' {key}")   
         try:
             if len(fields) == 1:
                 return eval(f"result['{key}']")

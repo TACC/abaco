@@ -366,8 +366,8 @@ def subscribe(tenant,
 
         # Creating token oauth2 token to be injected as environment variable for actor
         # execution so that user can use it to authenticate to Tapis.
-        tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
-        generate_clients = tenant_auth_object.get("generate_clients") or conf.global_auth_object.get('generate_clients')
+        tenant_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
+        generate_clients = tenant_tenant_object.get("generate_clients") or conf.global_tenant_object.get('generate_clients')
         logger.debug(f"final generate_clients: {generate_clients}")
         logger.debug(actor)
         if generate_clients:
@@ -448,8 +448,11 @@ def subscribe(tenant,
 
         # Add the logs to the execution
         try:
-            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id)
-            logger.debug("Successfully added execution logs.")
+            logger.debug("Checking for get_actor_log_ttl")
+            log_ex = Actor.get_actor_log_ttl(actor_id)
+            logger.debug(f"log ex is {log_ex}")
+            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id, log_ex)
+            logger.debug(f"Successfully added execution logs of expiry {log_ex}.")
         except Exception as e:
             msg = "Got exception trying to set logs for exception {}; " \
                   "Exception: {}; worker_id: {}".format(execution_id, e, worker_id)
@@ -481,7 +484,7 @@ def get_container_user(actor):
     gid = actor.get('gid')
     logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
     if not uid:
-        if conf.global_auth_object.get("use_tas_uid") and not actor.get('use_container_uid'):
+        if conf.global_tenant_object.get("use_tas_uid") and not actor.get('use_container_uid'):
             logger.warn('Warning - legacy actor running as image UID without use_container_uid!')
         user = None
     elif not gid:

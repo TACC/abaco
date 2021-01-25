@@ -365,7 +365,7 @@ def check_privileged():
 
     # when using the UID associated with the user in TAS, admins can still register actors
     # to use the UID built in the container using the use_container_uid flag:
-    if conf.global_auth_object.get('use_tas_uid'):
+    if conf.global_tenant_object.get('use_tas_uid'):
         if data.get('use_container_uid') or data.get('useContainerUid'):
             logger.debug("User is trying to use_container_uid")
             # if we're here, user isn't an admin so must have privileged role:
@@ -589,8 +589,8 @@ def get_token_default():
     Returns the default token attribute based on the tenant and instance configs.
     """
 
-    tenant_auth_object = conf.get(f"{g.tenant_id}_auth_object") or {}
-    default_token = tenant_auth_object.get("default_token") or conf.global_auth_object.get("default_token")
+    tenant_tenant_object = conf.get(f"{g.tenant_id}_tenant_object") or {}
+    default_token = tenant_tenant_object.get("default_token") or conf.global_tenant_object.get("default_token")
     logger.debug(f"got default_token: {default_token}. Either for {g.tenant_id} or global.")
     ## We have to stringify the boolean as it's listed with results and it would require a database change.
     if default_token:
@@ -607,29 +607,29 @@ def get_uid_gid_homedir(actor, user, tenant):
     :param tenant:
     :return:
     """
-    tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
+    tenant_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
     # first, check for tas usage for tenant or globally:
-    use_tas = tenant_auth_object or False
+    use_tas = tenant_tenant_object or False
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # next, look for a tenant-specific uid and gid:
-    uid = tenant_auth_object.get("actor_uid") or None
-    gid = tenant_auth_object.get("actor_gid") or None
+    uid = tenant_tenant_object.get("actor_uid") or None
+    gid = tenant_tenant_object.get("actor_gid") or None
     if uid and gid:
-        home_dir = tenant_auth_object.get("actor_homedir") or None
+        home_dir = tenant_tenant_object.get("actor_homedir") or None
         return uid, gid, home_dir
 
     # next, look for a global use_tas config
-    use_tas = conf.global_auth_object.get("use_tas_uid") or False
+    use_tas = conf.global_tenant_object.get("use_tas_uid") or False
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # finally, look for a global uid and gid:
-    uid = conf.global_auth_object.get("actor_uid") or None
-    gid = conf.global_auth_object.get("actor_gid") or None
+    uid = conf.global_tenant_object.get("actor_uid") or None
+    gid = conf.global_tenant_object.get("actor_gid") or None
     if uid and gid:
-        home_dir = conf.global_auth_object.get("actor_homedir") or None
+        home_dir = conf.global_tenant_object.get("actor_homedir") or None
         return uid, gid, home_dir
 
     # otherwise, run using the uid and gid set in the container

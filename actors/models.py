@@ -769,6 +769,7 @@ class Actor(AbacoDAO):
         ('queue', 'optional', 'queue', str, 'The command channel that this actor uses.', 'default'),
         ('db_id', 'derived', 'db_id', str, 'Primary key in the database for this actor.', None),
         ('id', 'derived', 'id', str, 'Human readable id for this actor.', None),
+        ('log_ex', 'optional', 'log_ex', int, 'Amount of time after which logs will expire', None)
         ]
 
     SYNC_HINT = 'sync'
@@ -891,6 +892,47 @@ class Actor(AbacoDAO):
             return None
 
     @classmethod
+    def get_actor_log_ttl(cls, actor_id):
+        """
+        Returns the log time to live, looking at both the config file and logEx if passed
+        Find the proper log expiry time, checking user log_ex, tenant, and global.
+        """
+        logger.debug("In get_actor_log_ttl")
+        actor = Actor.from_db(actors_store[site()][actor_id])
+        tenant = actor['tenant']
+        # Gets the log_ex variables from the config.
+        # Get user_log_ex
+        user_log_ex = actor['log_ex']
+        # Get tenant_log_ex and tenant limit
+        tenant_obj = conf.get(f'{tenant}_tenant_object')
+        if tenant_obj:
+            tenant_log_ex = tenant_obj.get('log_ex')
+            tenant_log_ex_limit = tenant_obj.get('log_ex_limit')
+        # Get global_log_ex and global limit
+        global_obj = conf.get('global_tenant_object')
+        if global_obj:
+            global_log_ex = global_obj.get('log_ex')
+            global_log_ex_limit = global_obj.get('log_ex_limit')
+
+        # Inspect vars to check they're within set bounds.
+        if not user_log_ex:
+            # Try to set tenant log_ex if it exists, default to global.
+            log_ex = tenant_log_ex or global_log_ex
+        else:
+            # Restrict user_log_ex based on tenant or global config limit
+            if tenant_log_ex_limit and user_log_ex > tenant_log_ex_limit:
+                #raise DAOError(f"{user_log_ex} is larger than max tenant expiration {tenant_log_ex_limit}, will be set to this expiration")
+                log_ex = tenant_log_ex_limit
+            elif global_log_ex_limit and user_log_ex > global_log_ex_limit:
+                #raise DAOError(f"{user_log_ex} is larger than max global expiration {global_log_ex_limit}, will be set to this expiration")
+                log_ex = global_log_ex_limit
+            else:
+                log_ex = user_log_ex
+
+        logger.debug(f"log_ex will be set to {log_ex}")
+        return log_ex
+
+    @classmethod
     def get_dbid(cls, tenant, id):
         """Return the key used in mongo from the "display_id" and tenant. """
         return str('{}_{}'.format(tenant, id))
@@ -945,7 +987,7 @@ class Alias(AbacoDAO):
 
     # the following nouns cannot be used for an alias as they
     RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin']
-    FORBIDDEN_CHAR = ['.', '\\', ' ', '"', ':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
+    FORBIDDEN_CHAR = ['\\', ' ', '"', ':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
 
 
     @classmethod
@@ -1436,14 +1478,14 @@ class Execution(AbacoDAO):
 
 
     @classmethod
-    def set_logs(cls, exc_id, logs, actor_id, tenant, worker_id):
+    def set_logs(cls, exc_id, logs, actor_id, tenant, worker_id, log_ex):
         """
         Set the logs for an execution.
         :param exc_id: the id of the execution (str)
         :param logs: dict describing the logs
         :return:
         """
-        log_ex = conf.web_log_ex
+        log_ex = log_ex or conf.global_tenant_object.get('log_ex')
         try:
             max_log_length = conf.web_max_log_length
         except:
@@ -1461,7 +1503,7 @@ class Execution(AbacoDAO):
         start_timer = timeit.default_timer()
         if log_ex > 0:
             logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
-            logs_store[site()].set_with_expiry([exc_id, 'logs'], logs)
+            logs_store[site()].set_with_expiry([exc_id, 'logs'], logs, log_ex)
         else:
             logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
             logs_store[site()][exc_id, logs] = logs

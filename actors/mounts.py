@@ -65,8 +65,8 @@ def get_global_mounts(actor):
     # first look for a tenant-specific global_mounts config:
     tenant = actor['tenant'].lower()
     
-    tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
-    mount_strs = tenant_auth_object.get("global_mounts") or conf.global_auth_object.get("global_mounts") or None
+    tenant_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
+    mount_strs = tenant_tenant_object.get("global_mounts") or conf.global_tenant_object.get("global_mounts") or None
     if not mount_strs:
         logger.info("No workers.global_mounts config. Skipping.")
     return process_mount_strs(mount_strs, actor)

@@ -966,6 +966,7 @@ def test_2_actors_with_different_queues(headers):
 
 ALIAS_1 = 'jane'
 ALIAS_2 = 'doe'
+ALIAS_3 = 'dots.in.my.name.alias' # Testing to make sure dots are okay in aliases.
 
 
 @pytest.mark.aliastest
@@ -1214,7 +1215,6 @@ def test_owner_can_delete_alias(headers):
     for alias in result:
         assert not alias['alias'] == ALIAS_2
 
-
 @pytest.mark.aliastest
 def test_other_user_can_delete_shared_alias(headers):
     url = '{}/actors/aliases/{}'.format(base_url, ALIAS_1)
@@ -1228,6 +1228,97 @@ def test_other_user_can_delete_shared_alias(headers):
     for alias in result:
         assert not alias['alias'] == ALIAS_1
 
+@pytest.mark.aliastest
+def test_add_alias_with_dots_in_name(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/aliases'.format(base_url)
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    data = {'alias': ALIAS_3,
+            field: actor_id}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['alias'] == ALIAS_3
+    assert result[field] == actor_id
+
+@pytest.mark.aliastest
+def test_list_alias_with_dots_in_name(headers):
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_3)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    field = 'actor_id'
+    if case == 'camel':
+        field = 'actorId'
+    assert field in result
+    assert result[field] == actor_id
+    assert result['alias'] == ALIAS_3
+
+@pytest.mark.aliastest
+def test_get_actor_with_alias_with_dots_in_name(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/{}'.format(base_url, ALIAS_3)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['id'] == actor_id
+
+@pytest.mark.aliastest
+def test_get_actor_messages_with_alias_with_dots_in_name(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/{}/messages'.format(base_url, ALIAS_3)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert actor_id in result['_links']['self']
+    assert 'messages' in result
+
+@pytest.mark.aliastest
+def test_get_actor_executions_with_alias_with_dots_in_name(headers):
+    actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
+    url = '{}/actors/{}/executions'.format(base_url, ALIAS_3)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert actor_id in result['_links']['self']
+    assert 'executions' in result
+
+@pytest.mark.aliastest
+def test_create_unlimited_alias_nonce_with_dots_in_name(headers):
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_3)
+    # passing no data to the POST should use the defaults for a nonce:
+    # unlimited uses and EXECUTE level
+    rsp = requests.post(url, headers=headers)
+    result = basic_response_checks(rsp)
+    check_nonce_fields(result, alias=ALIAS_3, level='EXECUTE', max_uses=-1, current_uses=0, remaining_uses=-1)
+
+@pytest.mark.aliastest
+def test_redeem_unlimited_alias_nonce_with_dots_in_name(headers):
+    # first, get the nonce id:
+    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_3)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    nonce_id = result[0].get('id')
+    # sanity check that alias can be used to get the actor
+    url = '{}/actors/{}'.format(base_url, ALIAS_3)
+    rsp = requests.get(url, headers=headers)
+    basic_response_checks(rsp)
+    # use the nonce-id and the alias to list the actor
+    url = '{}/actors/{}?x-nonce={}'.format(base_url, ALIAS_3, nonce_id)
+    # no JWT header -- we're using the nonce
+    rsp = requests.get(url)
+    basic_response_checks(rsp)
+
+@pytest.mark.aliastest
+def test_owner_can_delete_alias_with_dots_in_name(headers):
+    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_3)
+    rsp = requests.delete(url, headers=headers)
+    result = basic_response_checks(rsp)
+
+    # list aliases and make sure it is gone -
+    url = '{}/actors/aliases'.format(base_url)
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    for alias in result:
+        assert not alias['alias'] == ALIAS_3
 
 # ################
 # nonce API

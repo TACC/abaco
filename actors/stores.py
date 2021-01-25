@@ -170,15 +170,17 @@ def mongo_index_initialization():
     for site in SITE_LIST:
         # Getting site object with parameters for specific site.
         site_object = conf.get(f"{site}_site_object") or {}
-        log_ex = site_object.get('web_log_ex') or conf.global_site_object.get('web_log_ex')
 
-        # Set a particular log expiry if logs are meant to expire.
-        if not log_ex == -1:
-            try:
-                logs_store[site]._db.create_index("exp", expireAfterSeconds=log_ex)
-            except errors.OperationFailure:
-                # this will happen if the index already exists.
-                pass
+        # Sets an expiry variable 'exp'. So whenever a document gets placed with it
+        # the doc expires after 0 seconds. BUT! If exp is set as a Mongo Date, the
+        # Mongo TTL index will wait until that Date and then delete after 0 seconds.
+        # So we can delete at a specific time if we set expireAfterSeconds to 0
+        # and set the time to expire on the 'exp' variable.
+        try:
+            logs_store[site]._db.create_index("exp", expireAfterSeconds=0)
+        except errors.OperationFailure:
+            # this will happen if the index already exists.
+            pass
         
         # Creating wildcard text indexing for full-text mongo search
         logs_store[site].create_index([('$**', TEXT)])

@@ -746,6 +746,17 @@ class ActorsResource(Resource):
         else:
             token = get_token_default()
         args['token'] = token
+         # Checking for 'log_ex' input arg.
+        if conf.web_case == 'camel':
+            if 'logEx' in args and args.get('logEx') is not None:
+                log_ex = int(args.get('logEx'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['logEx'] = log_ex
+        else:
+            if 'log_ex' in args and args.get('log_ex') is not None:
+                log_ex = int(args.get('log_ex'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['log_ex'] = log_ex
         if conf.web_case == 'camel':
             max_workers = args.get('maxWorkers')
             args['max_workers'] = max_workers
@@ -869,6 +880,17 @@ class ActorResource(Resource):
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant_id
+         # Checking for 'log_ex' input arg.
+        if conf.web_case == 'camel':
+            if 'logEx' in args and args.get('logEx') is not None:
+                log_ex = int(args.get('logEx'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['logEx'] = log_ex
+        else:
+            if 'log_ex' in args and args.get('log_ex') is not None:
+                log_ex = int(args.get('log_ex'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['log_ex'] = log_ex
         if args['queue']:
             valid_queues = conf.spawner_host_queues
             if args['queue'] not in valid_queues:
@@ -954,6 +976,7 @@ class ActorResource(Resource):
             actor.pop('max_workers')
             actor.pop('mem_limit')
             actor.pop('max_cpus')
+            actor.pop('log_ex')
 
         # this update overrides all required and optional attributes
         try:
