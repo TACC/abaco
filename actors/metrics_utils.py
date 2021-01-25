@@ -43,7 +43,7 @@ def create_gauges(actor_ids):
         try:
             actor = actors_store[site()][actor_id]
         except KeyError:
-            logger.error("actor {} does not exist.".format(actor_id))
+            logger.error(f"actor {actor_id} does not exist in store; continuing to next actor.")
             continue
 
         # If the actor doesn't have a gauge, add one
@@ -58,6 +58,7 @@ def create_gauges(actor_ids):
             except Exception as e:
                 logger.error("got exception trying to create/instantiate the gauge; "
                              "actor {}; exception: {}".format(actor_id, e))
+                g = None
         else:
             # Otherwise, get this actor's existing gauge
             try:
@@ -65,6 +66,7 @@ def create_gauges(actor_ids):
             except Exception as e:
                 logger.info("got exception trying to instantiate an existing gauge; "
                             "actor: {}: exception:{}".format(actor_id, e))
+                g = None
         # Update this actor's gauge to its current # of messages
         try:
             ch = ActorMsgChannel(actor_id=actor_id)
@@ -76,7 +78,13 @@ def create_gauges(actor_ids):
         result = {'messages': msg_length}
         # add the actor's current message queue length to the inbox_lengths in-memory variable
         inbox_lengths[actor_id] = msg_length
-        g.set(result['messages'])
+        # if we were able to create the gauge, set it to the current message:
+        if g:
+            try:
+                g.set(result['messages'])
+            except Exception as e:
+                logger.error(f"Got exception trying to set the messages on the gauge for actor: {actor_id}; "
+                             f"exception: {e}")
         logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
 
         # add a worker gauge for this actor if one does not exist
@@ -97,8 +105,11 @@ def create_gauges(actor_ids):
         # Update this actor's worker IDs
         workers = Worker.get_workers(actor_id)
         result = {'workers': len(workers)}
-        g.set(result['workers'])
-        logger.debug("METRICS: {} workers found for actor: {}.".format(result['workers'], actor_id))
+        try:
+            g.set(result['workers'])
+        except Exception as e:
+            logger.error(f"got exception trying to set the worker gauge for actor {actor_id}; exception: {e}")
+        logger.debug(f"METRICS: {result['workers']} workers found for actor: {actor_id}.")
 
         # Update this actor's command channel metric
         # channel_name = actor.get("queue")
@@ -123,7 +134,7 @@ def create_gauges(actor_ids):
     ch = CommandChannel(name=channel_name)
     cmd_length = len(ch._queue._queue)
     command_gauge.labels(channel_name).set(cmd_length)
-    logger.debug("METRICS COMMAND CHANNEL {} size: {}".format(channel_name, command_gauge))
+    logger.debug(f"METRICS COMMAND CHANNEL {channel_name} size: {command_gauge}")
     ch.close()
 
     # Return actor_ids so we don't have to query for them again later

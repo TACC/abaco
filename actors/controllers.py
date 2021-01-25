@@ -82,6 +82,7 @@ class CronResource(Resource):
                         d['Time_msg_queued'] = before_exc_time
                         d['_abaco_execution_id'] = exc
                         d['_abaco_Content_Type'] = 'str'
+                        d['_abaco_actor_revision'] = actor.get('revision')
                         ch = ActorMsgChannel(actor_id=actor_id)
                         ch.put_msg(message="This is your cron execution", d=d)
                         ch.close()
@@ -127,13 +128,26 @@ class MetricsResource(Resource):
         else:
             logger.debug("No autoscaler configuration found; exiting.")
             do_autoscaling = False
-        actor_ids, inbox_lengths, cmd_length = self.get_metrics()
+        try:
+            actor_ids, inbox_lengths, cmd_length = self.get_metrics()
+        except Exception as e:
+            logger.error(f"MetricsResouce got exception from get_metrics(); e: {e}."
+                         f"Responding without running check_metrics."
+                         f"Autoscaling is broken!!!!!!")
+            return Response("Unhandled exception in get_metrics of MetricsResource!")
         if len(actor_ids) == 0:
             do_autoscaling = False
         if not do_autoscaling:
             logger.debug("AUTOSCALER run complete --------")
             return
-        self.check_metrics(actor_ids, inbox_lengths, cmd_length)
+        try:
+            self.check_metrics(actor_ids, inbox_lengths, cmd_length)
+        except Exception as e:
+            logger.error(f"MetricsResouce got exception from check_metrics(); e: {e}."
+                         f"Responding with an error."
+                         f"Autoscaling is likely broken!!!")
+            return Response("Unhandled exception in check_metrics MetricsResource!")
+
         # self.add_workers(actor_ids)
         logger.debug("AUTOSCALER run complete --------")
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
@@ -154,7 +168,7 @@ class MetricsResource(Resource):
             return actor_ids, inbox_lengths, cmd_length
         except Exception as e:
             logger.info("Got exception in call to create_gauges; skipping autoscaler; e: {}".format(e))
-            return []
+            return [], {}, None
 
     def check_metrics(self, actor_ids, inbox_lengths, cmd_length):
         logger.debug("top of check_metrics")
@@ -805,6 +819,7 @@ class ActorsResource(Resource):
         logger.debug("validate_post() successful")
         args['tenant'] = g.tenant_id
         args['api_server'] = g.api_server
+        args['revision'] = 1
         args['owner'] = g.username
 
         # There are two options for the uid and gid to run in within the container. 1) the UID and GID to use
@@ -1618,7 +1633,7 @@ class MessagesResource(Resource):
 
     def do_synch_message(self, execution_id):
         """Monitor for the termination of a synchronous message execution."""
-
+        logger.debug("top of do_synch_message")
         dbid = g.db_id
         ch = ExecutionResultsChannel(actor_id=dbid, execution_id=execution_id)
         result = None
@@ -1629,16 +1644,17 @@ class MessagesResource(Resource):
         while not complete:
             # check for a result on the results channel -
             if check_results_channel:
+                logger.debug("checking for result on the results channel...")
                 try:
                     result = ch.get(timeout=timeout)
                     ch.close()
                     complete = True
                     binary_result = True
                     logger.debug("check_results_channel thread got a result.")
-                except ChannelClosedException:
+                except ChannelClosedException as e:
                     # the channel unexpectedly closed, so just return
                     logger.info("unexpected ChannelClosedException in check_results_channel thread: {}".format(e))
-                    # check_results_channel = False
+                    check_results_channel = False
                 except ChannelTimeoutException:
                     pass
                 except Exception as e:
@@ -1657,17 +1673,22 @@ class MessagesResource(Resource):
                 if not result:
                     # first try one more time to get a result -
                     if check_results_channel:
+                        logger.debug("looking for result on results channel.")
                         try:
                             result = ch.get(timeout=timeout)
                             binary_result = True
-                        except:
+                            logger.debug("got binary result.")
+                        except Exception as e:
+                            logger.debug(f"got exception: {e} -- did not get binary result")
                             pass
                     # if we still have no result, get the logs -
                     if not result:
+                        logger.debug("stll don't have result; looking for logs...")
                         try:
                             result = logs_store[site()][execution_id]['logs']
+                            logger.debug("got logs; returning result.")
                         except KeyError:
-                            logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
+                            logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, dbid))
                             result = ""
         response = make_response(result)
         if binary_result:
@@ -1676,6 +1697,7 @@ class MessagesResource(Resource):
             ch.close()
         except:
             pass
+        logger.debug("returning synchronous response.")
         return response
 
 

@@ -111,7 +111,7 @@ class TaskQueue(object):
         t.start()
 
     def delete(self):
-        self.conn.close()
+        self.queue.delete()
 
     def get_one(self):
         """Blocking method to get a single message without polling."""
