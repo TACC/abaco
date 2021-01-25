@@ -995,11 +995,8 @@ class Actor(AbacoDAO):
         if status == ERROR or status == READY:
             try:
                 event_type = f'ACTOR_{status}'.upper()
-                logger.critical('pom1')
                 event = ActorEvent(actor_id, event_type, {'status_message': status_message})
-                logger.critical('pom2')
                 event.publish()
-                logger.critical('pom3')
             except Exception as e:
                 logger.error("Got exception trying to publish an actor status event. "
                              "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
