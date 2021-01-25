@@ -11,6 +11,7 @@ from flask import g, request, render_template, make_response, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
 from common.utils import RequestParser, ok
+from parse import parse
 
 from auth import check_permissions, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
@@ -50,6 +51,66 @@ class SearchResource(Resource):
         args = request.args
         result = Search(args, search_type, g.tenant_id, g.username).search()
         return ok(result=result, msg="Search completed successfully.")
+
+
+class CronResource(Resource):
+    def get(self):
+        logger.debug("HERE I AM IN GET /cron")
+        actor_ids = [actor['db_id'] for actor in actors_store.items()]
+        logger.debug(f"actor ids are {actor_ids}")
+        # Loop through all actor ids to check for cron schedules
+        for actor_id in actor_ids:
+            # Create actor based on the actor_id
+            actor = actors_store[actor_id]
+            logger.debug(f"cron_on equals {actor.get('cron_on')} for actor {actor_id}")
+            try:
+                # Check if next execution == UTC current time
+                if self.cron_execution_datetime(actor):
+                    # Check if cron switch is on
+                    if actor.get('cron_on'):
+                        d = {}
+                        logger.debug("the current time is the same as the next cron scheduled, adding execution")
+                        # Execute actor
+                        before_exc_time = timeit.default_timer()
+                        exc = Execution.add_execution(actor_id, {'cpu': 0,
+                                                'io': 0,
+                                                'runtime': 0,
+                                                'status': codes.SUBMITTED,
+                                                'executor': 'cron'})
+                        logger.debug("execution has been added, now making message")
+                        # Create & add message to the queue 
+                        d['Time_msg_queued'] = before_exc_time
+                        ch = ActorMsgChannel(actor_id=actor_id)
+                        ch.put_msg(message="This is your cron execution", d=d)
+                        ch.close()
+                        logger.debug("Message added to actor inbox. id: {}.".format(actor_id))
+                        # Update the actor's next execution
+                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                    else:
+                        logger.debug("Actor's cron is not activated, but next execution will be incremented")
+                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                else:
+                    logger.debug("now is not the time")
+            except:
+                logger.debug("Actor has no cron setup")
+
+    def cron_execution_datetime(self, actor):
+        logger.debug("inside cron_execution_datetime method")
+        now = get_current_utc_time()
+        now = datetime.datetime(now.year, now.month, now.day, now.hour)
+        logger.debug(f"the current utc time is {now}")
+        # Get cron execution datetime
+        cron = actor['cron_next_ex']
+        logger.debug(f"cron_next_ex is {cron}")
+        # Parse the next execution into a list of the form: [year,month,day,hour]
+        cron_datetime = parse("{}-{}-{} {}", cron)
+        logger.debug(f"cron datetime is {cron_datetime}")
+        # Create a datetime out of cron_datetime
+        cron_execution = datetime.datetime(int(cron_datetime[0]), int(cron_datetime[1]), int(cron_datetime[2]), int(cron_datetime[3]))
+        logger.debug(f"cron execution is {cron_execution}")
+        # Return true/false comparing now with the next cron execution
+        logger.debug(f"does cron == now? {cron_execution == now}")
+        return cron_execution == now
 
 
 class MetricsResource(Resource):
@@ -757,6 +818,21 @@ class ActorsResource(Resource):
                 log_ex = int(args.get('log_ex'))
                 logger.debug(f"Found log_ex in args; using: {log_ex}")
                 args['log_ex'] = log_ex
+
+        if 'cronSchedule' in args and args.get('cronSchedule') is not None:
+            cron = args.get('cronSchedule')
+            r = parse("{} + {} {}", cron)
+            # Check for proper unit of time
+            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']: 
+                args['cron_schedule'] = cron
+                logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
+                args['cron_next_ex'] = r.fixed[0]
+                args['cron_on'] = True
+            else:
+                raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
+        else:
+            args['cron_on'] = False
+
         if conf.web_case == 'camel':
             max_workers = args.get('maxWorkers')
             args['max_workers'] = max_workers
@@ -891,6 +967,18 @@ class ActorResource(Resource):
                 log_ex = int(args.get('log_ex'))
                 logger.debug(f"Found log_ex in args; using: {log_ex}")
                 args['log_ex'] = log_ex
+        if 'cronSchedule' in args and args.get('cronSchedule') is not None:
+            cron = args.get('cronSchedule')
+            r = parse("{} + {} {}", cron)
+            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']:    
+                args['cron_schedule'] = cron
+                logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
+                args['cron_next_ex'] = r.fixed[0]
+            # Check for proper unit of time
+            else:
+                raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
+        if 'cronOn' in args and args.get('cronOn') is not None:
+            actor['cron_on'] = args.get('cronOn')
         if args['queue']:
             valid_queues = conf.spawner_host_queues
             if args['queue'] not in valid_queues:

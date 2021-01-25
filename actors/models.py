@@ -9,6 +9,8 @@ import time
 from flask import g
 from flask_restful import inputs
 from hashids import Hashids
+from parse import parse
+from dateutil.relativedelta import relativedelta
 
 from common.utils import RequestParser
 from channels import CommandChannel, EventsChannel
@@ -769,7 +771,10 @@ class Actor(AbacoDAO):
         ('queue', 'optional', 'queue', str, 'The command channel that this actor uses.', 'default'),
         ('db_id', 'derived', 'db_id', str, 'Primary key in the database for this actor.', None),
         ('id', 'derived', 'id', str, 'Human readable id for this actor.', None),
-        ('log_ex', 'optional', 'log_ex', int, 'Amount of time after which logs will expire', None)
+        ('log_ex', 'optional', 'log_ex', int, 'Amount of time after which logs will expire', None),
+        ('cron_on', 'optional', 'cron_on', inputs.boolean, 'Whether cron is on or off', False),
+        ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
+        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None)
         ]
 
     SYNC_HINT = 'sync'
@@ -804,6 +809,38 @@ class Actor(AbacoDAO):
             return time_str
         else:
             return db_id
+    
+    @classmethod
+    def set_next_ex(cls, actor, actor_id):
+        # Parse cron into [datetime, number, unit of time]
+        logger.debug("In set_next_ex")
+        cron = actor['cron_schedule']
+        cron_parsed = parse("{} + {} {}", cron)
+        unit_time = cron_parsed.fixed[2]
+        time_length = int(cron_parsed.fixed[1])
+        # Parse the first element of cron_parsed into another list of the form [year, month, day, hour]
+        cron_next_ex = actor['cron_next_ex']
+        time = parse("{}-{}-{} {}", cron_next_ex)
+        # Create a datetime object
+        start = datetime.datetime(int(time[0]), int(time[1]), int(time[2]), int(time[3]))
+        logger.debug(f"cron_parsed[1] is {time_length}")
+        # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
+        if unit_time == "month" or unit_time == "months":
+            end = start + relativedelta(months=+time_length)
+        elif unit_time == "week" or unit_time == "weeks":
+            end = start + datetime.timedelta(weeks=time_length)
+        elif unit_time == "day" or unit_time == "days":
+            end = start + datetime.timedelta(days=time_length)
+        elif unit_time == "hour" or unit_time == "hours":
+            end = start + datetime.timedelta(hours=time_length)
+        else:
+            # The unit of time is not supported, turn off cron or else it will continue to execute
+            logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
+            actors_store[actor_id, 'cron_on'] = False
+        time = "{}-{}-{} {}".format(end.year, end.month, end.day, end.hour)
+        logger.debug(f"returning {time}")
+        return time  
+
 
     @classmethod
     def get_actor_id(cls, tenant, identifier):
