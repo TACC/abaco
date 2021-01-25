@@ -759,6 +759,7 @@ class Actor(AbacoDAO):
         ('api_server', 'provided', 'api_server', str, 'The base URL for the tenant that this actor belongs to.', None),
         ('owner', 'provided', 'owner', str, 'The user who created this actor.', None),
         ('mounts', 'provided', 'mounts', list, 'List of volume mounts to mount into each actor container.', []),
+        ('revision', 'provided', 'revision', int, 'A monotonically increasing integer, incremented each time the actor is updated with new version of its image.', 1),
         ('tasdir', 'optional', 'tasdir', str, 'Absolute path to the TAS defined home directory associated with the owner of the actor', None),
         ('uid', 'optional', 'uid', str, 'The uid to run the container as. Only used if user_container_uid is false.', None),
         ('gid', 'optional', 'gid', str, 'The gid to run the container as. Only used if user_container_uid is false.', None),
@@ -950,6 +951,7 @@ class Actor(AbacoDAO):
             ch.put_cmd(actor_id=self.db_id,
                        worker_id=worker_id,
                        image=self.image,
+                       revision=self.revision,
                        tenant=self.tenant,
                        stop_existing=False)
             ch.close()

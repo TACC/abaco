@@ -175,6 +175,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
 def subscribe(tenant,
               actor_id,
               image,
+              revision,
               worker_id,
               api_server,
               client_id,
@@ -277,6 +278,31 @@ def subscribe(tenant,
             logger.info("message requeued; worker exiting:{}_{}".format(actor_id, worker_id))
             time.sleep(5)
             raise Exception()
+        # if the actor revision is different from the revision assigned to this worker, the worker is stale, so we
+        # need to nack this message and exit.
+        # NOTE: we could also compare the worker's revision to the revision contained in the message itself so that
+        # a given message was always processed by a worker of the same revision, but this would take more work and is
+        # not the requirement.
+        try:
+            actor = Actor.from_db(actors_store[actor_id])
+        except Exception as e:
+            logger.error("unexpected exception retrieving actor to check revision. Nacking message."
+                         "actor_id: {}; worker_id: {}; status: {}; exception: {}".format(actor_id,
+                                                                                         worker_id,
+                                                                                         READY,
+                                                                                         e))
+            msg_obj.nack(requeue=True)
+            logger.info("worker exiting. worker_id: {}".format(worker_id))
+            raise e
+        if not revision == actor.revision:
+            logger.info(f"got msg from get_one() but worker's revision ({revision}) was different "
+                        f"from actor.revision ({actor.revision}). Requeing message and worker will "
+                        f"exit. {actor_id}+{worker_id}")
+            msg_obj.nack(requeue=True)
+            logger.info("message requeued; worker exiting:{}_{}".format(actor_id, worker_id))
+            time.sleep(5)
+            raise Exception()
+
         try:
             Worker.update_worker_status(actor_id, worker_id, BUSY)
         except Exception as e:
@@ -294,13 +320,12 @@ def subscribe(tenant,
         # set of k:v pairs coming in from the query parameters.
         message = msg.pop('message', '')
         try:
-            actor = Actor.from_db(actors_store[actor_id])
             execution_id = msg['_abaco_execution_id']
             content_type = msg['_abaco_Content_Type']
             mounts = actor.mounts
             logger.debug("actor mounts: {}".format(mounts))
         except Exception as e:
-            logger.error("unexpected exception retrieving actor, execution, content-type, mounts. Nacking message."
+            logger.error("unexpected exception retrieving execution, content-type, mounts. Nacking message."
                          "actor_id: {}; worker_id: {}; status: {}; exception: {}".format(actor_id,
                                                                                          worker_id,
                                                                                          BUSY,
@@ -458,6 +483,7 @@ def subscribe(tenant,
                              "down workers.".format(worker_id, execution_id, MAX_WORKER_CONSECUTIVE_ERRORS, e))
                 Actor.set_status(actor_id, ERROR, "Error executing container: {}; w".format(e))
                 shutdown_workers(actor_id, delete_actor_ch=False)
+                Execution.update_status(actor_id, execution_id, ERROR)
                 # wait for worker to be shutdown..
                 time.sleep(60)
                 break
@@ -473,6 +499,7 @@ def subscribe(tenant,
             # since the error was with stopping the actor, we will consider this message "processed"; this choice
             # could be reconsidered/changed
             msg_obj.ack()
+            Execution.update_status(actor_id, execution_id, ERROR)
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
             time.sleep(60)
@@ -486,19 +513,16 @@ def subscribe(tenant,
             # actor container; if the container was started, then another exception should be raised. Therefore,
             # we can assume here that the container was at least started and we can ack the message.
             msg_obj.ack()
+            Execution.update_status(actor_id, execution_id, ERROR)
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
             time.sleep(60)
             break
         # ack the message
         msg_obj.ack()
-        logger.debug("container finished successfully; worker_id: {}".format(worker_id))
-        # Add the completed stats to the execution
-        logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
-        Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)
-        logger.info("Added execution: {}; worker_id: {}".format(execution_id, worker_id))
 
-        # Add the logs to the execution
+        # Add the logs to the execution before finalizing it -- otherwise, there is a race condition for clients
+        # waiting on the execution to be COMPLETE and then immediately retrieving the logs.
         try:
             logger.debug("Checking for get_actor_log_ttl")
             log_ex = Actor.get_actor_log_ttl(actor_id)
@@ -509,6 +533,12 @@ def subscribe(tenant,
             msg = "Got exception trying to set logs for exception {}; " \
                   "Exception: {}; worker_id: {}".format(execution_id, e, worker_id)
             logger.error(msg)
+
+        logger.debug("container finished successfully; worker_id: {}".format(worker_id))
+        # Add the completed stats to the execution
+        logger.info("Actor container finished successfully. Got stats object:{}".format(str(stats)))
+        Execution.finalize_execution(actor_id, execution_id, COMPLETE, stats, final_state, exit_code, start_time)
+        logger.info("Added execution: {}; worker_id: {}".format(execution_id, worker_id))
 
         # Update the worker's last updated and last execution fields:
         try:
@@ -554,7 +584,13 @@ def main():
     worker_id = os.environ.get('worker_id')
     image = os.environ.get('image')
     actor_id = os.environ.get('actor_id')
-
+    revision = os.environ.get('revision')
+    try:
+        revision = int(revision)
+    except ValueError:
+        logger.error(f"worker did not get an integer revision number; got: {revision}; "
+                     f"worker {actor_id}+{worker_id} exiting.")
+        sys.exit()
     client_id = os.environ.get('client_id', None)
     client_access_token = os.environ.get('client_access_token', None)
     client_refresh_token = os.environ.get('client_refresh_token', None)
@@ -562,17 +598,17 @@ def main():
     api_server = os.environ.get('api_server', None)
     client_secret = os.environ.get('client_secret', None)
 
-    logger.info(f"Top of main() for worker: {worker_id}, image: {image}; "
+    logger.info(f"Top of main() for worker: {worker_id}, image: {image}; revision: {revision}"
                 f"actor_id: {actor_id}; client_id:{client_id}; tenant: {tenant}; api_server: {api_server}")
     spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
 
     logger.debug("Worker waiting on message from spawner...")
-    result = spawner_worker_ch.get()
+    result = spawner_worker_ch.get_one()
     logger.debug("Worker received reply from spawner. result: {}.".format(result))
 
     # should be OK to close the spawner_worker_ch on the worker side since spawner was first client
     # to open it.
-    spawner_worker_ch.close()
+    spawner_worker_ch.delete()
     logger.debug('spawner_worker_ch closed.')
     if not client_id:
         logger.info("Did not get client id.")
@@ -584,6 +620,7 @@ def main():
     subscribe(tenant,
               actor_id,
               image,
+              revision,
               worker_id,
               api_server,
               client_id,
@@ -606,9 +643,24 @@ if __name__ == '__main__':
         try:
             worker_id = os.environ.get('worker_id')
         except:
+            logger.error(f"worker main thread got exception trying to get worker id from environment."
+                         f"not able to send stop-no-delete message to itself."
+                         f"worker_id: {worker_id}.")
             worker_id = ''
-        msg = "worker caught exception from main loop. worker exiting. e" \
-              "Exception: {} worker_id: {}".format(e, worker_id)
-        logger.info(msg)
+        if worker_id:
+            try:
+                ch = WorkerChannel(worker_id=worker_id)
+                # since this is an exception, we don't know that the actor has been deleted
+                # don't delete the actor msg channel:
+                ch.put('stop-no-delete')
+                logger.info(f"Worker main loop sent 'stop-no-delete' message to itself; worker_id: {worker_id}.")
+                ch.close()
+                msg = "worker caught exception from main loop. worker exiting. e" \
+                      "Exception: {} worker_id: {}".format(e, worker_id)
+                logger.info(msg)
+            except Exception as e:
+                logger.error(f"worker main thread got exception trying to send stop-no-delete message to itself;"
+                             f"worker_id: {worker_id}.")
+    keep_running = False
     sys.exit()
 

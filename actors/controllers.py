@@ -95,6 +95,7 @@ class CronResource(Resource):
                         d['Time_msg_queued'] = before_exc_time
                         d['_abaco_execution_id'] = exc
                         d['_abaco_Content_Type'] = 'str'
+                        d['_abaco_actor_revision'] = actor.get('revision')
                         ch = ActorMsgChannel(actor_id=actor_id)
                         ch.put_msg(message="This is your cron execution", d=d)
                         ch.close()
@@ -140,13 +141,26 @@ class MetricsResource(Resource):
         else:
             logger.debug("No autoscaler configuration found; exiting.")
             do_autoscaling = False
-        actor_ids, inbox_lengths, cmd_length = self.get_metrics()
+        try:
+            actor_ids, inbox_lengths, cmd_length = self.get_metrics()
+        except Exception as e:
+            logger.error(f"MetricsResouce got exception from get_metrics(); e: {e}."
+                         f"Responding without running check_metrics."
+                         f"Autoscaling is broken!!!!!!")
+            return Response("Unhandled exception in get_metrics of MetricsResource!")
         if len(actor_ids) == 0:
             do_autoscaling = False
         if not do_autoscaling:
             logger.debug("AUTOSCALER run complete --------")
             return
-        self.check_metrics(actor_ids, inbox_lengths, cmd_length)
+        try:
+            self.check_metrics(actor_ids, inbox_lengths, cmd_length)
+        except Exception as e:
+            logger.error(f"MetricsResouce got exception from check_metrics(); e: {e}."
+                         f"Responding with an error."
+                         f"Autoscaling is likely broken!!!")
+            return Response("Unhandled exception in check_metrics MetricsResource!")
+
         # self.add_workers(actor_ids)
         logger.debug("AUTOSCALER run complete --------")
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
@@ -167,7 +181,7 @@ class MetricsResource(Resource):
             return actor_ids, inbox_lengths, cmd_length
         except Exception as e:
             logger.info("Got exception in call to create_gauges; skipping autoscaler; e: {}".format(e))
-            return []
+            return [], {}, None
 
     def check_metrics(self, actor_ids, inbox_lengths, cmd_length):
         logger.debug("top of check_metrics")
@@ -819,6 +833,7 @@ class ActorsResource(Resource):
         logger.debug("validate_post() successful")
         args['tenant'] = g.tenant
         args['api_server'] = g.api_server
+        args['revision'] = 1
         args['owner'] = g.user
 
         # There are two options for the uid and gid to run in within the container. 1) the UID and GID to use
@@ -996,6 +1011,7 @@ class ActorResource(Resource):
         previous_image = actor.image
         previous_status = actor.status
         previous_owner = actor.owner
+        previous_revision = actor.revision
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
         args['tenant'] = g.tenant
@@ -1026,7 +1042,6 @@ class ActorResource(Resource):
                 args['cron_next_ex'] = r.fixed[0]
             else:
                 raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
-                args['cron_on'] = False
         else:
             logger.debug("No cron schedule has been sent")
         if args['queue']:
@@ -1042,9 +1057,11 @@ class ActorResource(Resource):
             logger.debug("new image is the same and force was false. not updating actor.")
             logger.debug("Setting status to the actor's previous status which is: {}".format(previous_status))
             args['status'] = previous_status
+            args['revision'] = previous_revision
         else:
             update_image = True
             args['status'] = SUBMITTED
+            args['revision'] = previous_revision + 1
             logger.debug("new image is different. updating actor.")
         args['api_server'] = g.api_server
 
@@ -1085,7 +1102,11 @@ class ActorResource(Resource):
             # get actor queue name
             ch = CommandChannel(name=actor.queue)
             # stop_existing defaults to True, so this command will also stop existing workers:
-            ch.put_cmd(actor_id=actor.db_id, worker_id=worker_id, image=actor.image, tenant=args['tenant'])
+            ch.put_cmd(actor_id=actor.db_id,
+                       worker_id=worker_id,
+                       image=actor.image,
+                       revision=actor.revision,
+                       tenant=args['tenant'])
             ch.close()
             logger.debug("put new command on command channel to update actor.")
         # put could have been issued by a user with
@@ -1517,7 +1538,7 @@ class MessagesResource(Resource):
         synchronous = False
         dbid = g.db_id
         try:
-            Actor.from_db(actors_store[dbid])
+            actor = Actor.from_db(actors_store[dbid])
         except KeyError:
             logger.debug("did not find actor: {}.".format(actor_id))
             raise ResourceError("No actor found with id: {}.".format(actor_id), 404)
@@ -1546,7 +1567,7 @@ class MessagesResource(Resource):
         logger.debug("extra fields added to message from query parameters: {}.".format(d))
         if synchronous:
             # actor mailbox length must be 0 to perform a synchronous execution
-            ch = ActorMsgChannel(actor_id=id)
+            ch = ActorMsgChannel(actor_id=actor_id)
             box_len = len(ch._queue._queue)
             ch.close()
             if box_len > 3:
@@ -1571,6 +1592,7 @@ class MessagesResource(Resource):
         logger.info("Execution {} added for actor {}".format(exc, actor_id))
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
+        d['_abaco_actor_revision'] = actor.revision
         logger.debug("Final message dictionary: {}".format(d))
         before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
@@ -1616,7 +1638,7 @@ class MessagesResource(Resource):
 
     def do_synch_message(self, execution_id):
         """Monitor for the termination of a synchronous message execution."""
-
+        logger.debug("top of do_synch_message")
         dbid = g.db_id
         ch = ExecutionResultsChannel(actor_id=dbid, execution_id=execution_id)
         result = None
@@ -1627,16 +1649,17 @@ class MessagesResource(Resource):
         while not complete:
             # check for a result on the results channel -
             if check_results_channel:
+                logger.debug("checking for result on the results channel...")
                 try:
                     result = ch.get(timeout=timeout)
                     ch.close()
                     complete = True
                     binary_result = True
                     logger.debug("check_results_channel thread got a result.")
-                except ChannelClosedException:
+                except ChannelClosedException as e:
                     # the channel unexpectedly closed, so just return
                     logger.info("unexpected ChannelClosedException in check_results_channel thread: {}".format(e))
-                    # check_results_channel = False
+                    check_results_channel = False
                 except ChannelTimeoutException:
                     pass
                 except Exception as e:
@@ -1655,17 +1678,22 @@ class MessagesResource(Resource):
                 if not result:
                     # first try one more time to get a result -
                     if check_results_channel:
+                        logger.debug("looking for result on results channel.")
                         try:
                             result = ch.get(timeout=timeout)
                             binary_result = True
-                        except:
+                            logger.debug("got binary result.")
+                        except Exception as e:
+                            logger.debug(f"got exception: {e} -- did not get binary result")
                             pass
                     # if we still have no result, get the logs -
                     if not result:
+                        logger.debug("stll don't have result; looking for logs...")
                         try:
                             result = logs_store[execution_id]['logs']
+                            logger.debug("got logs; returning result.")
                         except KeyError:
-                            logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, actor_id))
+                            logger.debug("did not find logs. execution: {}. actor: {}.".format(execution_id, dbid))
                             result = ""
         response = make_response(result)
         if binary_result:
@@ -1674,6 +1702,7 @@ class MessagesResource(Resource):
             ch.close()
         except:
             pass
+        logger.debug("returning synchronous response.")
         return response
 
 
@@ -1751,6 +1780,7 @@ class WorkersResource(Resource):
                 ch.put_cmd(actor_id=actor.db_id,
                            worker_id=worker_id,
                            image=actor.image,
+                           revision=actor.revision,
                            tenant=g.tenant,
                            stop_existing=False)
             ch.close()
