@@ -90,6 +90,7 @@ services:
             server: gunicorn
             api: mes
             threads: 12
+            processes: 12
             mongo_password:
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
