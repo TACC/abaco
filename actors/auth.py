@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 from agavepy.agave import Agave
 from config import Config
 import codes
-from models import Actor, Alias, get_permissions, is_hashid, Nonce
+from models import Actor, Alias, get_permissions, is_hashid, Nonce, get_config_permissions, permission_process
 
 from errors import ClientException, ResourceError, PermissionsException
 
@@ -336,23 +336,30 @@ def check_permissions(user, identifier, level, roles=None):
             return True
     # get all permissions for this actor -
     permissions = get_permissions(identifier)
-    for p_user, p_name in permissions.items():
-        # if the actor has been shared with the WORLD_USER anyone can use it
-        if p_user == WORLD_USER:
-            logger.info("Allowing request - {} has been shared with the WORLD_USER.".format(identifier))
-            return True
-        # otherwise, check if the permission belongs to this user and has the necessary level
-        if p_user == user:
-            p_pem = codes.PermissionLevel(p_name)
-            if p_pem >= level:
-                logger.info("Allowing request - user has appropriate permission with {}.".format(identifier))
-                return True
-            else:
-                # we found the permission for the user but it was insufficient; return False right away
-                logger.info("Found permission {} for {}, rejecting request.".format(level, identifier))
-                return False
+    if permission_process(permissions, user, level, identifier):
+        return True
     # didn't find the user or world_user, return False
     logger.info("user had no permissions for {}. Permissions found: {}".format(identifier, permissions))
+    return False
+
+
+def check_config_permissions(user, config, level, roles=None):
+    """Check the permissions store for user and level. Here, `identifier` is a unique id in the
+    permissions_store; e.g., actor db_id or alias_id.
+    """
+    logger.debug("Checking user: {} permissions for config: {}".format(user, config))
+    # first, if roles were passed, check for admin role -
+    if roles:
+        if codes.ADMIN_ROLE in roles:
+            return True
+    # get all permissions for this actor -
+    permissions = get_config_permissions(config)
+    logger.debug("Checking config")
+    logger.debug(f"config is {config}")
+    if permission_process(permissions, user, level, config):
+        return True
+    # didn't find the user or world_user, return False
+    logger.info("user had no permissions for {}. Permissions found: {}".format(config, permissions))
     return False
 
 

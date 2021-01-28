@@ -11,7 +11,8 @@ export abaco_path := $(PWD)
 endif
 
 ifdef TAG
-export TAG := $(TAG)
+#export TAG := $(TAG)
+export TAG := dev
 else
 export TAG := dev
 endif
@@ -101,6 +102,15 @@ test-snake: build-testsuite
 # Pulls all Docker images not yet available but needed to run Abaco suite
 pull:
 	@docker-compose pull
+
+# Builds testsuite
+build-testsuite:
+	@docker build -t abaco/testsuite:$$TAG -f Dockerfile-test .
+
+test-camel: build-testsuite
+	@echo "\n\nCamel Case Tests.\n"
+	@echo "Converting config file to camel case and launching Abaco Stack.\n"
+	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 
 
 # Builds a few sample Docker images

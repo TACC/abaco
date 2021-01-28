@@ -19,7 +19,8 @@ from channels import CommandChannel, EventsChannel
 from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
     SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from config import Config
-from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
+import errors
+import codes
 
 from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
     permissions_store, workers_store, abaco_metrics_store
@@ -1986,7 +1987,47 @@ def get_permissions(actor_id):
     try:
         return permissions_store[actor_id]
     except KeyError:
+<<<<<<< HEAD
         raise PermissionsException("Actor {} does not exist".format(actor_id))
+=======
+        raise errors.PermissionsException("Actor {} does not exist".format(actor_id))
+
+def get_config_permissions(config):
+    """ Return all permissions for an actor
+    :param actor_id:
+    :return:
+    """
+    logger.debug(f"HERE IS THE CONFIG {config}")
+    config_permissions = []
+    logger.debug("1451")
+    try:
+        for actor_config in configs_permissions_store.items(filter_inp={'config': {'$exists': True}}, proj_inp={'config': 1, '_id': 0}):
+            logger.debug(f'HERE IS THE CONFIG {actor_config}')
+        return configs_permissions_store[config]
+    except KeyError:
+        raise errors.PermissionsException("Config {} does not exist".format(config))
+
+def permission_process(permissions, user, level, checkItem):
+    # get all permissions for this actor -
+    logger.debug("Here in permission_process")
+    WORLD_USER = 'ABACO_WORLD'
+    for p_user, p_name in permissions.items():
+        # if the actor has been shared with the WORLD_USER anyone can use it
+        if p_user == WORLD_USER:
+            logger.info("Allowing request - {} has been shared with the WORLD_USER.".format(checkItem))
+            return True
+        # otherwise, check if the permission belongs to this user and has the necessary level
+        if p_user == user:
+            p_pem = codes.PermissionLevel(p_name)
+            if p_pem >= level:
+                logger.info("Allowing request - user has appropriate permission with {}.".format(checkItem))
+                return True
+            else:
+                # we found the permission for the user but it was insufficient; return False right away
+                logger.info("Found permission {} for {}, rejecting request.".format(level, checkItem))
+                return False
+
+>>>>>>> a9080e9... Adding completion to the config feature
 
 def set_permission(user, actor_id, level):
     """Set the permission for a user and level to an actor."""
@@ -1997,3 +2038,62 @@ def set_permission(user, actor_id, level):
     if not new:
         permissions_store[actor_id, user] = str(level)
     logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))
+<<<<<<< HEAD
+=======
+
+
+def set_config_permission(user, actor_id, level):
+    """Set the permission for a user and level to an actor."""
+    logger.debug("top of set_permission().")
+    if not isinstance(level, PermissionLevel):
+        raise errors.DAOError("level must be a PermissionLevel object.")
+    new = configs_permissions_store.add_if_empty([actor_id, user], str(level))
+    if not new:
+        configs_permissions_store[actor_id, user] = str(level)
+    logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))
+
+
+class ActorConfig(AbacoDAO):
+    """Data access object for working with Actor configs."""
+
+    PARAMS = [
+        # param_name, required/optional/provided/derived, attr_name, type, help, default
+        ('tenant', 'provided', 'tenant', str, 'The tenant that this alias belongs to.', None),
+        ('name', 'required', 'name', str, 'Name of the config', None),
+        ('value', 'required', 'value', str, 'The value of the config; JSON Serializable. Set as the ENV VAR value.', None),
+        ('is_secret', 'required', 'is_secret', inputs.boolean, 'Whether the config should be encrypted at rest and not retrievable.', None),
+        # need write access to actor
+        ('actors', 'required', 'actors', str, 'List of actor IDs or aliases that should get this config/secret.', []),
+    ] # take both ids and aliases and figure out which one it is
+     # they need write access on actor or alias
+    # delete of aliases/ids needs to delete from configs
+    def get_derived_value(self, name, d):
+        """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
+        # first, see if the id attribute is already in the object:
+        try:
+            if d[name]:
+                return d[name]
+        except KeyError:
+            pass
+        # combine the tenant_id and client_key to get the unique id
+        return Client.get_client_id(d['tenant'], d['client_key'])
+
+    def display(self):
+        """Return a representation fit for display."""
+        self.pop('tenant')
+        return self.case()
+
+    # @classmethod
+    # def get_client_id(cls, tenant, key):
+    #     return '{}_{}'.format(tenant, key)
+    #
+    # @classmethod
+    # def get_client(cls, tenant, client_key):
+    #     return Client(clients_store[Client.get_client_id(tenant, client_key)])
+    #
+    # @classmethod
+    # def delete_client(cls, tenant, client_key):
+    #     del clients_store[Client.get_client_id(tenant, client_key)]
+
+
+>>>>>>> a9080e9... Adding completion to the config feature
