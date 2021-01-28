@@ -14,6 +14,7 @@ from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SU
     SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from config import Config
 import errors
+import codes
 
 from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
     permissions_store, workers_store, configs_permissions_store
@@ -1447,12 +1448,33 @@ def get_config_permissions(config):
     """
     logger.debug(f"HERE IS THE CONFIG {config}")
     config_permissions = []
+    logger.debug("1451")
     try:
         for actor_config in configs_permissions_store.items(filter_inp={'config': {'$exists': True}}, proj_inp={'config': 1, '_id': 0}):
             logger.debug(f'HERE IS THE CONFIG {actor_config}')
         return configs_permissions_store[config]
     except KeyError:
         raise errors.PermissionsException("Config {} does not exist".format(config))
+
+def permission_process(permissions, user, level, checkItem):
+    # get all permissions for this actor -
+    logger.debug("Here in permission_process")
+    WORLD_USER = 'ABACO_WORLD'
+    for p_user, p_name in permissions.items():
+        # if the actor has been shared with the WORLD_USER anyone can use it
+        if p_user == WORLD_USER:
+            logger.info("Allowing request - {} has been shared with the WORLD_USER.".format(checkItem))
+            return True
+        # otherwise, check if the permission belongs to this user and has the necessary level
+        if p_user == user:
+            p_pem = codes.PermissionLevel(p_name)
+            if p_pem >= level:
+                logger.info("Allowing request - user has appropriate permission with {}.".format(checkItem))
+                return True
+            else:
+                # we found the permission for the user but it was insufficient; return False right away
+                logger.info("Found permission {} for {}, rejecting request.".format(level, checkItem))
+                return False
 
 
 def set_permission(user, actor_id, level):
@@ -1485,7 +1507,7 @@ class ActorConfig(AbacoDAO):
         ('tenant', 'provided', 'tenant', str, 'The tenant that this alias belongs to.', None),
         ('name', 'required', 'name', str, 'Name of the config', None),
         ('value', 'required', 'value', str, 'The value of the config; JSON Serializable. Set as the ENV VAR value.', None),
-        ('is_secret', 'required', 'is_secret', bool, 'Whether the config should be encrypted at rest and not retrievable.', None),
+        ('is_secret', 'required', 'is_secret', inputs.boolean, 'Whether the config should be encrypted at rest and not retrievable.', None),
         # need write access to actor
         ('actors', 'required', 'actors', str, 'List of actor IDs or aliases that should get this config/secret.', []),
     ] # take both ids and aliases and figure out which one it is
@@ -1501,6 +1523,11 @@ class ActorConfig(AbacoDAO):
             pass
         # combine the tenant_id and client_key to get the unique id
         return Client.get_client_id(d['tenant'], d['client_key'])
+
+    def display(self):
+        """Return a representation fit for display."""
+        self.pop('tenant')
+        return self.case()
 
     # @classmethod
     # def get_client_id(cls, tenant, key):

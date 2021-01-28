@@ -299,6 +299,105 @@ def test_register_actor_sleep_loop(headers):
     assert result['id'] is not None
 
 @pytest.mark.regapi
+def test_register_config(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/{}'.format(base_url,'/actors/configs')
+    data={'image': 'abacosamples/test',"name":"the_config", "value":"my value", "isSecret":False, "actors":actor_id}
+    rsp = requests.post(url, json=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['isSecret'] == False
+    assert result['name'] == 'the_config'
+
+@pytest.mark.regapi
+def test_register_secret_config(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/{}'.format(base_url,'/actors/configs')
+    data={"name":"another_config", 
+    "value":"my value", 
+    "isSecret":True, 
+    "actors":actor_id}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['isSecret'] == True
+    assert result['name'] is not 'Another config'
+
+@pytest.mark.regapi
+def test_register_config_multiple_actors(headers):
+    actor_id = get_actor_id(headers)
+    actor_id2 = get_actor_id(headers, name='abaco_test_suite_default_env')
+    url = '{}/{}'.format(base_url,'/actors/configs')
+    data={"name":"another_config", 
+    "value":"my value", 
+    "isSecret":True, 
+    "actors":"{},{}".format(actor_id,actor_id2)}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['actors'][0] == "{},{}".format(actor_id, actor_id2)
+
+@pytest.mark.regapi
+def test_register_with_nonexistent_actor(headers):
+    url = '{}/{}'.format(base_url,'/actors/configs')
+    data={"name":"another_config", 
+    "value":"my value", 
+    "isSecret":True, 
+    "actors":"henry"}
+    rsp = requests.post(url, data=data, headers=headers)
+    assert rsp.status_code == 404
+
+@pytest.mark.regapi
+def test_get_configs(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/{}'.format(base_url,'/actors/configs')
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+
+@pytest.mark.regapi
+def test_get_specific_config(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/{}/{}'.format(base_url,'/actors/configs', 'the_config')
+    rsp = requests.get(url, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['isSecret'] == False
+    assert result['name'] == 'the_config'
+
+@pytest.mark.regapi
+def test_register_config_limited_headers(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/{}'.format(base_url,'/actors/configs')
+    data={"name":"limited_config", 
+    "value":"my value", 
+    "isSecret":False, 
+    "actors":actor_id}
+    rsp = requests.post(url, data=data, headers=limited_headers())
+    result = basic_response_checks(rsp)
+    
+## Update config, add actors to config, change with diff permissions, can we assign nonexistent actors?
+@pytest.mark.regapi
+def test_update_config(headers):
+    actor_id = get_actor_id(headers)
+    actor_id2 = get_actor_id(headers, name='abaco_test_suite_default_env')
+    url = '{}/{}'.format(base_url,'/actors/configs/the_config')
+    data={"name":"the_config", 
+    "value":"my value", 
+    "isSecret":True, 
+    "actors":"{},{}".format(actor_id,actor_id2)}
+    rsp = requests.put(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['isSecret'] == True
+
+@pytest.mark.regapi
+def test_update_config_limited_headers(headers):
+    actor_id = get_actor_id(headers)
+    url = '{}/{}'.format(base_url,'/actors/configs/the_config')
+    data={"name":"the_config", 
+    "value":"my value", 
+    "isSecret":True, 
+    "actors":actor_id}
+    rsp = requests.put(url, data=data, headers=limited_headers())
+    assert rsp.status_code == 400
+
+
+@pytest.mark.regapi
 def test_invalid_method_get_actor(headers):
     actor_id = get_actor_id(headers)
     url = '{}/actors/{}'.format(base_url, actor_id)

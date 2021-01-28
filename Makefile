@@ -11,9 +11,28 @@ export abaco_path := $(PWD)
 endif
  
 ifdef TAG
-export TAG := $(TAG)
+#export TAG := $(TAG)
+export TAG := dev
 else
-export TAG := :dev
+export TAG := dev
+endif
+
+ifdef in_jenkins
+unexport interactive
+else
+export interactive := -it
+endif
+
+ifdef docker_ready_wait
+export docker_ready_wait := $(docker_ready_wait)
+else
+export docker_ready_wait := 15
+endif
+
+ifdef maxErrors
+export maxErrors := $(maxErrors)
+else
+export maxErrors := 999
 endif
 
 
@@ -51,6 +70,15 @@ test:
 	sleep 5
 	docker build -t abaco/testsuite$$TAG -f Dockerfile-test .
 	docker run --network=abaco_abaco -e base_url=http://nginx -e maxErrors=1 -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf -it --rm abaco/testsuite$$TAG $$test
+
+# Builds testsuite
+build-testsuite:
+	@docker build -t abaco/testsuite:$$TAG -f Dockerfile-test .
+
+test-camel: build-testsuite
+	@echo "\n\nCamel Case Tests.\n"
+	@echo "Converting config file to camel case and launching Abaco Stack.\n"
+	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
 
 
 # Builds a few sample Docker images

@@ -24,8 +24,10 @@ services:
     rabbit:
         image: rabbitmq:3.6.12-management
         ports:
-            - "5672:5672"
-            - "15672:15672"
+            #- "5672:5672"
+            #- "15672:15672"
+            - 5672
+            - 15672
         environment:
             RABBITMQ_NODENAME: abaco-rabbit
             RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+A 128"
@@ -40,7 +42,8 @@ services:
             - mongo
 
     nginx:
-        image: abaco/nginx$TAG
+        #image: abaco/nginx$TAG
+        image: abaco/nginx:$TAG
         volumes:
             - ./local-dev.conf:/etc/service.conf
 #            - ./images/nginx/nginx.conf:/etc/nginx/nginx.conf
@@ -203,7 +206,8 @@ services:
 
     prometheus:
         # build: ./prometheus
-        image: abaco/prom$TAG
+        #image: abaco/prom$TAG
+        image: abaco/prom:$TAG
         volumes:
             - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
             - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
