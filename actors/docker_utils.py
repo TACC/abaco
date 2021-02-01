@@ -85,6 +85,8 @@ def get_random_dockerhub_cred():
     """
     Chose a dockerhub credential at random
     """
+    if len(dockerhub_creds) == 0:
+        return None, None
     creds = random.choice(dockerhub_creds)
     try:
         username = creds['username']
