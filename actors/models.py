@@ -847,7 +847,6 @@ class Actor(AbacoDAO):
     def set_cron(cls, cron):
         # Method checks for the 'now' alias and also checks that the cron sent in has not passed yet
         logger.debug("in set_cron()")
-        # raise BadRequest("Test")
         now = get_current_utc_time()
         now_datetime = datetime.datetime(now.year, now.month, now.day, now.hour)
         logger.debug(f"now_datetime is {now_datetime}")
@@ -855,12 +854,12 @@ class Actor(AbacoDAO):
         r = parse("{} + {} {}", cron)
         logger.debug(f"r is {r}")
         if r is None:
-            raise BadRequest(f"The cron is not in the correct format")
+            raise DAOError(f"The cron is not in the correct format")
         # Check that the cron schedule hasn't already passed
         # Check for the 'now' alias and change the cron to now if 'now' is sent in
         cron_time = r.fixed[0]
         logger.debug(f"Cron time is {cron_time}")
-        if cron_time == "now" or cron_time == "Now":
+        if cron_time.lower() == "now":
             cron_time_parsed = [now.year, now.month, now.day, now.hour]
             # Change r to the current UTC datetime
             logger.debug(f"cron_time_parsed when now is sent in is {cron_time_parsed}")
@@ -873,15 +872,14 @@ class Actor(AbacoDAO):
             cron_time_parsed = parse("{}-{}-{} {}", cron_time)
             if cron_time_parsed is None:
                 logger.debug(f'{r} is not in the correct format')
-                raise BadRequest(f"The starting date {r.fixed[0]} is not in the correct format")
+                raise DAOError(f"The starting date {r.fixed[0]} is not in the correct format")
             else:
                 # Create a datetime object out of cron_datetime
                 schedule_execution = datetime.datetime(int(cron_time_parsed[0]), int(cron_time_parsed[1]), int(cron_time_parsed[2]), int(cron_time_parsed[3]))
                 if schedule_execution < now_datetime:
                     logger.debug("User sent in old time, raise exception")
-                    raise BadRequest(f'The starting datetime is old. The current UTC time is {now_datetime}')
+                    raise DAOError(f'The starting datetime is old. The current UTC time is {now_datetime}')
         return r
-
 
     @classmethod
     def get_actor_id(cls, tenant, identifier):

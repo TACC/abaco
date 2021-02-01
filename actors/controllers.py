@@ -819,7 +819,7 @@ class ActorsResource(Resource):
                 logger.debug(f"Found log_ex in args; using: {log_ex}")
                 args['log_ex'] = log_ex
         cron = None
-        if Config.get('web', 'case') == 'camel':
+        if conf.web_case == 'camel':
             logger.debug("Case is camel")
             if 'cronSchedule' in args and args.get('cronSchedule') is not None:
                 cron = args.get('cronSchedule')
@@ -841,7 +841,8 @@ class ActorsResource(Resource):
             else:
                 raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
         else:
-            logger.debug("Cron schedule was not sent in")        if conf.web_case == 'camel':
+            logger.debug("Cron schedule was not sent in")
+        if conf.web_case == 'camel':
             max_workers = args.get('maxWorkers')
             args['max_workers'] = max_workers
         else:
