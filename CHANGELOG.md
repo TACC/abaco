@@ -1,7 +1,30 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.1.0 - 2021-02-01
+### Added
+- Added support for a cron scheduling feature for actors. The cron schedule feature allows users to 
+instruct Abaco to automatically execute actors based on a schedule provided by the user. More
+information available from the docs (https://tacc-cloud.readthedocs.io/projects/abaco/en/latest/technical/messages.html#cron-schedule).
+- Added support for configuring Abaco with a DockerHub credential to be used when pulling images
+from DockerHub. In particular, Abaco can be configured with the credentials of a licensed account
+with increased pull quota to avoid "toomanyrequests: You have reached your pull rate limit" errors from the Docker daemon.
+- Added customizable log expiry fields.
+- Fixed testsuite
+- Added support for custom dockerhub credentials to be used
+- Added an actor revision number system
+- Added additional ways for an actor to end up in ERROR status
 
+### Changed
+- Change use of channelpy and taskqueues for actor channels
+- Cleaning autoscaler code to fix badly handled exceptions
+- Fixed some channel delete issues
+
+### Removed
+- No change.
+
+
+# V2 Changelog.
 ## 1.6.0 - 2020-04-30
 ### Added
 - Added the `GET /actors/search/{search_type}?{search_terms}` endpoint for mongo database full-text search and matching
