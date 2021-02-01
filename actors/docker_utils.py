@@ -4,6 +4,7 @@ import socket
 import time
 import timeit
 import datetime
+import random
 
 import docker
 from requests.packages.urllib3.exceptions import ReadTimeoutError
@@ -51,6 +52,54 @@ class DockerStartContainerError(DockerError):
 class DockerStopContainerError(DockerError):
     pass
 
+def get_docker_credentials():
+    """
+    Get the docker credentials from the config.
+    """
+    # we try to get as many credentials as have been
+    creds = []
+    cnt = 1
+    while True:
+        try:
+            username = conf.get(f'dockerhub_username_{cnt}')
+            password = conf.get(f'dockerhub_password_{cnt}')
+        except:
+            break
+        if not username or not password:
+            break
+        creds.append({'username': username, 'password': password})
+        cnt = cnt + 1
+    return creds
+
+
+dockerhub_creds = get_docker_credentials()
+
+
+def get_random_dockerhub_cred():
+    """
+    Chose a dockerhub credential at random
+    """
+    creds = random.choice(dockerhub_creds)
+    try:
+        username = creds['username']
+        password = creds['password']
+    except Exception as e:
+        logger.debug(f"Got exception trying to get dockerhub credentials. e: {e}")
+        return None, None
+    return username, password
+
+
+def cli_login(cli, username, password):
+    """
+    Try to login a dockerhub cli with a username and password
+    """
+    try:
+        cli.login(username=username, password=password)
+    except Exception as e:
+        logger.error(f"Could not login using dockerhub creds; username: {username}."
+                     f"Exception: {e}")
+
+
 def rm_container(cid):
     """
     Remove a container.
@@ -58,6 +107,9 @@ def rm_container(cid):
     :return:
     """
     cli = docker.APIClient(base_url=dd, version="auto")
+    username, password = get_random_dockerhub_cred()
+    if username and password:
+        cli_login(cli, username, password)
     try:
         rsp = cli.remove_container(cid, force=True)
     except Exception as e:
@@ -73,6 +125,9 @@ def pull_image(image):
     """
     logger.debug(f"top of pull_image(), dd: {dd}")
     cli = docker.APIClient(base_url=dd, version="auto")
+    username, password = get_random_dockerhub_cred()
+    if username and password:
+        cli_login(cli, username, password)
     try:
         rsp = cli.pull(repository=image)
     except Exception as e:
