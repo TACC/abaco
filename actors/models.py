@@ -5,12 +5,14 @@ import timeit
 import uuid
 import re
 import time
+import datetime
 
 from flask import g
 from flask_restful import inputs
 from hashids import Hashids
 from parse import parse
 from dateutil.relativedelta import relativedelta
+from werkzeug.exceptions import BadRequest
 
 from common.utils import RequestParser
 from channels import CommandChannel, EventsChannel
@@ -840,6 +842,45 @@ class Actor(AbacoDAO):
         time = "{}-{}-{} {}".format(end.year, end.month, end.day, end.hour)
         logger.debug(f"returning {time}")
         return time  
+
+    @classmethod
+    def set_cron(cls, cron):
+        # Method checks for the 'now' alias and also checks that the cron sent in has not passed yet
+        logger.debug("in set_cron()")
+        # raise BadRequest("Test")
+        now = get_current_utc_time()
+        now_datetime = datetime.datetime(now.year, now.month, now.day, now.hour)
+        logger.debug(f"now_datetime is {now_datetime}")
+        # parse r: if r is not in the correct format, parse() will return None
+        r = parse("{} + {} {}", cron)
+        logger.debug(f"r is {r}")
+        if r is None:
+            raise BadRequest(f"The cron is not in the correct format")
+        # Check that the cron schedule hasn't already passed
+        # Check for the 'now' alias and change the cron to now if 'now' is sent in
+        cron_time = r.fixed[0]
+        logger.debug(f"Cron time is {cron_time}")
+        if cron_time == "now" or cron_time == "Now":
+            cron_time_parsed = [now.year, now.month, now.day, now.hour]
+            # Change r to the current UTC datetime
+            logger.debug(f"cron_time_parsed when now is sent in is {cron_time_parsed}")
+            r_temp = "{}-{}-{} {}".format(cron_time_parsed[0], cron_time_parsed[1], cron_time_parsed[2], cron_time_parsed[3])
+            r = "{} + {} {}".format(r_temp, int(r.fixed[1]), r.fixed[2])
+            # parse r so that, when it is returned, it is a parsed object
+            r = parse("{} + {} {}", r)
+            logger.debug(f"User sent now, new r is the current time: {r}")
+        else:
+            cron_time_parsed = parse("{}-{}-{} {}", cron_time)
+            if cron_time_parsed is None:
+                logger.debug(f'{r} is not in the correct format')
+                raise BadRequest(f"The starting date {r.fixed[0]} is not in the correct format")
+            else:
+                # Create a datetime object out of cron_datetime
+                schedule_execution = datetime.datetime(int(cron_time_parsed[0]), int(cron_time_parsed[1]), int(cron_time_parsed[2]), int(cron_time_parsed[3]))
+                if schedule_execution < now_datetime:
+                    logger.debug("User sent in old time, raise exception")
+                    raise BadRequest(f'The starting datetime is old. The current UTC time is {now_datetime}')
+        return r
 
 
     @classmethod

@@ -818,12 +818,22 @@ class ActorsResource(Resource):
                 log_ex = int(args.get('log_ex'))
                 logger.debug(f"Found log_ex in args; using: {log_ex}")
                 args['log_ex'] = log_ex
-
-        if 'cronSchedule' in args and args.get('cronSchedule') is not None:
-            cron = args.get('cronSchedule')
-            r = parse("{} + {} {}", cron)
-            # Check for proper unit of time
-            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']: 
+        cron = None
+        if Config.get('web', 'case') == 'camel':
+            logger.debug("Case is camel")
+            if 'cronSchedule' in args and args.get('cronSchedule') is not None:
+                cron = args.get('cronSchedule')
+        else:
+            if 'cron_schedule' in args and args.get('cron_schedule') is not None:
+                logger.debug("Case is snake")
+                cron = args.get('cron_schedule')
+        if cron is not None:
+            logger.debug("Cron has been posted")
+            # set_cron checks for the 'now' alias 
+            # It also checks that the cron schedule is greater than or equal to the current UTC time
+            r = Actor.set_cron(cron)
+            logger.debug(f"r is {r}")
+            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']:
                 args['cron_schedule'] = cron
                 logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
                 args['cron_next_ex'] = r.fixed[0]
@@ -831,9 +841,7 @@ class ActorsResource(Resource):
             else:
                 raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
         else:
-            args['cron_on'] = False
-
-        if conf.web_case == 'camel':
+            logger.debug("Cron schedule was not sent in")        if conf.web_case == 'camel':
             max_workers = args.get('maxWorkers')
             args['max_workers'] = max_workers
         else:
@@ -967,18 +975,31 @@ class ActorResource(Resource):
                 log_ex = int(args.get('log_ex'))
                 logger.debug(f"Found log_ex in args; using: {log_ex}")
                 args['log_ex'] = log_ex
-        if 'cronSchedule' in args and args.get('cronSchedule') is not None:
-            cron = args.get('cronSchedule')
-            r = parse("{} + {} {}", cron)
-            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']:    
+        # Check for both camel and snake catenantse
+        cron = None
+        if conf.web_case == 'camel':
+            if 'cronSchedule' in args and args.get('cronSchedule') is not None:
+                cron = args.get('cronSchedule')
+            if 'cronOn' in args and args.get('cronOn') is not None:
+                actor['cron_on'] = args.get('cronOn')
+        else:
+            if 'cron_schedule' in args and args.get('cron_schedule') is not None:
+                cron = args.get('cron_schedule')
+            if 'cron_on' in args and args.get('cron_on') is not None:
+                actor['cron_on'] = args.get('cron_on')
+        if cron is not None:
+            # set_cron checks for the 'now' alias 
+            # It also checks that the cron schedule is greater than or equal to the current UTC time
+            # Check for proper unit of time
+            r = Actor.set_cron(cron)
+            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']: 
                 args['cron_schedule'] = cron
                 logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
                 args['cron_next_ex'] = r.fixed[0]
-            # Check for proper unit of time
             else:
                 raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
-        if 'cronOn' in args and args.get('cronOn') is not None:
-            actor['cron_on'] = args.get('cronOn')
+        else:
+            logger.debug("No cron schedule has been sent")
         if args['queue']:
             valid_queues = conf.spawner_host_queues
             if args['queue'] not in valid_queues:
