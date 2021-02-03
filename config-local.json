@@ -63,30 +63,30 @@
     ],
     "site_id": "tacc",
     "global_site_object": {
-        "web_log_ex": 43200
     },
     "tacc_site_object": {
         "site_mongo_pass": "pass1here",
         "site_rabbitmq_pass": "pass2here"
     }, 
     "examp_site_object": {
-        "web_log_ex": 43200,
         "site_mongo_pass": "pass1here",
         "site_rabbitmq_pass": "pass2here"
     },
-    "global_auth_object": {
+    "global_tenant_object": {
+        "log_ex_limit": 86400,
+        "log_ex": 43200,
         "use_tas_uid": false,
         "default_token": false,
         "generate_clients": true
     },
-    "tacc_auth_object": {
+    "tacc_tenant_object": {
         "use_tas_uid": false,
         "default_token": false,
         "generate_clients": true,
         "global_mounts": [
         ]
     },
-    "designsafe_auth_object": {
+    "designsafe_tenant_object": {
         "actor_uid": 458981,
         "actor_gid": 816877,
         "global_mounts": [
@@ -94,10 +94,10 @@
         "$env{abaco_host_path}/runtime_files/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
         ]
     },
-    "sd2e_auth_object": {
+    "sd2e_tenant_object": {
         "use_tas_uid": true
     },
-    "dev_auth_object": {
+    "dev_tenant_object": {
         "global_mounts": [
         "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro"
         ]
