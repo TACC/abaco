@@ -527,8 +527,8 @@ class Event(object):
         try:
             actor = Actor.from_db(actors_store[site()][self.db_id])
         except KeyError:
-            logger.debug("did not find actor with id: {}".format(self.actor_id))
-            raise ResourceError("No actor found with identifier: {}.".format(self.actor_id), 404)
+            logger.debug(f"did not find actor with id: {self.actor_id}")
+            raise ResourceError(f"No actor found with identifier: {self.actor_id}.", 404)
         # the link and webhook attributes were added in 1.2.0; actors registered before 1.2.0 will not have
         # have these attributed defined so we use the .get() method below --
         # if the webhook exists, we always try it.
@@ -544,7 +544,7 @@ class Event(object):
                 self.link = Actor.get_dbid(self.tenant_id, link_id)
             except Exception as e:
                 self.link = ''
-                logger.error("Got exception: {} calling get_actor_id to set the event link.".format(e))
+                logger.error(f"Got exception: {e} calling get_actor_id to set the event link.")
         else:
             self.link = ''
 
@@ -554,7 +554,7 @@ class Event(object):
         checking for actor links and pushing messages to the EventsExchange.
         :return: None 
         """
-        logger.debug("top of publish for event: {}".format(self.data))
+        logger.debug(f"top of publish for event: {self.data}")
         logger.info(self.data)
         if not self.link and not self.webhook:
             logger.debug("No link or webhook supplied for this event. Not publishing to the EventsChannel.")
@@ -579,7 +579,7 @@ class ActorEvent(Event):
         if not event_type.upper() in ActorEvent.event_types:
             logger.error("Invalid actor event type passed to the ActorEvent constructor. "
                          "event type: {}".format(event_type))
-            raise DAOError("Invalid actor event type {}.".format(event_type))
+            raise DAOError(f"Invalid actor event type {event_type}.")
 
 
 class ActorExecutionEvent(Event):
@@ -598,7 +598,7 @@ class ActorExecutionEvent(Event):
         if not event_type.upper() in ActorExecutionEvent.event_types:
             logger.error("Invalid actor event type passed to the ActorExecutionEvent constructor. "
                          "event type: {}".format(event_type))
-            raise DAOError("Invalid actor execution event type {}.".format(event_type))
+            raise DAOError(f"Invalid actor execution event type {event_type}.")
 
         self.execution_id = execution_id
         self.data['execution_id'] = execution_id
@@ -686,8 +686,8 @@ class AbacoDAO(DbDict):
                 try:
                     value = kwargs[pname]
                 except KeyError:
-                    logger.debug("required missing field: {}. ".format(pname))
-                    raise DAOError("Required field {} missing.".format(pname))
+                    logger.debug(f"required missing field: {pname}. ")
+                    raise DAOError(f"Required field {pname} missing.")
             elif source == 'optional':
                 try:
                     value = kwargs[pname]
@@ -697,8 +697,8 @@ class AbacoDAO(DbDict):
                 try:
                     value = kwargs[pname]
                 except KeyError:
-                    logger.debug("provided field missing: {}.".format(pname))
-                    raise DAOError("Required field {} missing.".format(pname))
+                    logger.debug(f"provided field missing: {pname}.")
+                    raise DAOError(f"Required field {pname} missing.")
             else:
                 # derived value - check to see if already computed
                 if hasattr(self, pname):
@@ -795,7 +795,7 @@ class Actor(AbacoDAO):
         try:
             actor_id, db_id = self.generate_id(d['name'], d['tenant'])
         except KeyError:
-            logger.debug("name or tenant missing from actor dict: {}.".format(d))
+            logger.debug(f"name or tenant missing from actor dict: {d}.")
             raise DAOError("Required field name or tenant missing")
         # id fields:
         self.id = actor_id
@@ -839,7 +839,7 @@ class Actor(AbacoDAO):
             # The unit of time is not supported, turn off cron or else it will continue to execute
             logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
             actors_store[actor_id, 'cron_on'] = False
-        time = "{}-{}-{} {}".format(end.year, end.month, end.day, end.hour)
+        time = f"{end.year}-{end.month}-{end.day} {end.hour}"
         logger.debug(f"returning {time}")
         return time  
 
@@ -934,9 +934,9 @@ class Actor(AbacoDAO):
         return self.case()
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/v3/actors/{}'.format(self.api_server, self.id),
-                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
-                            'executions': '{}/v3/actors/{}/executions'.format(self.api_server, self.id)
+        return {'_links': { 'self': f'{self.api_server}/v3/actors/{self.id}',
+                            'owner': f'{self.api_server}/v3/oauth2/profiles/{self.owner}',
+                            'executions': f'{self.api_server}/v3/actors/{self.id}/executions'
         }}
 
     def generate_id(self, name, tenant):
@@ -949,7 +949,7 @@ class Actor(AbacoDAO):
         logger.debug("top of Actor.ensure_one_worker().")
         site_id = site_id or site()
         worker_id = Worker.ensure_one_worker(self.db_id, self.tenant)
-        logger.debug("Worker.ensure_one_worker returned worker_id: {}".format(worker_id))
+        logger.debug(f"Worker.ensure_one_worker returned worker_id: {worker_id}")
         if worker_id:
             logger.info("Actor.ensure_one_worker() putting message on command "
                         "channel for worker_id: {}".format(worker_id))
@@ -1011,7 +1011,7 @@ class Actor(AbacoDAO):
     @classmethod
     def get_dbid(cls, tenant, id):
         """Return the key used in mongo from the "display_id" and tenant. """
-        return str('{}_{}'.format(tenant, id))
+        return str(f'{tenant}_{id}')
 
     @classmethod
     def get_display_id(cls, tenant, dbid):
@@ -1066,7 +1066,7 @@ class Alias(AbacoDAO):
     @classmethod
     def generate_alias_id(cls, tenant, alias):
         """Generate the alias id from the alias name and tenant."""
-        return '{}_{}'.format(tenant, alias)
+        return f'{tenant}_{alias}'
 
     @classmethod
     def generate_alias_from_id(cls, alias_id):
@@ -1098,21 +1098,21 @@ class Alias(AbacoDAO):
         # attempt to create the alias within a transaction
         obj = alias_store[site()].add_if_empty([self.alias_id], self)
         if not obj:
-            raise DAOError("Alias {} already exists.".format(self.alias))
+            raise DAOError(f"Alias {self.alias} already exists.")
         return obj
 
     @classmethod
     def retrieve_by_alias_id(cls, alias_id):
         """ Returns the Alias object associate with the alias_id or raises a KeyError."""
-        logger.debug("top of retrieve_by_alias_id; alias_id: {}".format(alias_id))
+        logger.debug(f"top of retrieve_by_alias_id; alias_id: {alias_id}")
         obj = alias_store[site()][alias_id]
-        logger.debug("got alias obj: {}".format(obj))
+        logger.debug(f"got alias obj: {obj}")
         return Alias(**obj)
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/v3/actors/aliases/{}'.format(self.api_server, self.alias),
-                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
-                            'actor': '{}/v3/actors/{}'.format(self.api_server, self.actor_id)
+        return {'_links': { 'self': f'{self.api_server}/v3/actors/aliases/{self.alias}',
+                            'owner': f'{self.api_server}/v3/oauth2/profiles/{self.owner}',
+                            'actor': f'{self.api_server}/v3/actors/{self.actor_id}'
         }}
 
     def display(self):
@@ -1137,7 +1137,7 @@ class Nonce(AbacoDAO):
         ('api_server', 'provided', 'api_server', str, 'api_server associated with this nonce.', None),
 
         ('level', 'optional', 'level', str,
-         'Permission level associated with this nonce. Default is {}.'.format(EXECUTE), EXECUTE.name),
+         f'Permission level associated with this nonce. Default is {EXECUTE}.', EXECUTE.name),
         ('max_uses', 'optional', 'max_uses', int,
          'Maximum number of times this nonce can be redeemed. Default is unlimited.', -1),
         ('description', 'optional', 'description', str, 'Description of this nonce', ''),
@@ -1211,7 +1211,7 @@ class Nonce(AbacoDAO):
             self.id = self.get_nonce_id(self.tenant, self.get_uuid())
 
         # derive the actor_id from the db_id if this is an actor nonce:
-        logger.debug("inside get_derived_value for nonce; name={}; d={}; self={}".format(name, d, self))
+        logger.debug(f"inside get_derived_value for nonce; name={name}; d={d}; self={self}")
         if self.db_id:
             self.actor_id = Actor.get_display_id(self.tenant, self.db_id)
 
@@ -1230,12 +1230,12 @@ class Nonce(AbacoDAO):
 
     def get_nonce_id(self, tenant, uuid):
         """Return the nonce id from the tenant and uuid."""
-        return '{}_{}'.format(tenant, uuid)
+        return f'{tenant}_{uuid}'
 
     def get_hypermedia(self):
-        return {'_links': { 'self': '{}/v3/actors/{}/nonces/{}'.format(self.api_server, self.actor_id, self.id),
-                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
-                            'actor': '{}/v3/actors/{}'.format(self.api_server, self.actor_id)
+        return {'_links': { 'self': f'{self.api_server}/v3/actors/{self.actor_id}/nonces/{self.id}',
+                            'owner': f'{self.api_server}/v3/oauth2/profiles/{self.owner}',
+                            'actor': f'{self.api_server}/v3/actors/{self.actor_id}'
         }}
 
     def display(self):
@@ -1301,10 +1301,10 @@ class Nonce(AbacoDAO):
         nonce_key = Nonce.get_validate_nonce_key(actor_id, alias)
         try:
             nonce_store[site()][nonce_key, nonce.id] = nonce
-            logger.debug("nonce {} appended to nonces for actor/alias {}".format(nonce.id, nonce_key))
+            logger.debug(f"nonce {nonce.id} appended to nonces for actor/alias {nonce_key}")
         except KeyError:
             nonce_store[site()].add_if_empty([nonce_key, nonce.id], nonce)
-            logger.debug("nonce {} added for actor/alias {}".format(nonce.id, nonce_key))
+            logger.debug(f"nonce {nonce.id} added for actor/alias {nonce_key}")
 
     @classmethod
     def delete_nonce(cls, actor_id, alias, nonce_id):
@@ -1405,7 +1405,7 @@ class Execution(AbacoDAO):
         :param ex: dict describing the execution.
         :return:
         """
-        logger.debug("top of add_execution for actor: {} and execution: {}.".format(actor_id, ex))
+        logger.debug(f"top of add_execution for actor: {actor_id} and execution: {ex}.")
         actor = Actor.from_db(actors_store[site()][actor_id])
         ex.update({'actor_id': actor_id,
                    'tenant': actor.tenant,
@@ -1425,7 +1425,7 @@ class Execution(AbacoDAO):
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
             logger.critical(f"Execution.add_execution took {ms} to run for actor {actor_id}, execution: {execution}")
-        logger.info("Execution: {} saved for actor: {}.".format(ex, actor_id))
+        logger.info(f"Execution: {ex} saved for actor: {actor_id}.")
         return execution.id
 
     @classmethod
@@ -1446,7 +1446,7 @@ class Execution(AbacoDAO):
         except KeyError as e:
             logger.error("Could not add an execution. KeyError: {}. actor: {}. ex: {}. worker: {}".format(
                 e, actor_id, execution_id, worker_id))
-            raise ExecutionException("Execution {} not found.".format(execution_id))
+            raise ExecutionException(f"Execution {execution_id} not found.")
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1471,7 +1471,7 @@ class Execution(AbacoDAO):
         except KeyError as e:
             logger.error("Could not update status. KeyError: {}. actor: {}. ex: {}. status: {}".format(
                 e, actor_id, execution_id, status))
-            raise ExecutionException("Execution {} not found.".format(execution_id))
+            raise ExecutionException(f"Execution {execution_id} not found.")
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1492,15 +1492,15 @@ class Execution(AbacoDAO):
          """
         params_str = "actor: {}. ex: {}. status: {}. final_state: {}. exit_code: {}. stats: {}".format(
             actor_id, execution_id, status, final_state, exit_code, stats)
-        logger.debug("top of finalize_execution. Params: {}".format(params_str))
+        logger.debug(f"top of finalize_execution. Params: {params_str}")
         if not 'io' in stats:
-            logger.error("Could not finalize execution. io missing. Params: {}".format(params_str))
+            logger.error(f"Could not finalize execution. io missing. Params: {params_str}")
             raise ExecutionException("'io' parameter required to finalize execution.")
         if not 'cpu' in stats:
-            logger.error("Could not finalize execution. cpu missing. Params: {}".format(params_str))
+            logger.error(f"Could not finalize execution. cpu missing. Params: {params_str}")
             raise ExecutionException("'cpu' parameter required to finalize execution.")
         if not 'runtime' in stats:
-            logger.error("Could not finalize execution. runtime missing. Params: {}".format(params_str))
+            logger.error(f"Could not finalize execution. runtime missing. Params: {params_str}")
             raise ExecutionException("'runtime' parameter required to finalize execution.")
         start_timer = timeit.default_timer()
         try:
@@ -1512,8 +1512,8 @@ class Execution(AbacoDAO):
             executions_store[site()][f'{actor_id}_{execution_id}', 'exit_code'] = exit_code
             executions_store[site()][f'{actor_id}_{execution_id}', 'start_time'] = start_time
         except KeyError:
-            logger.error("Could not finalize execution. execution not found. Params: {}".format(params_str))
-            raise ExecutionException("Execution {} not found.".format(execution_id))
+            logger.error(f"Could not finalize execution. execution not found. Params: {params_str}")
+            raise ExecutionException(f"Execution {execution_id} not found.")
 
         try:
             finish_time = final_state.get('FinishedAt')
@@ -1564,7 +1564,7 @@ class Execution(AbacoDAO):
         except:
             max_log_length = DEFAULT_MAX_LOG_LENGTH
         if len(logs) > DEFAULT_MAX_LOG_LENGTH:
-            logger.info("truncating log for execution: {}".format(exc_id))
+            logger.info(f"truncating log for execution: {exc_id}")
             # in some environments, perhaps depending on OS or docker version, the logs object is of type bytes.
             # in that case we need to convert to be able to concatenate.
             if type(logs) == bytes:
@@ -1575,10 +1575,10 @@ class Execution(AbacoDAO):
             logs = logs[:max_log_length] + " LOG LIMIT EXCEEDED; this execution log was TRUNCATED!"
         start_timer = timeit.default_timer()
         if log_ex > 0:
-            logger.info("Storing log with expiry. exc_id: {}".format(exc_id))
+            logger.info(f"Storing log with expiry. exc_id: {exc_id}")
             logs_store[site()].set_with_expiry([exc_id, 'logs'], logs, log_ex)
         else:
-            logger.info("Storing log without expiry. exc_id: {}".format(exc_id))
+            logger.info(f"Storing log without expiry. exc_id: {exc_id}")
             logs_store[site()][exc_id, logs] = logs
         logs_store[site()][exc_id, 'actor_id'] = actor_id
         logs_store[site()][exc_id, 'tenant'] = tenant
@@ -1595,9 +1595,9 @@ class Execution(AbacoDAO):
 
     def get_hypermedia(self):
         aid = Actor.get_display_id(self.tenant, self.actor_id)
-        return {'_links': { 'self': '{}/v3/actors/{}/executions/{}'.format(self.api_server, aid, self.id),
-                            'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.executor),
-                            'logs': '{}/v3/actors/{}/executions/{}/logs'.format(self.api_server, aid, self.id)
+        return {'_links': { 'self': f'{self.api_server}/v3/actors/{aid}/executions/{self.id}',
+                            'owner': f'{self.api_server}/v3/oauth2/profiles/{self.executor}',
+                            'logs': f'{self.api_server}/v3/actors/{aid}/executions/{self.id}/logs'
         }}
 
     def display(self):
@@ -1640,7 +1640,7 @@ class ExecutionsSummary(AbacoDAO):
             actor = actors_store[site()][dbid]
         except KeyError:
             raise DAOError(
-                "actor not found: {}'".format(dbid), 404)
+                f"actor not found: {dbid}'", 404)
         tot = {'api_server': actor['api_server'],
                'actor_id': actor['id'],
                'owner': actor['owner'],
@@ -1686,15 +1686,15 @@ class ExecutionsSummary(AbacoDAO):
         try:
             dbid = d['db_id']
         except KeyError:
-            logger.error("db_id missing from call to get_derived_value. d: {}".format(d))
+            logger.error(f"db_id missing from call to get_derived_value. d: {d}")
             raise ExecutionException('db_id is required.')
         tot = self.compute_summary_stats(dbid)
         d.update(tot)
         return tot[name]
 
     def get_hypermedia(self):
-        return {'_links': {'self': '{}/v3/actors/{}/executions'.format(self.api_server, self.actor_id),
-                           'owner': '{}/v3/oauth2/profiles/{}'.format(self.api_server, self.owner),
+        return {'_links': {'self': f'{self.api_server}/v3/actors/{self.actor_id}/executions',
+                           'owner': f'{self.api_server}/v3/oauth2/profiles/{self.owner}',
         }}
 
     def display(self):
@@ -1784,7 +1784,7 @@ class Worker(AbacoDAO):
         parameter.
         """
         site_id = site_id or site()
-        logger.debug("top of delete_worker(). actor_id: {}; worker_id: {}".format(actor_id, worker_id))
+        logger.debug(f"top of delete_worker(). actor_id: {actor_id}; worker_id: {worker_id}")
         try:
             wk = workers_store[site_id].pop_field([f'{actor_id}_{worker_id}'])
             logger.info(f"worker deleted. actor: {actor_id}. worker: {worker_id}.")
@@ -1837,7 +1837,7 @@ class Worker(AbacoDAO):
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
-            logger.info("added additional worker with id: {} to workers_store[site()].".format(worker_id))
+            logger.info(f"added additional worker with id: {worker_id} to workers_store[site()].")
         except KeyError:
             workers_store[site()].add_if_empty([f'{actor_id}_{worker_id}'], worker)
             abaco_metrics_store[site()].full_update(
@@ -1845,7 +1845,7 @@ class Worker(AbacoDAO):
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
-            logger.info("added first worker with id: {} to workers_store[site()].".format(worker_id))
+            logger.info(f"added first worker with id: {worker_id} to workers_store[site()].")
         return worker_id
 
     @classmethod
@@ -1859,7 +1859,7 @@ class Worker(AbacoDAO):
         logger.debug("top of add_worker().")
         site_id = site_id or site()
         workers_store[site_id][f'{actor_id}_{worker["id"]}'] = worker
-        logger.info("worker {} added to actor: {}".format(worker, actor_id))
+        logger.info(f"worker {worker} added to actor: {actor_id}")
 
     @classmethod
     def update_worker_execution_time(cls, actor_id, worker_id):
@@ -1870,13 +1870,13 @@ class Worker(AbacoDAO):
         try:
             workers_store[site()][f'{actor_id}_{worker_id}', 'last_execution_time'] = now
         except KeyError as e:
-            logger.error("Got KeyError; actor_id: {}; worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+            logger.error(f"Got KeyError; actor_id: {actor_id}; worker_id: {worker_id}; exception: {e}")
             raise e
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
             logger.critical(f"update_worker_execution_time took {ms} to run for actor {actor_id}, worker: {worker_id}")
-        logger.info("worker execution time updated. worker_id: {}".format(worker_id))
+        logger.info(f"worker execution time updated. worker_id: {worker_id}")
 
     @classmethod
     def update_worker_health_time(cls, actor_id, worker_id):
@@ -1884,7 +1884,7 @@ class Worker(AbacoDAO):
         logger.debug("top of update_worker_health_time().")
         now = get_current_utc_time()
         workers_store[site()][f'{actor_id}_{worker_id}', 'last_health_check_time'] = now
-        logger.info("worker last_health_check_time updated. worker_id: {}".format(worker_id))
+        logger.info(f"worker last_health_check_time updated. worker_id: {worker_id}")
 
     @classmethod
     def update_worker_status(cls, actor_id, worker_id, status, site_id=None):
@@ -1980,4 +1980,4 @@ def set_permission(user, actor_id, level):
     new = permissions_store[site()].add_if_empty([actor_id, user], str(level))
     if not new:
         permissions_store[site()][actor_id, user] = str(level)
-    logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))
+    logger.info(f"Permission set for actor: {actor_id}; user: {user} at level: {level}")

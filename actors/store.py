@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 def _do_get(getter, key):
     obj = getter(key)
     if obj is None:
-        raise KeyError('"{}" not found'.format(key))
+        raise KeyError(f'"{key}" not found')
     try:
         return json.loads(obj.decode('utf-8'))
     # handle non-JSON data
@@ -78,7 +78,7 @@ class AbstractStore(collections.MutableMapping):
 
         busy = self.getset(key, True)
         if busy:
-            raise StoreMutexException('{} is busy'.format(key))
+            raise StoreMutexException(f'{key} is busy')
 
     def mutex_release(self, key):
         self[key] = False

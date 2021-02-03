@@ -175,7 +175,7 @@ class EventsChannel(BinaryTaskQueue):
         if name not in EventsChannel.event_queue_names:
             raise Exception('Invalid Events Channel Queue name.')
 
-        super().__init__(name='events_channel_{}'.format(name))
+        super().__init__(name=f'events_channel_{name}')
 
     def put_event(self, json_data):
         """Put a new event on the events channel."""
@@ -192,7 +192,7 @@ class CommandChannel(BinaryTaskQueue):
             raise Exception('Invalid Queue name.')
 
 
-        super().__init__(name='command_channel_{}'.format(name))
+        super().__init__(name=f'command_channel_{name}')
 
     def put_cmd(self, actor_id, worker_id, image, revision, tenant, site_id, stop_existing=True):
         """Put a new command on the command channel."""
@@ -215,7 +215,7 @@ class SpawnerWorkerChannel(BinaryTaskQueue):
         self.uri = RABBIT_URI
         ch_name = None
         if worker_id:
-            ch_name = 'spawner_worker_{}'.format(worker_id)
+            ch_name = f'spawner_worker_{worker_id}'
         super().__init__(name=ch_name)
 
 
@@ -226,7 +226,7 @@ class WorkerChannel(BinaryTaskQueue):
     @classmethod
     def get_name(cls, worker_id):
         """Return the name of the channel that would be used for this worker_id."""
-        return 'worker_{}'.format(worker_id)
+        return f'worker_{worker_id}'
 
     def __init__(self, worker_id=None):
         self.uri = RABBIT_URI
@@ -238,7 +238,7 @@ class WorkerChannel(BinaryTaskQueue):
 
 class ActorMsgChannel(BinaryTaskQueue):
     def __init__(self, actor_id):
-        super().__init__(name='actor_msg_{}'.format(actor_id))
+        super().__init__(name=f'actor_msg_{actor_id}')
 
     def put_msg(self, message, d={}, **kwargs):
         d['message'] = message
@@ -267,7 +267,7 @@ class ExecutionResultsChannel(BinaryChannel):
     """
     def __init__(self, actor_id, execution_id):
         self.uri = RABBIT_URI
-        super().__init__(name='results_{}_{}'.format(actor_id, execution_id),
+        super().__init__(name=f'results_{actor_id}_{execution_id}',
                          connection_type=FiniteRabbitConnection,
                          uri=self.uri)
 
@@ -277,7 +277,7 @@ class ExecutionJSONResultsChannel(Channel):
     """
     def __init__(self, actor_id, execution_id):
         self.uri = RABBIT_URI
-        super().__init__(name='results_{}_{}'.format(actor_id, execution_id),
+        super().__init__(name=f'results_{actor_id}_{execution_id}',
                          connection_type=FiniteRabbitConnection,
                          uri=self.uri)
 

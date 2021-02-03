@@ -19,7 +19,7 @@ from util import headers, base_url, case, \
 
 # Initialization
 def test_register_with_log_ex(headers):
-    url = '{}/{}'.format(base_url, '/actors')
+    url = f"{base_url}/actors"
     field = 'log_ex'
     if case == 'camel':
         field = 'logEx'
@@ -38,7 +38,7 @@ def test_update_log_ex(headers):
     field = 'log_ex'
     if case == 'camel':
         field = 'logEx'
-    url = '{}/actors/{}'.format(base_url, actor_id)
+    url = f'{base_url}/actors/{actor_id}'
     data = {'image': 'jstubbs/abaco_test',
             field: '20000'}
     rsp = requests.put(url, headers=headers, data=data)

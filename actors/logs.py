@@ -38,5 +38,5 @@ def get_logger(name: str) -> logging.Logger:
         ))
         handler.setLevel(level)
         logger.addHandler(handler)
-    logger.info("returning a logger set to level: {} for module: {}".format(level, name))
+    logger.info(f"returning a logger set to level: {level} for module: {name}")
     return logger

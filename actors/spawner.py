@@ -27,7 +27,7 @@ os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
 logger = get_logger(__name__)
 
 MAX_WORKERS = conf.spawner_max_workers_per_host
-logger.info("Spawner running with MAX_WORKERS = {}".format(MAX_WORKERS))
+logger.info(f"Spawner running with MAX_WORKERS = {MAX_WORKERS}")
 
 
 class SpawnerException(Exception):
@@ -51,7 +51,7 @@ class Spawner(object):
             # check resource threshold before subscribing
             while True:
                 if self.overloaded():
-                    logger.critical("METRICS - SPAWNER FOR HOST {} OVERLOADED!!!".format(self.host_id))
+                    logger.critical(f"METRICS - SPAWNER FOR HOST {self.host_id} OVERLOADED!!!")
                     # self.update_status to OVERLOADED
                     time.sleep(5)
                 else:
@@ -69,30 +69,30 @@ class Spawner(object):
     def get_tot_workers(self):
         logger.debug("top of get_tot_workers")
         self.tot_workers = 0
-        logger.debug('spawner host_id: {}'.format(self.host_id))
+        logger.debug(f'spawner host_id: {self.host_id}')
         for worker_info in workers_store[site()].items():
             try:
                 if worker_info['host_id'] == self.host_id:
                     self.tot_workers += 1
             except KeyError:
                 continue
-        logger.debug("returning total workers: {}".format(self.tot_workers))
+        logger.debug(f"returning total workers: {self.tot_workers}")
         return self.tot_workers
 
     def overloaded(self):
         logger.debug("top of overloaded")
         self.get_tot_workers()
-        logger.info("total workers for this host: {}".format(self.tot_workers))
+        logger.info(f"total workers for this host: {self.tot_workers}")
         if self.tot_workers >= MAX_WORKERS:
             return True
 
     def stop_workers(self, actor_id, worker_ids):
         """Stop existing workers; used when updating an actor's image."""
-        logger.debug("Top of stop_workers() for actor: {}.".format(actor_id))
+        logger.debug(f"Top of stop_workers() for actor: {actor_id}.")
         try:
             workers_list = workers_store[site()].items({'actor_id': actor_id})
         except KeyError:
-            logger.debug("workers_store had no workers for actor: {}".format(actor_id))
+            logger.debug(f"workers_store had no workers for actor: {actor_id}")
             workers_list = []
 
         # if there are existing workers, we need to close the actor message channel and
@@ -103,7 +103,7 @@ class Spawner(object):
             # by the old workers.
             actor_ch = ActorMsgChannel(actor_id)
             actor_ch.close()
-            logger.info("Actor channel closed for actor: {}".format(actor_id))
+            logger.info(f"Actor channel closed for actor: {actor_id}")
             # now, send messages to workers for a graceful shutdown:
             for worker in workers_list:
                 # don't stop the new workers:
@@ -121,7 +121,7 @@ class Spawner(object):
 
     def process(self, cmd):
         """Main spawner method for processing a command from the CommandChannel."""
-        logger.info("top of process; cmd: {}".format(cmd))
+        logger.info(f"top of process; cmd: {cmd}")
         actor_id = cmd['actor_id']
         site_id = cmd['site_id']
         try:
@@ -185,11 +185,11 @@ class Spawner(object):
 
         # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
         Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP, site_id)
-        logger.debug("spawner has updated worker status to SPAWNER_SETUP; worker_id: {}".format(worker_id))
+        logger.debug(f"spawner has updated worker status to SPAWNER_SETUP; worker_id: {worker_id}")
         api_server = conf.primary_site_admin_tenant_base_url
 
         spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
-        logger.debug("spawner attempting to start worker; worker_id: {}".format(worker_id))
+        logger.debug(f"spawner attempting to start worker; worker_id: {worker_id}")
         try:
             worker = self.start_worker(
                 image,
@@ -202,17 +202,17 @@ class Spawner(object):
                 site_id
             )
         except Exception as e:
-            msg = "Spawner got an exception from call to start_worker. Exception:{}".format(e)
+            msg = f"Spawner got an exception from call to start_worker. Exception:{e}"
             logger.error(msg)
             self.error_out_actor(actor_id, worker_id, msg, site_id)
             return
 
-        logger.debug("Returned from start_worker; Created new worker: {}".format(worker))
+        logger.debug(f"Returned from start_worker; Created new worker: {worker}")
         spawner_ch.close()
         logger.debug("Worker's spawner channel closed")
 
         if stop_existing:
-            logger.info("Stopping existing workers: {}".format(worker_id))
+            logger.info(f"Stopping existing workers: {worker_id}")
             # TODO - update status to stop_requested
             self.stop_workers(actor_id, [worker_id])
 
@@ -232,16 +232,16 @@ class Spawner(object):
         # worker['status'] = PULLING_IMAGE
         Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE, site_id)
         try:
-            logger.debug("spawner pulling image {}...".format(image))
+            logger.debug(f"spawner pulling image {image}...")
             pull_image(image)
         except DockerError as e:
             # return a message to the spawner that there was an error pulling image and abort.
             # this is not necessarily an error state: the user simply could have provided an
             # image name that does not exist in the registry. This is the first time we would
             # find that out.
-            logger.info("spawner got a DockerError trying to pull image. Error: {}.".format(e))
+            logger.info(f"spawner got a DockerError trying to pull image. Error: {e}.")
             raise e
-        logger.info("Image {} pulled successfully.".format(image))
+        logger.info(f"Image {image} pulled successfully.")
         # Done pulling image
         # Run Worker Container
         while True:
@@ -258,13 +258,13 @@ class Spawner(object):
                 )
                 logger.debug(f'finished run worker; worker dict: {worker_dict}')
             except DockerError as e:
-                logger.error("Spawner got a docker exception from run_worker; Exception: {}".format(e))
+                logger.error(f"Spawner got a docker exception from run_worker; Exception: {e}")
                 if 'read timeout' in e.message:
                     logger.info("Exception was a read timeout; trying run_worker again..")
                     time.sleep(5)
                     attempts = attempts + 1
                     if attempts > 20:
-                        msg = "Spawner continued to get DockerError for 20 attempts. Exception: {}".format(e)
+                        msg = f"Spawner continued to get DockerError for 20 attempts. Exception: {e}"
                         logger.critical(msg)
                         # todo - should we be calling kill_worker here? (it is called in the exception block of the else below)
                         raise SpawnerException(msg)
@@ -279,7 +279,7 @@ class Spawner(object):
                                     "worker_id: {}"
                                     "Exception: {}".format(worker_id, e))
 
-                    raise SpawnerException(message="Unable to start worker; error: {}".format(e))
+                    raise SpawnerException(message=f"Unable to start worker; error: {e}")
             break
         logger.debug('finished loop')
         worker_dict['ch_name'] = WorkerChannel.get_name(worker_id)
@@ -303,7 +303,7 @@ class Spawner(object):
                 pass
         # finalize worker with READY status
         worker = Worker(tenant=tenant, **worker_dict)
-        logger.info("calling add_worker for worker: {}.".format(worker))
+        logger.info(f"calling add_worker for worker: {worker}.")
         Worker.add_worker(actor_id, worker, site_id)
 
         spawner_ch.put('READY')  # step 4
@@ -312,7 +312,7 @@ class Spawner(object):
     def error_out_actor(self, actor_id, worker_id, message, site_id=None):
         """In case of an error, put the actor in error state and kill all workers"""
         site_id = site_id or site()
-        logger.debug("top of error_out_actor for worker: {}_{}".format(actor_id, worker_id))
+        logger.debug(f"top of error_out_actor for worker: {actor_id}_{worker_id}")
         Actor.set_status(actor_id, ERROR, status_message=message, site_id=site_id)
         # check to see how far the spawner got setting up the worker:
         try:
@@ -330,10 +330,10 @@ class Spawner(object):
             # for workers whose containers are running, we first try to stop workers using the "graceful" approach -
             try:
                 self.stop_workers(actor_id, worker_ids=[])
-                logger.info("Spawner just stopped worker {}_{} in error_out_actor".format(actor_id, worker_id))
+                logger.info(f"Spawner just stopped worker {actor_id}_{worker_id} in error_out_actor")
                 return
             except Exception as e:
-                logger.error("spawner got exception trying to run stop_workers. Exception: {}".format(e))
+                logger.error(f"spawner got exception trying to run stop_workers. Exception: {e}")
                 logger.info("setting worker_status to ERROR so that kill_worker will run.")
                 worker_status = ERROR
 
@@ -343,9 +343,9 @@ class Spawner(object):
             logger.debug(f"worker status was: {worker_status}; trying to kill_worker")
             try:
                 self.kill_worker(actor_id, worker_id, site_id)
-                logger.info("Spawner just killed worker {}_{} in error_out_actor".format(actor_id, worker_id))
+                logger.info(f"Spawner just killed worker {actor_id}_{worker_id} in error_out_actor")
             except DockerError as e:
-                logger.info("Received DockerError trying to kill worker: {}. Exception: {}".format(worker_id, e))
+                logger.info(f"Received DockerError trying to kill worker: {worker_id}. Exception: {e}")
                 logger.info("Spawner will continue on since this is exception processing.")
 
     def kill_worker(self, actor_id, worker_id, site_id=None):
@@ -371,7 +371,7 @@ def main():
         try:
             sp = Spawner()
             logger.info("spawner made connection to rabbit, entering main loop")
-            logger.info("spawner using abaco_host_path={}".format(os.environ.get('abaco_host_path')))
+            logger.info(f"spawner using abaco_host_path={os.environ.get('abaco_host_path')}")
             sp.run()
         except (rabbitpy.exceptions.ConnectionException, RuntimeError):
             # rabbit seems to take a few seconds to come up

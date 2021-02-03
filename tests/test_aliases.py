@@ -265,7 +265,7 @@ def test_other_user_can_delete_shared_alias(privileged_headers):
 
 def test_add_alias_with_dots_in_name(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
-    url = '{}/actors/aliases'.format(base_url)
+    url = f'{base_url}/actors/aliases'
     field = 'actor_id'
     if case == 'camel':
         field = 'actorId'
@@ -277,7 +277,7 @@ def test_add_alias_with_dots_in_name(headers):
     assert result[field] == actor_id
 
 def test_list_alias_with_dots_in_name(headers):
-    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/aliases/{ALIAS_3}'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
@@ -290,14 +290,14 @@ def test_list_alias_with_dots_in_name(headers):
 
 def test_get_actor_with_alias_with_dots_in_name(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
-    url = '{}/actors/{}'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/{ALIAS_3}'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert result['id'] == actor_id
 
 def test_get_actor_messages_with_alias_with_dots_in_name(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
-    url = '{}/actors/{}/messages'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/{ALIAS_3}/messages'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert actor_id in result['_links']['self']
@@ -305,14 +305,14 @@ def test_get_actor_messages_with_alias_with_dots_in_name(headers):
 
 def test_get_actor_executions_with_alias_with_dots_in_name(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_alias')
-    url = '{}/actors/{}/executions'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/{ALIAS_3}/executions'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     assert actor_id in result['_links']['self']
     assert 'executions' in result
 
 def test_create_unlimited_alias_nonce_with_dots_in_name(headers):
-    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/aliases/{ALIAS_3}/nonces'
     # passing no data to the POST should use the defaults for a nonce:
     # unlimited uses and EXECUTE level
     rsp = requests.post(url, headers=headers)
@@ -321,27 +321,27 @@ def test_create_unlimited_alias_nonce_with_dots_in_name(headers):
 
 def test_redeem_unlimited_alias_nonce_with_dots_in_name(headers):
     # first, get the nonce id:
-    url = '{}/actors/aliases/{}/nonces'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/aliases/{ALIAS_3}/nonces'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     nonce_id = result[0].get('id')
     # sanity check that alias can be used to get the actor
-    url = '{}/actors/{}'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/{ALIAS_3}'
     rsp = requests.get(url, headers=headers)
     basic_response_checks(rsp)
     # use the nonce-id and the alias to list the actor
-    url = '{}/actors/{}?x-nonce={}'.format(base_url, ALIAS_3, nonce_id)
+    url = f'{base_url}/actors/{ALIAS_3}?x-nonce={nonce_id}'
     # no JWT header -- we're using the nonce
     rsp = requests.get(url)
     basic_response_checks(rsp)
 
 def test_owner_can_delete_alias_with_dots_in_name(headers):
-    url = '{}/actors/aliases/{}'.format(base_url, ALIAS_3)
+    url = f'{base_url}/actors/aliases/{ALIAS_3}'
     rsp = requests.delete(url, headers=headers)
     result = basic_response_checks(rsp)
 
     # list aliases and make sure it is gone -
-    url = '{}/actors/aliases'.format(base_url)
+    url = f'{base_url}/actors/aliases'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     for alias in result:

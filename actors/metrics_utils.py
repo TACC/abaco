@@ -50,11 +50,11 @@ def create_gauges(actor_ids):
         if actor_id not in message_gauges.keys():
             try:
                 g = Gauge(
-                    'message_count_for_actor_{}'.format(actor_id.replace('-', '_')),
-                    'Number of messages for actor {}'.format(actor_id.replace('-', '_'))
+                    f"message_count_for_actor_{actor_id.replace('-', '_')}",
+                    f"Number of messages for actor {actor_id.replace('-', '_')}"
                 )
                 message_gauges.update({actor_id: g})
-                logger.debug('Created gauge {}'.format(g))
+                logger.debug(f'Created gauge {g}')
             except Exception as e:
                 logger.error("got exception trying to create/instantiate the gauge; "
                              "actor {}; exception: {}".format(actor_id, e))
@@ -72,7 +72,7 @@ def create_gauges(actor_ids):
             ch = ActorMsgChannel(actor_id=actor_id)
             msg_length = len(ch._queue._queue)
         except Exception as e:
-            logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
+            logger.error(f"Exception connecting to ActorMsgChannel: {e}")
             raise e
         ch.close()
         result = {'messages': msg_length}
@@ -85,19 +85,19 @@ def create_gauges(actor_ids):
             except Exception as e:
                 logger.error(f"Got exception trying to set the messages on the gauge for actor: {actor_id}; "
                              f"exception: {e}")
-        logger.debug("METRICS: {} messages found for actor: {}.".format(result['messages'], actor_id))
+        logger.debug(f"METRICS: {result['messages']} messages found for actor: {actor_id}.")
 
         # add a worker gauge for this actor if one does not exist
         if actor_id not in worker_gaueges.keys():
             try:
                 g = Gauge(
-                    'worker_count_for_actor_{}'.format(actor_id.replace('-', '_')),
-                    'Number of workers for actor {}'.format(actor_id.replace('-', '_'))
+                    f"worker_count_for_actor_{actor_id.replace('-', '_')}",
+                    f"Number of workers for actor {actor_id.replace('-', '_')}"
                 )
                 worker_gaueges.update({actor_id: g})
-                logger.debug('Created worker gauge {}'.format(g))
+                logger.debug(f'Created worker gauge {g}')
             except Exception as e:
-                logger.info("got exception trying to instantiate the Worker Gauge: {}".format(e))
+                logger.info(f"got exception trying to instantiate the Worker Gauge: {e}")
         else:
             # Otherwise, get the worker gauge that already exists
             g = worker_gaueges[actor_id]
@@ -153,7 +153,7 @@ def calc_change_rate(data, last_metric, actor_id):
         except:
             logger.debug("Could not calculate change rate.")
     except:
-        logger.info("No previous data yet for new actor {}".format(actor_id))
+        logger.info(f"No previous data yet for new actor {actor_id}")
     return change_rate
 
 
@@ -189,12 +189,12 @@ def allow_autoscaling(max_workers, num_workers, cmd_length):
 
 def scale_up(actor_id):
     tenant, aid = actor_id.split('_')
-    logger.debug('METRICS Attempting to create a new worker for {}'.format(actor_id))
+    logger.debug(f'METRICS Attempting to create a new worker for {actor_id}')
     try:
         # create a worker & add to this actor
         actor = Actor.from_db(actors_store[site()][actor_id])
         worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
-        logger.info("New worker id: {}".format(worker_id))
+        logger.info(f"New worker id: {worker_id}")
         if actor.queue:
             channel_name = actor.queue
         else:
@@ -208,10 +208,10 @@ def scale_up(actor_id):
                    site_id=site(),
                    stop_existing=False)
         ch.close()
-        logger.debug('METRICS Added worker successfully for {}'.format(actor_id))
+        logger.debug(f'METRICS Added worker successfully for {actor_id}')
         return channel_name
     except Exception as e:
-        logger.debug("METRICS - SOMETHING BROKE: {} - {} - {}".format(type(e), e, e.args))
+        logger.debug(f"METRICS - SOMETHING BROKE: {type(e)} - {e} - {e.args}")
         return None
 
 
@@ -249,11 +249,11 @@ def scale_down(actor_id, is_sync_actor=False):
                 # if worker has made zero executions, use the create_time
                 if last_execution == 0:
                     last_execution = worker.get('create_time', 0)
-                logger.debug("using last_execution: {}".format(last_execution))
+                logger.debug(f"using last_execution: {last_execution}")
                 try:
                     last_execution = int(float(last_execution))
                 except:
-                    logger.error("Could not cast last_execution {} to int(float()".format(last_execution))
+                    logger.error(f"Could not cast last_execution {last_execution} to int(float()")
                     last_execution = 0
                 if last_execution + sync_max_idle_time < time.time():
                     # shutdown worker
@@ -273,12 +273,12 @@ def scale_down(actor_id, is_sync_actor=False):
                     logger.debug('sent worker shutdown message.')
                     continue
                 except Exception as e:
-                    logger.debug('METRICS ERROR shutting down worker: {} - {} - {}'.format(type(e), e, e.args))
-                logger.debug('METRICS shut down worker {}'.format(worker['id']))
+                    logger.debug(f'METRICS ERROR shutting down worker: {type(e)} - {e} - {e.args}')
+                logger.debug(f"METRICS shut down worker {worker['id']}")
 
     except IndexError:
         logger.debug('METRICS only one worker found for actor {}. '
                      'Will not scale down'.format(actor_id))
     except Exception as e:
-        logger.debug("METRICS SCALE UP FAILED: {}".format(e))
+        logger.debug(f"METRICS SCALE UP FAILED: {e}")
 

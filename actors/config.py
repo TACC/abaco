@@ -34,7 +34,7 @@ class AbacoConfig(ConfigParser):
 
     def get(self, section, option, **kwargs):
         # first, check for config attribute in env var:
-        var = '{}_{}'.format(section, option)
+        var = f'{section}_{option}'
         if var in os.environ.keys():
             return os.environ.get(var)
         else:

@@ -13,12 +13,12 @@ def replace_tokens(s, actor):
          tasdir: the homeDirectory attribute returned from tas. This attribute requires the
                             use_tas_uid config must be set to true.
     """
-    logger.debug("top of replace_tokens for string: {}".format(s))
+    logger.debug(f"top of replace_tokens for string: {s}")
     s = s.replace('{username}', actor['owner'])
     s = s.replace('{tenant_id}', actor['tenant'])
     if '{tasdir}' in s:
         if 'tasdir' in actor and type(actor['tasdir']) == str:
-            logger.debug("tasdir in actor is a string, value: {}. attempting to replace tasdir from string s: {}".format(actor['tasdir'], s))
+            logger.debug(f"tasdir in actor is a string, value: {actor['tasdir']}. attempting to replace tasdir from string s: {s}")
             s = s.replace('{tasdir}', actor['tasdir'])
         else:
             logger.error("actor did not have a tasdir string though "
@@ -53,7 +53,7 @@ def process_mount_strs(mount_strs, actor):
                 result.append({'host_path': host_path,
                                'container_path': container_path,
                                'mode': mode})
-    logger.info("Returning global mounts: {}".format(result))
+    logger.info(f"Returning global mounts: {result}")
     return result
 
 
@@ -92,7 +92,7 @@ def get_all_mounts(actor):
     result = get_global_mounts(actor)
     logger.debug(f"just got the global mounts: {result}")
     if actor.get('privileged'):
-        logger.debug("getting the privileged mounts for actor: {}".format(actor))
+        logger.debug(f"getting the privileged mounts for actor: {actor}")
         result.extend(get_privileged_mounts(actor))
-    logger.debug("final mounts: {}".format(result))
+    logger.debug(f"final mounts: {result}")
     return result

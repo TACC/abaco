@@ -18,7 +18,7 @@ from util import headers, base_url, case, \
     get_tapis_token_headers, alternative_tenant_headers, delete_actors
 
 def test_register_actor_with_cron(headers):
-    url = '{}/{}'.format(base_url, 'actors')
+    url = f"{base_url}/actors"
     if case == 'camel':
         cron_field = 'cronSchedule'
     else:
@@ -35,7 +35,7 @@ def test_register_actor_with_cron(headers):
     assert result[cron_field] == cron_str
 
 def test_register_actor_with_incorrect_cron(headers):
-    url = '{}/{}'.format(base_url, 'actors')
+    url = f"{base_url}/actors"
     if case == 'camel':
         cron_field = 'cronSchedule'
     else:
@@ -47,7 +47,7 @@ def test_register_actor_with_incorrect_cron(headers):
 
 def test_update_cron(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_cron')
-    url = '{}/actors/{}'.format(base_url, actor_id)
+    url = f'{base_url}/actors/{actor_id}'
     if case == 'camel':
         cron_field = 'cronSchedule'
     else:
@@ -59,7 +59,7 @@ def test_update_cron(headers):
 
 def test_update_cron_switch(headers):
     actor_id = get_actor_id(headers, name='abaco_test_suite_cron')
-    url = '{}/actors/{}'.format(base_url, actor_id)
+    url = f'{base_url}/actors/{actor_id}'
     if case == 'camel':
         cron_field = 'cronSchedule'
         cron_switch = 'cronOn'
