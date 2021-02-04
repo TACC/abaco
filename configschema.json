@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/schema#",
   "$id": "http://github.com/tapis-project/tapisflask/schemas/configschema.json",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "mongo_host": {
       "type": "string",
@@ -229,13 +229,17 @@
             }
           },
           "required": [
-            "use_tas_uid"
+            "use_tas_uid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
           "required": [
             "actor_uid",
-            "actor_gid"
+            "actor_gid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
@@ -259,7 +263,11 @@
                 null
               ]
             }
-          }
+          },
+          "required": [
+            "log_ex",
+            "log_ex_limit"
+          ]
         }
       ]
     }
@@ -321,13 +329,17 @@
             }
           },
           "required": [
-            "use_tas_uid"
+            "use_tas_uid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
           "required": [
             "actor_uid",
-            "actor_gid"
+            "actor_gid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
@@ -351,7 +363,11 @@
                 null
               ]
             }
-          }
+          },
+          "required": [
+            "log_ex",
+            "log_ex_limit"  
+          ]
         }
       ]
     }
