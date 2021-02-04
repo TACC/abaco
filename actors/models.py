@@ -984,11 +984,13 @@ class Actor(AbacoDAO):
         if tenant_obj:
             tenant_log_ex = tenant_obj.get('log_ex')
             tenant_log_ex_limit = tenant_obj.get('log_ex_limit')
-        # Get global_log_ex and global limit
+        else:
+            tenant_log_ex = None
+            tenant_log_ex_limit = None
+        # Get global_log_ex and global limit (these are required fields in configschema)
         global_obj = conf.get('global_tenant_object')
-        if global_obj:
-            global_log_ex = global_obj.get('log_ex')
-            global_log_ex_limit = global_obj.get('log_ex_limit')
+        global_log_ex = global_obj.get('log_ex')
+        global_log_ex_limit = global_obj.get('log_ex_limit')
 
         # Inspect vars to check they're within set bounds.
         if not user_log_ex:
