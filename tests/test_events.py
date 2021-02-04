@@ -126,7 +126,7 @@ def test_create_actor_with_webhook(headers):
         # wait for linked execution to complete and get logs
     idx = 0
     done = False
-    while not done and idx < 20:
+    while not done and idx < 30:
         # get executions for linked actor and check status of each
         rsp = requests.get(url, headers=headers)
         ex_data = rsp.json().get('result').get('executions')
@@ -178,7 +178,7 @@ def test_execute_event_actor(headers):
     # wait for linked execution to complete and get logs
     idx = 0
     done = False
-    while not done and idx < 20:
+    while not done and idx < 30:
         # get executions for linked actor and check status of each
         rsp = requests.get(url, headers=headers)
         ex_data = rsp.json().get('result').get('executions')
