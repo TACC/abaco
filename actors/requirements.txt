@@ -1,7 +1,7 @@
 # comment/uncomment the following line(s) when using a local checkout of git repos:
 
 #-e git+file:///agaveflask#egg=agaveflask
--e git+https://jstubbs@bitbucket.org/tacc-cic/agaveflask.git#egg=agaveflask
+-e git+https://github.com/NotChristianGarcia/agaveflaskquickfix.git#egg=agaveflask
 
 -e git://github.com/TACC/channelpy.git#egg=channelpy
 
