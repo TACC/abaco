@@ -336,6 +336,7 @@ def run_container_with_docker(image,
 
 
 def run_worker(image,
+               revision,
                actor_id,
                worker_id,
                client_id,
@@ -350,8 +351,8 @@ def run_worker(image,
     """
     logger.debug("top of run_worker()")
     command = 'python3 -u /actors/worker.py'
-    logger.debug("docker_utils running worker. image:{}, command:{}".format(
-        image, command))
+    logger.debug("docker_utils running worker. actor_id: {}; worker_id: {}; "
+                 "image:{}, revision: {}; command:{}".format(actor_id, worker_id, image, revision, command))
 
     # mount the directory on the host for creating fifos
     try:
@@ -398,6 +399,7 @@ def run_worker(image,
         command=command,
         environment={
             'image': image,
+            'revision': revision,
             'worker_id': worker_id,
             '_abaco_secret': os.environ.get('_abaco_secret')},
             mounts=mounts,
@@ -895,7 +897,11 @@ def execute_actor(actor_id,
         except Exception as e:
             logger.debug(f"got Exception trying to clean up fifo_host_path; e: {e}")
     if results_ch:
-        results_ch.close()
+        # check if the length of the results channel is empty and if so, delete it --
+        if len(results_ch._queue._queue) == 0:
+            results_ch.delete()
+        else:
+            results_ch.close()
     result['runtime'] = int(stop - start)
     logger.debug("right after removing fifo; about to return: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                          worker_id, execution_id))
