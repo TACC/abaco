@@ -455,7 +455,13 @@ def subscribe(tenant,
             logger.error("Worker {} got an unexpected exception trying to run actor for execution: {}."
                          "Putting the actor in error status and shutting down workers. "
                          "Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
-            Actor.set_status(actor_id, ERROR, f"Error executing container: {e}")
+            # updated 2/2021 -- we no longer set the actor to ERROR state for unrecognized exceptions. Most of the time
+            # these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or getting
+            # socket timeouts from docker. these are not the fault of the actor, and putting it (but not other actors
+            # who simply didn't happen to be executing at the time) in ERROR state is confusing to users and leads to
+            # actors not procssing messages until the user notices and intervenes.
+            # # # # # # # Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
+
             # the execute_actor function raises a DockerStartContainerError if it met an exception before starting the
             # actor container; if the container was started, then another exception should be raised. Therefore,
             # we can assume here that the container was at least started and we can ack the message.
