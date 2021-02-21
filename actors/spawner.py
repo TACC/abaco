@@ -313,7 +313,11 @@ class Spawner(object):
         """In case of an error, put the actor in error state and kill all workers"""
         site_id = site_id or site()
         logger.debug(f"top of error_out_actor for worker: {actor_id}_{worker_id}")
-        Actor.set_status(actor_id, ERROR, status_message=message, site_id=site_id)
+        # it is possible the actor was deleted already -- only set the actor status to ERROR if
+        # it still exists in the store
+        actor = actors_store[site()].get(actor_id)
+        if actor:
+            Actor.set_status(actor_id, ERROR, status_message=message, site_id=site_id)
         # check to see how far the spawner got setting up the worker:
         try:
             worker = Worker.get_worker(actor_id, worker_id)
