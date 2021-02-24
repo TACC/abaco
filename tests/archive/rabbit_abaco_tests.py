@@ -63,6 +63,7 @@ def minimal_test():
     ch.put_cmd(actor_id=aid,
                worker_id=worker_id,
                image=actor.image,
+               revision=actor.revision,
                tenant=actor.tenant,
                stop_existing=False)
 
