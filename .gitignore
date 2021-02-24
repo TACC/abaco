@@ -65,6 +65,7 @@ local-dev.conf.bak
 passwords.yml
 *.key
 *.log
+.vscode
 abaco.log
 tests/.DS_Store
 .DS_Store

@@ -38,11 +38,11 @@ def process_event_msg(msg):
     :param msg: 
     :return: 
     """
-    logger.debug("top of process_event_msg; raw msg: {}".format(msg))
+    logger.debug(f"top of process_event_msg; raw msg: {msg}")
     try:
         tenant_id = msg['tenant_id']
     except Exception as e:
-        logger.error("Missing tenant_id in event msg; exception: {}; msg: {}".format(e, msg))
+        logger.error(f"Missing tenant_id in event msg; exception: {e}; msg: {msg}")
         raise e
     link = msg.get('_abaco_link')
     webhook = msg.get('_abaco_webhook')
@@ -57,7 +57,7 @@ def process_event_msg(msg):
     if webhook:
         process_webhook(webhook, msg, d)
     if not link and not webhook:
-        logger.error("No link or webhook. Ignoring event. msg: {}".format(msg))
+        logger.error(f"No link or webhook. Ignoring event. msg: {msg}")
 
 def process_link(link, msg, d):
     """
@@ -70,7 +70,7 @@ def process_link(link, msg, d):
     try:
         actors_store[site()][link]
     except KeyError as e:
-        logger.error("Processing event message for actor {} that does not exist. Quiting".format(link))
+        logger.error(f"Processing event message for actor {link} that does not exist. Quiting")
         raise e
 
     # create an execution for the linked actor with message
@@ -79,9 +79,9 @@ def process_link(link, msg, d):
                                          'runtime': 0,
                                          'status': SUBMITTED,
                                          'executor': 'Abaco Event'})
-    logger.info("Events processor agent added execution {} for actor {}".format(exc, link))
+    logger.info(f"Events processor agent added execution {exc} for actor {link}")
     d['_abaco_execution_id'] = exc
-    logger.debug("sending message to actor. Final message {} and message dictionary: {}".format(msg, d))
+    logger.debug(f"sending message to actor. Final message {msg} and message dictionary: {d}")
     ch = ActorMsgChannel(actor_id=link)
     ch.put_msg(message=msg, d=d)
     ch.close()
@@ -111,7 +111,7 @@ def run(ch):
         try:
             process_event_msg(msg)
         except Exception as e:
-            msg = "Events processor get an exception trying to process a message. exception: {}; msg: {}".format(e, msg)
+            msg = f"Events processor get an exception trying to process a message. exception: {e}; msg: {msg}"
             logger.error(msg)
         # at this point, all messages are acked, even when there is an error processing
         msg_obj.ack()
@@ -134,7 +134,7 @@ def main():
             else:
                 ch = EventsChannel()
             logger.info("events processor made connection to rabbit, entering main loop")
-            logger.info("events processor using abaco_host_path={}".format(os.environ.get('abaco_host_path')))
+            logger.info(f"events processor using abaco_host_path={os.environ.get('abaco_host_path')}")
             run(ch)
         except (rabbitpy.exceptions.ConnectionException, RuntimeError):
             # rabbit seems to take a few seconds to come up

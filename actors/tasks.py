@@ -260,9 +260,9 @@ def check_queue(display=False):
     except Exception:
         if display:
             print(dedent(
-                """
-                Cannot connect to queue exchange at {0}:{1}
+                f"""
+                Cannot connect to queue exchange at {host}:{port}
                 with dummy queue "test".
                 Please, check ~/.adama.conf
-                """.format(host, port)), file=sys.stderr)
+                """), file=sys.stderr)
         return False

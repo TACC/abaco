@@ -16,11 +16,11 @@ def main():
     for actor_id in actor_ids:
         logger.debug("TOP OF CHECK METRICS")
         query = {
-            'query': 'message_count_for_actor_{}'.format(actor_id.decode("utf-8").replace('-', '_')),
+            'query': f"message_count_for_actor_{actor_id.decode('utf-8').replace('-', '_')}",
             'time': datetime.datetime.utcnow().isoformat() + "Z"
         }
         r = requests.get(PROMETHEUS_URL + '/api/v1/query', params=query)
-        logger.debug("METRICS QUERY: {}".format(r.text))
+        logger.debug(f"METRICS QUERY: {r.text}")
 
 if __name__ == '__main__':
     main()

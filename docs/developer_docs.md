@@ -647,3 +647,15 @@ After getting the result there is some post-processing to do in the `post-proces
 ```
 final_result = self.post_processing(search_type, full_search_res, skip, limit)
 ```
+
+Dockerhub Credential Input
+--------------------------
+
+docker hub credentials: can pass multuple sets and abaco agents will use a different set at random.0
+format should be the following in config-local.json
+dockerhub_username_1
+dockerhub_password_1
+dockerhub_username_2
+dockerhub_password_2
+etc.
+See stache entry "CIC (Abaco) DockerHub credentials" for credentials.

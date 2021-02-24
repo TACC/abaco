@@ -109,9 +109,9 @@ def check_nonce():
     logger.debug("top of check_nonce")
     # first check whether the request is even valid -
     if hasattr(request, 'url_rule'):
-        logger.debug("request.url_rule: {}".format(request.url_rule))
+        logger.debug(f"request.url_rule: {request.url_rule}")
         if hasattr(request.url_rule, 'rule'):
-            logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
+            logger.debug(f"url_rule.rule: {request.url_rule.rule}")
         else:
             logger.info("url_rule has no rule.")
             raise ResourceError(
@@ -124,14 +124,14 @@ def check_nonce():
         nonce_id = request.args['x-nonce']
     except KeyError:
         raise PermissionsException("No JWT or nonce provided.")
-    logger.debug("checking nonce with id: {}".format(nonce_id))
+    logger.debug(f"checking nonce with id: {nonce_id}")
     # the nonce encodes the tenant in its id:
     g.tenant_id = Nonce.get_tenant_from_nonce_id(nonce_id)
     g.api_server = get_api_server(g.tenant_id)
-    logger.debug("tenant associated with nonce: {}; api_server assoicated with nonce: {}".format(g.tenant_id, g.api_server))
+    logger.debug(f"tenant associated with nonce: {g.tenant_id}; api_server assoicated with nonce: {g.api_server}")
     # get the actor_id base on the request path
     actor_id, actor_identifier = get_db_id()
-    logger.debug("db_id: {}; actor_identifier: {}".format(actor_id, actor_identifier))
+    logger.debug(f"db_id: {actor_id}; actor_identifier: {actor_identifier}")
     level = required_level(request)
 
     # if the actor_identifier is an alias, then the nonce must be attached to that, so we must pass that in the
@@ -189,9 +189,9 @@ def authorization():
     """
     # first check whether the request is even valid -
     if hasattr(request, 'url_rule'):
-        logger.debug("request.url_rule: {}".format(request.url_rule))
+        logger.debug(f"request.url_rule: {request.url_rule}")
         if hasattr(request.url_rule, 'rule'):
-            logger.debug("url_rule.rule: {}".format(request.url_rule.rule))
+            logger.debug(f"url_rule.rule: {request.url_rule.rule}")
         else:
             logger.info("url_rule has no rule.")
             raise ResourceError(
@@ -210,13 +210,13 @@ def authorization():
         or '/actors/utilization' in request.url_rule.rule \
         or '/actors/search/' in request.url_rule.rule:
         db_id = None
-        logger.debug("setting db_id to None; rule: {}".format(request.url_rule.rule))
+        logger.debug(f"setting db_id to None; rule: {request.url_rule.rule}")
     else:
         # every other route should have an actor identifier
-        logger.debug("fetching db_id; rule: {}".format(request.url_rule.rule))
+        logger.debug(f"fetching db_id; rule: {request.url_rule.rule}")
         db_id, _ = get_db_id()
     g.db_id = db_id
-    logger.debug("db_id: {}".format(db_id))
+    logger.debug(f"db_id: {db_id}")
 
     g.api_server = conf.primary_site_admin_tenant_base_url
 
@@ -237,7 +237,7 @@ def authorization():
     # all other requests require some kind of abaco role:
     # THIS IS NO LONGER TRUE. Only rules are admin and privileged.
 
-    logger.debug("request.path: {}".format(request.path))
+    logger.debug(f"request.path: {request.path}")
 
     # the admin role when JWT auth is configured:
     if codes.ADMIN_ROLE in g.roles:
@@ -312,7 +312,7 @@ def authorization():
         elif request.method == 'DELETE':
             has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
         else:
-            logger.debug("URL rule in request: {}".format(request.url_rule.rule))
+            logger.debug(f"URL rule in request: {request.url_rule.rule}")
             # first, only admins can create/update actors to be privileged, so check that:
             if request.method == 'POST' or request.method == 'PUT':
                 check_privileged()
@@ -327,7 +327,7 @@ def authorization():
                     has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
     if not has_pem:
         logger.info("NOT allowing request.")
-        raise PermissionsException("Not authorized -- you do not have access to this {}.".format(noun))
+        raise PermissionsException(f"Not authorized -- you do not have access to this {noun}.")
 
 
 def check_privileged():
@@ -365,7 +365,7 @@ def check_privileged():
 
     # when using the UID associated with the user in TAS, admins can still register actors
     # to use the UID built in the container using the use_container_uid flag:
-    if conf.global_auth_object.get('use_tas_uid'):
+    if conf.global_tenant_object.get('use_tas_uid'):
         if data.get('use_container_uid') or data.get('useContainerUid'):
             logger.debug("User is trying to use_container_uid")
             # if we're here, user isn't an admin so must have privileged role:
@@ -382,7 +382,7 @@ def check_permissions(user, identifier, level, roles=None):
     """Check the permissions store for user and level. Here, `identifier` is a unique id in the
     permissions_store; e.g., actor db_id or alias_id.
     """
-    logger.debug("Checking user: {} permissions for identifier: {}".format(user, identifier))
+    logger.debug(f"Checking user: {user} permissions for identifier: {identifier}")
     # first, if roles were passed, check for admin role -
     if roles:
         if codes.ADMIN_ROLE in roles:
@@ -397,20 +397,20 @@ def check_permissions(user, identifier, level, roles=None):
     for p_user, p_name in permissions.items():
         # if the actor has been shared with the WORLD_USER anyone can use it
         if p_user == WORLD_USER:
-            logger.info("Allowing request - {} has been shared with the WORLD_USER.".format(identifier))
+            logger.info(f"Allowing request - {identifier} has been shared with the WORLD_USER.")
             return True
         # otherwise, check if the permission belongs to this user and has the necessary level
         if p_user == user:
             p_pem = codes.PermissionLevel(p_name)
             if p_pem >= level:
-                logger.info("Allowing request - user has appropriate permission with {}.".format(identifier))
+                logger.info(f"Allowing request - user has appropriate permission with {identifier}.")
                 return True
             else:
                 # we found the permission for the user but it was insufficient; return False right away
-                logger.info("Found permission {} for {}, rejecting request.".format(level, identifier))
+                logger.info(f"Found permission {level} for {identifier}, rejecting request.")
                 return False
     # didn't find the user or world_user, return False
-    logger.info("user had no permissions for {}. Permissions found: {}".format(identifier, permissions))
+    logger.info(f"user had no permissions for {identifier}. Permissions found: {permissions}")
     return False
 
 
@@ -426,37 +426,37 @@ def get_db_id():
         idx = 3
     path_split = request.path.split("/")
     if len(path_split) < 3:
-        logger.error("Unrecognized request -- could not find the actor id. path_split: {}".format(path_split))
+        logger.error(f"Unrecognized request -- could not find the actor id. path_split: {path_split}")
         raise PermissionsException("Not authorized.")
-    logger.debug("path_split: {}".format(path_split))
+    logger.debug(f"path_split: {path_split}")
     try:
         actor_identifier = path_split[idx]
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
-    logger.debug("actor_identifier: {}; tenant: {}".format(actor_identifier, g.tenant_id))
+    logger.debug(f"actor_identifier: {actor_identifier}; tenant: {g.tenant_id}")
     if actor_identifier == 'search':
         raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
         actor_id = Actor.get_actor_id(g.tenant_id, actor_identifier)
     except KeyError:
-        logger.info("Unrecognized actor_identifier: {}. Actor not found".format(actor_identifier))
-        raise ResourceError("Actor with identifier '{}' not found".format(actor_identifier), 404)
+        logger.info(f"Unrecognized actor_identifier: {actor_identifier}. Actor not found")
+        raise ResourceError(f"Actor with identifier '{actor_identifier}' not found", 404)
     except Exception as e:
         msg = "Unrecognized exception trying to resolve actor identifier: {}; " \
               "exception: {}".format(actor_identifier, e)
         logger.error(msg)
         raise ResourceError(msg)
-    logger.debug("actor_id: {}".format(actor_id))
+    logger.debug(f"actor_id: {actor_id}")
     return Actor.get_dbid(g.tenant_id, actor_id), actor_identifier
 
 def get_alias_id():
     """Get the alias from the request path."""
     path_split = request.path.split("/")
     if len(path_split) < 4:
-        logger.error("Unrecognized request -- could not find the alias. path_split: {}".format(path_split))
+        logger.error(f"Unrecognized request -- could not find the alias. path_split: {path_split}")
         raise PermissionsException("Not authorized.")
     alias = path_split[3]
-    logger.debug("alias: {}".format(alias))
+    logger.debug(f"alias: {alias}")
     return Alias.generate_alias_id(g.tenant_id, alias)
 
 def get_tenant_verify(tenant):
@@ -589,8 +589,8 @@ def get_token_default():
     Returns the default token attribute based on the tenant and instance configs.
     """
 
-    tenant_auth_object = conf.get(f"{g.tenant_id}_auth_object") or {}
-    default_token = tenant_auth_object.get("default_token") or conf.global_auth_object.get("default_token")
+    tenant_tenant_object = conf.get(f"{g.tenant_id}_tenant_object") or {}
+    default_token = tenant_tenant_object.get("default_token") or conf.global_tenant_object.get("default_token")
     logger.debug(f"got default_token: {default_token}. Either for {g.tenant_id} or global.")
     ## We have to stringify the boolean as it's listed with results and it would require a database change.
     if default_token:
@@ -607,29 +607,29 @@ def get_uid_gid_homedir(actor, user, tenant):
     :param tenant:
     :return:
     """
-    tenant_auth_object = conf.get(f"{tenant}_auth_object") or {}
+    tenant_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
     # first, check for tas usage for tenant or globally:
-    use_tas = tenant_auth_object or False
+    use_tas = tenant_tenant_object or False
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # next, look for a tenant-specific uid and gid:
-    uid = tenant_auth_object.get("actor_uid") or None
-    gid = tenant_auth_object.get("actor_gid") or None
+    uid = tenant_tenant_object.get("actor_uid") or None
+    gid = tenant_tenant_object.get("actor_gid") or None
     if uid and gid:
-        home_dir = tenant_auth_object.get("actor_homedir") or None
+        home_dir = tenant_tenant_object.get("actor_homedir") or None
         return uid, gid, home_dir
 
     # next, look for a global use_tas config
-    use_tas = conf.global_auth_object.get("use_tas_uid") or False
+    use_tas = conf.global_tenant_object.get("use_tas_uid") or False
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # finally, look for a global uid and gid:
-    uid = conf.global_auth_object.get("actor_uid") or None
-    gid = conf.global_auth_object.get("actor_gid") or None
+    uid = conf.global_tenant_object.get("actor_uid") or None
+    gid = conf.global_tenant_object.get("actor_gid") or None
     if uid and gid:
-        home_dir = conf.global_auth_object.get("actor_homedir") or None
+        home_dir = conf.global_tenant_object.get("actor_homedir") or None
         return uid, gid, home_dir
 
     # otherwise, run using the uid and gid set in the container

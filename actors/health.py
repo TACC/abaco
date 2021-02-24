@@ -69,26 +69,26 @@ def clean_up_socket_dirs():
     logger.debug("top of clean_up_socket_dirs")
     # Following gets the container path dir and cleans that, ignores host
     socket_dir = os.path.join('/', conf.worker_socket_paths.split(':')[1].strip('/'))
-    logger.debug("processing socket_dir: {}".format(socket_dir))
+    logger.debug(f"processing socket_dir: {socket_dir}")
     for p in os.listdir(socket_dir):
         # check to see if p is a worker
         worker = get_worker(p)
         if not worker:
             path = os.path.join(socket_dir, p)
-            logger.debug("Determined that {} was not a worker; deleting directory: {}.".format(p, path))
+            logger.debug(f"Determined that {p} was not a worker; deleting directory: {path}.")
             shutil.rmtree(path)
 
 def clean_up_fifo_dirs():
     logger.debug("top of clean_up_fifo_dirs")
     # Following gets the container path dir and cleans that, ignores host
     fifo_dir = os.path.join('/', conf.worker_fifo_paths.split(':')[1].strip('/'))
-    logger.debug("processing fifo_dir: {}".format(fifo_dir))
+    logger.debug(f"processing fifo_dir: {fifo_dir}")
     for p in os.listdir(fifo_dir):
         # check to see if p is a worker
         worker = get_worker(p)
         if not worker:
             path = os.path.join(fifo_dir, p)
-            logger.debug("Determined that {} was not a worker; deleting directory: {}.".format(p, path))
+            logger.debug(f"Determined that {p} was not a worker; deleting directory: {path}.")
             shutil.rmtree(path)
 
 def clean_up_ipc_dirs():
@@ -101,9 +101,9 @@ def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
     logger.debug("top of check_worker_health")
     worker_id = worker.get('id')
-    logger.info("Checking status of worker from db with worker_id: {}".format(worker_id))
+    logger.info(f"Checking status of worker from db with worker_id: {worker_id}")
     if not worker_id:
-        logger.error("Corrupt data in the workers_store[site()]. Worker object without an id attribute. {}".format(worker))
+        logger.error(f"Corrupt data in the workers_store[site()]. Worker object without an id attribute. {worker}")
         try:
             workers_store[site()].pop_field([actor_id])
         except KeyError:
@@ -114,7 +114,7 @@ def check_worker_health(actor_id, worker, ttl):
     try:
         actors_store[site()][actor_id]
     except KeyError:
-        logger.error("Corrupt data in the workers_store[site()]. Worker object found but no corresponding actor. {}".format(worker))
+        logger.error(f"Corrupt data in the workers_store[site()]. Worker object found but no corresponding actor. {worker}")
         try:
             # todo - removing worker objects from db can be problematic if other aspects of the worker are not cleaned
             # up properly. this code should be reviewed.
@@ -136,11 +136,11 @@ def zero_out_workers_db():
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
-    logger.info("Checking health for actor: {}".format(actor_id))
+    logger.info(f"Checking health for actor: {actor_id}")
     try:
         workers = Worker.get_workers(actor_id)
     except Exception as e:
-        logger.error("Got exception trying to retrieve workers: {}".format(e))
+        logger.error(f"Got exception trying to retrieve workers: {e}")
         return None
     logger.debug(f"workers: {workers}")
     host_id = os.environ.get('SPAWNER_HOST_ID', conf.spawner_host_id)
@@ -154,12 +154,12 @@ def check_workers(actor_id, ttl):
         if not host_id == worker['host_id']:
             continue
         # first check if worker is responsive; if not, will need to manually kill
-        logger.info("Checking health for worker: {}".format(worker))
+        logger.info(f"Checking health for worker: {worker}")
         ch = WorkerChannel(worker_id=worker['id'])
         worker_id = worker.get('id')
         result = None
         try:
-            logger.debug("Issuing status check to channel: {}".format(worker['ch_name']))
+            logger.debug(f"Issuing status check to channel: {worker['ch_name']}")
             result = ch.put_sync('status', timeout=5)
         except channelpy.exceptions.ChannelTimeoutException:
             logger.info("Worker did not respond, removing container and deleting worker.")
@@ -169,27 +169,27 @@ def check_workers(actor_id, ttl):
                 pass
             try:
                 Worker.delete_worker(actor_id, worker_id)
-                logger.info("worker {} deleted from store".format(worker_id))
+                logger.info(f"worker {worker_id} deleted from store")
             except Exception as e:
-                logger.error("Got exception trying to delete worker: {}".format(e))
+                logger.error(f"Got exception trying to delete worker: {e}")
             # if the put_sync timed out and we removed the worker, we also need to delete the channel
             # otherwise the un-acked message will remain.
             try:
                 ch.delete()
             except Exception as e:
-                logger.error("Got exception: {} while trying to delete worker channel for worker: {}".format(e, worker_id))
+                logger.error(f"Got exception: {e} while trying to delete worker channel for worker: {worker_id}")
         finally:
             try:
                 ch.close()
             except Exception as e:
-                logger.error("Got an error trying to close the worker channel for dead worker. Exception: {}".format(e))
+                logger.error(f"Got an error trying to close the worker channel for dead worker. Exception: {e}")
         if result and not result == 'ok':
-            logger.error("Worker responded unexpectedly: {}, deleting worker.".format(result))
+            logger.error(f"Worker responded unexpectedly: {result}, deleting worker.")
             try:
                 rm_container(worker['cid'])
                 Worker.delete_worker(actor_id, worker_id)
             except Exception as e:
-                logger.error("Got error removing/deleting worker: {}".format(e))
+                logger.error(f"Got error removing/deleting worker: {e}")
         else:
             # worker is healthy so update last health check:
             Worker.update_worker_health_time(actor_id, worker_id)
@@ -206,7 +206,7 @@ def check_workers(actor_id, ttl):
             # if worker has made zero executions, use the create_time
             if last_execution == 0:
                 last_execution = worker.get('create_time', datetime.datetime.min)
-            logger.debug("using last_execution: {}".format(last_execution))
+            logger.debug(f"using last_execution: {last_execution}")
             try:
                 assert type(last_execution) == datetime.datetime
             except:
@@ -235,7 +235,7 @@ def get_host_queues():
         host_queues = conf.spawner_host_queues
         return host_queues
     except Exception as e:
-        msg = "Got unexpected exception attempting to parse the host_queues config. Exception: {}".format(e)
+        msg = f"Got unexpected exception attempting to parse the host_queues config. Exception: {e}"
         logger.error(e)
         raise e
 
@@ -247,13 +247,13 @@ def start_spawner(queue, idx='0'):
     :return:
     """
     command = 'python3 -u /actors/spawner.py'
-    name = 'healthg_{}_spawner_{}'.format(queue, idx)
+    name = f'healthg_{queue}_spawner_{idx}'
 
     try:
         environment = dict(os.environ)
     except Exception as e:
         environment = {}
-        logger.error("Unable to convert environment to dict; exception: {}".format(e))
+        logger.error(f"Unable to convert environment to dict; exception: {e}")
 
     environment.update({'AE_IMAGE': AE_IMAGE.split(':')[0],
                         'queue': queue,
@@ -276,7 +276,7 @@ def start_spawner(queue, idx='0'):
                                   mounts=[],
                                   log_file=log_file)
     except Exception as e:
-        logger.critical("Could not restart spawner for queue {}. Exception: {}".format(queue, e))
+        logger.critical(f"Could not restart spawner for queue {queue}. Exception: {e}")
 
 def check_spawner(queue):
     """
@@ -284,16 +284,16 @@ def check_spawner(queue):
     :param queue: (str) - the queue to check on.
     :return:
     """
-    logger.debug("top of check_spawner for queue: {}".format(queue))
+    logger.debug(f"top of check_spawner for queue: {queue}")
     # spawner container names by convention should have the format <project>_<queue>_spawner_<count>; for example
     #   abaco_default_spawner_2.
     # so, we look for container names containing a string with that format:
-    spawner_name_segment = '{}_spawner'.format(queue)
+    spawner_name_segment = f'{queue}_spawner'
     if not container_running(name=spawner_name_segment):
-        logger.critical("No spawners running for queue {}! Launching new spawner..".format(queue))
+        logger.critical(f"No spawners running for queue {queue}! Launching new spawner..")
         start_spawner(queue)
     else:
-        logger.debug("spawner for queue {} already running.".format(queue))
+        logger.debug(f"spawner for queue {queue} already running.")
 
 def check_spawners():
     """
@@ -302,14 +302,14 @@ def check_spawners():
     """
     logger.debug("top of check_spawners")
     host_queues = get_host_queues()
-    logger.debug("checking spawners for queues: {}".format(host_queues))
+    logger.debug(f"checking spawners for queues: {host_queues}")
     for queue in host_queues:
         check_spawner(queue)
 
 
 def manage_workers(actor_id):
     """Scale workers for an actor if based on message queue size and policy."""
-    logger.info("Entering manage_workers for {}".format(actor_id))
+    logger.info(f"Entering manage_workers for {actor_id}")
     try:
         actor = Actor.from_db(actors_store[site()][actor_id])
     except KeyError:
@@ -319,7 +319,7 @@ def manage_workers(actor_id):
     for worker in workers:
         time_difference = time.time() - worker['create_time']
         if worker['status'] == 'PROCESSING' and time_difference > 1:
-            logger.info("LOOK HERE - worker creation time {}".format(worker['create_time']))
+            logger.info(f"LOOK HERE - worker creation time {worker['create_time']}")
     #TODO - implement policy
 
 def shutdown_all_workers():
@@ -337,7 +337,7 @@ def shutdown_all_workers():
         check_workers(actor_id, 0)
 
 def main():
-    logger.info("Running abaco health checks. Now: {}".format(time.time()))
+    logger.info(f"Running abaco health checks. Now: {time.time()}")
     # TODO - turning off the check_spawners call in the health process for now as there seem to be some issues.
     # the way the check works currently is to look for a spawner with a specific name. However, that check does not
     # appear to be working currently.
@@ -345,10 +345,10 @@ def main():
     try:
         clean_up_ipc_dirs()
     except Exception as e:
-        logger.error("Got exception from clean_up_ipc_dirs: {}".format(e))
+        logger.error(f"Got exception from clean_up_ipc_dirs: {e}")
     ttl = conf.worker_worker_ttl
     ids = get_actor_ids()
-    logger.info("Found {} actor(s). Now checking status.".format(len(ids)))
+    logger.info(f"Found {len(ids)} actor(s). Now checking status.")
     for id in ids:
         # manage_workers(id)
         check_workers(id, ttl)

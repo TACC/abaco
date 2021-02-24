@@ -4,6 +4,7 @@ import socket
 import time
 import timeit
 import datetime
+import random
 
 import docker
 from requests.packages.urllib3.exceptions import ReadTimeoutError
@@ -16,14 +17,14 @@ from channels import ExecutionResultsChannel
 from common.config import conf
 from codes import BUSY, READY, RUNNING
 import globals
-from models import Execution, get_current_utc_time, display_time, site
+from models import Actor, Execution, get_current_utc_time, display_time, site
 from stores import workers_store
 
 
 TAG = os.environ.get('TAG') or conf.version or ''
 if not TAG[0] == ':':
-    TAG = ':{}'.format(TAG)
-AE_IMAGE = '{}{}'.format(os.environ.get('AE_IMAGE', 'abaco/core'), TAG)
+    TAG = f':{TAG}'
+AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core')}{TAG}"
 
 # timeout (in seconds) for the socket server
 RESULTS_SOCKET_TIMEOUT = 0.1
@@ -51,6 +52,62 @@ class DockerStartContainerError(DockerError):
 class DockerStopContainerError(DockerError):
     pass
 
+def get_docker_credentials():
+    """
+    Get the docker credentials from the config.
+    """
+    # we try to get as many credentials as have been
+    creds = []
+    cnt = 1
+    while True:
+        try:
+            # Format in config should be
+            # dockerhub_username_1
+            # dockerhub_password_1
+            # dockerhub_username_2
+            # dockerhub_password_2 
+            # See stache entry "CIC (Abaco) DockerHub credentials" for credentials.
+            username = conf.get(f'dockerhub_username_{cnt}')
+            password = conf.get(f'dockerhub_password_{cnt}')
+        except:
+            break
+        if not username or not password:
+            break
+        creds.append({'username': username, 'password': password})
+        cnt = cnt + 1
+    return creds
+
+
+dockerhub_creds = get_docker_credentials()
+
+
+def get_random_dockerhub_cred():
+    """
+    Chose a dockerhub credential at random
+    """
+    if len(dockerhub_creds) == 0:
+        return None, None
+    creds = random.choice(dockerhub_creds)
+    try:
+        username = creds['username']
+        password = creds['password']
+    except Exception as e:
+        logger.debug(f"Got exception trying to get dockerhub credentials. e: {e}")
+        return None, None
+    return username, password
+
+
+def cli_login(cli, username, password):
+    """
+    Try to login a dockerhub cli with a username and password
+    """
+    try:
+        cli.login(username=username, password=password)
+    except Exception as e:
+        logger.error(f"Could not login using dockerhub creds; username: {username}."
+                     f"Exception: {e}")
+
+
 def rm_container(cid):
     """
     Remove a container.
@@ -58,12 +115,15 @@ def rm_container(cid):
     :return:
     """
     cli = docker.APIClient(base_url=dd, version="auto")
+    username, password = get_random_dockerhub_cred()
+    if username and password:
+        cli_login(cli, username, password)
     try:
         rsp = cli.remove_container(cid, force=True)
     except Exception as e:
-        logger.info("Got exception trying to remove container: {}. Exception: {}".format(cid, e))
-        raise DockerError("Error removing container {}, exception: {}".format(cid, str(e)))
-    logger.info("container {} removed.".format(cid))
+        logger.info(f"Got exception trying to remove container: {cid}. Exception: {e}")
+        raise DockerError(f"Error removing container {cid}, exception: {str(e)}")
+    logger.info(f"container {cid} removed.")
 
 def pull_image(image):
     """
@@ -73,19 +133,22 @@ def pull_image(image):
     """
     logger.debug(f"top of pull_image(), dd: {dd}")
     cli = docker.APIClient(base_url=dd, version="auto")
+    username, password = get_random_dockerhub_cred()
+    if username and password:
+        cli_login(cli, username, password)
     try:
         rsp = cli.pull(repository=image)
     except Exception as e:
-        msg = "Error pulling image {} - exception: {} ".format(image, e)
+        msg = f"Error pulling image {image} - exception: {e} "
         logger.info(msg)
         raise DockerError(msg)
     if '"message":"Error' in rsp:
-        if '{} not found'.format(image) in rsp:
-            msg = "Image {} was not found on the public registry.".format(image)
+        if f'{image} not found' in rsp:
+            msg = f"Image {image} was not found on the public registry."
             logger.info(msg)
             raise DockerError(msg)
         else:
-            msg = "There was an error pulling the image: {}".format(rsp)
+            msg = f"There was an error pulling the image: {rsp}"
             logger.error(msg)
             raise DockerError(msg)
     return rsp
@@ -127,7 +190,7 @@ def check_worker_containers_against_store():
     for idx, w in enumerate(worker_containers):
         try:
             # try to get the worker from the store:
-            store_key = '{}_{}_{}'.format(w['tenant_id'], w['actor_id'], w['worker_id'])
+            store_key = f"{w['tenant_id']}_{w['actor_id']}_{w['worker_id']}"
             worker = workers_store[site()][store_key]
         except KeyError:
             worker = {}
@@ -152,10 +215,10 @@ def container_running(name=None):
     try:
         containers = cli.containers(filters=filters)
     except Exception as e:
-        msg = "There was an error checking container_running for name: {}. Exception: {}".format(name, e)
+        msg = f"There was an error checking container_running for name: {name}. Exception: {e}"
         logger.error(msg)
         raise DockerError(msg)
-    logger.debug("found containers: {}".format(containers))
+    logger.debug(f"found containers: {containers}")
     return len(containers) > 0
 
 def run_container_with_docker(image,
@@ -197,7 +260,7 @@ def run_container_with_docker(image,
         binds[abaco_conf_host_path] = {'bind': '/home/tapis/config.json', 'ro': True}
     except AttributeError as e:
         # if we're here, it's bad. we don't have a config file. better to cut and run,
-        msg = "Did not find the abaco_conf_host_path in Config. Exception: {}".format(e)
+        msg = f"Did not find the abaco_conf_host_path in Config. Exception: {e}"
         logger.error(msg)
         raise DockerError(msg)
 
@@ -227,10 +290,10 @@ def run_container_with_docker(image,
     if not logs_host_dir:
         # if the directory is not configured, default it to abaco_conf_host_path
         logs_host_dir = os.path.dirname(abaco_conf_host_path)
-    binds['{}/{}'.format(logs_host_dir, log_file)] = {'bind': '/home/tapis/runtime_files/logs/service.log', 'rw': True}
+    binds[f'{logs_host_dir}/{log_file}'] = {'bind': '/home/tapis/runtime_files/logs/service.log', 'rw': True}
 
     host_config = cli.create_host_config(binds=binds, auto_remove=auto_remove)
-    logger.debug("binds: {}".format(binds))
+    logger.debug(f"binds: {binds}")
 
     # add the container to a specific docker network, if configured
     netconf = None
@@ -250,10 +313,10 @@ def run_container_with_docker(image,
         cli.start(container=container.get('Id'))
         logger.debug('container successfully started')
     except Exception as e:
-        msg = "Got exception trying to run container from image: {}. Exception: {}".format(image, e)
+        msg = f"Got exception trying to run container from image: {image}. Exception: {e}"
         logger.info(msg)
         raise DockerError(msg)
-    logger.info("container started successfully: {}".format(container))
+    logger.info(f"container started successfully: {container}")
     return container
 
 
@@ -269,10 +332,8 @@ def run_worker(image,
     """
     logger.debug("top of run_worker()")
     command = 'python3 -u /actors/worker.py'
-    logger.debug("docker_utils running worker. image:{}, command:{}".format(
-        image, command))
-    logger.debug(f"docker_utils running worker. actor_id: {actor_id}; worker_id: {worker_id}; image:{image}, "
-                 f"revision: {revision}; command:{command}")
+    logger.debug(f"docker_utils running worker. actor_id: {actor_id}; worker_id: {worker_id};"
+                 f"image:{image}; revision: {revision}; command:{command}")
 
     mounts = []
     # mount the directory on the host for creating fifos
@@ -305,14 +366,14 @@ def run_worker(image,
             mounts=mounts,
             log_file=None,
             auto_remove=auto_remove,
-            name='worker_{}_{}'.format(actor_id, worker_id),
+            name=f'worker_{actor_id}_{worker_id}',
             actor_id=actor_id,
             tenant=tenant,
             api_server=api_server
     )
     # don't catch errors -- if we get an error trying to run a worker, let it bubble up.
     # TODO - determines worker structure; should be placed in a proper DAO class.
-    logger.info("worker container running. worker_id: {}. container: {}".format(worker_id, container))
+    logger.info(f"worker container running. worker_id: {worker_id}. container: {container}")
     return { 'image': image,
              # @todo - location will need to change to support swarm or cluster
              'location': dd,
@@ -337,7 +398,7 @@ def stop_container(cli, cid):
             cli.stop(cid)
             return True
         except Exception as e:
-            logger.error("Got another exception trying to stop the actor container. Exception: {}".format(e))
+            logger.error(f"Got another exception trying to stop the actor container. Exception: {e}")
             i += 1
             continue
     raise DockerStopContainerError
@@ -378,7 +439,7 @@ def execute_actor(actor_id,
     :param max_cpus: The maximum number of CPUs each actor will have available to them. Does not guarantee these CPU resources; serves as upper bound.
     :return: result (dict), logs (str) - `result`: statistics about resource consumption; `logs`: output from docker logs.
     """
-    logger.debug("top of execute_actor(); (worker {};{})".format(worker_id, execution_id))
+    logger.debug(f"top of execute_actor(); (worker {worker_id};{execution_id})")
 
     # initially set the global force_quit variable to False
     globals.force_quit = False
@@ -400,7 +461,7 @@ def execute_actor(actor_id,
 
     # if container is privileged, mount the docker daemon so that additional
     # containers can be started.
-    logger.debug("privileged: {};(worker {};{})".format(privileged, worker_id, execution_id))
+    logger.debug(f"privileged: {privileged};(worker {worker_id};{execution_id})")
     if privileged:
         binds = {'/var/run/docker.sock':{
                     'bind': '/var/run/docker.sock',
@@ -428,7 +489,7 @@ def execute_actor(actor_id,
         max_cpus = None
 
     host_config = cli.create_host_config(binds=binds, privileged=privileged, mem_limit=mem_limit, nano_cpus=max_cpus)
-    logger.debug("host_config object created by (worker {};{}).".format(worker_id, execution_id))
+    logger.debug(f"host_config object created by (worker {worker_id};{execution_id}).")
 
     # write binary data to FIFO if it exists:
     fifo = None
@@ -437,7 +498,7 @@ def execute_actor(actor_id,
             fifo = os.open(fifo_host_path, os.O_RDWR)
             os.write(fifo, msg)
         except Exception as e:
-            logger.error("Error writing the FIFO. Exception: {};(worker {};{})".format(e, worker_id, execution_id))
+            logger.error(f"Error writing the FIFO. Exception: {e};(worker {worker_id};{execution_id})")
             os.remove(fifo_host_path)
             raise DockerStartContainerError("Error writing to fifo: {}; "
                                             "(worker {};{})".format(e, worker_id, execution_id))
@@ -479,7 +540,7 @@ def execute_actor(actor_id,
                                                                           worker_id, execution_id))
         try:
             os.chmod(socket_host_path, 0o777)
-            logger.debug("results socket permissions set to 777. socket_host_path: {}".format(socket_host_path))
+            logger.debug(f"results socket permissions set to 777. socket_host_path: {socket_host_path}")
         except Exception as e:
             msg = f"Got exception trying to set permissions on the results socket. Not sure what to do. e: {e}"
             logger.error(msg)
@@ -506,7 +567,7 @@ def execute_actor(actor_id,
     results_ch = ExecutionResultsChannel(actor_id, execution_id)
 
     # create and start the container
-    logger.debug("Final container environment: {};(worker {};{})".format(d, worker_id, execution_id))
+    logger.debug(f"Final container environment: {d};(worker {worker_id};{execution_id})")
     logger.debug("Final binds: {} and host_config: {} for the container.(worker {};{})".format(binds, host_config,
                                                                                                worker_id, execution_id))
     container = cli.create_container(image=image,
@@ -524,8 +585,8 @@ def execute_actor(actor_id,
         cli.start(container=container.get('Id'))
     except Exception as e:
         # if there was an error starting the container, user will need to debug
-        logger.info("Got exception starting actor container: {}; (worker {};{})".format(e, worker_id, execution_id))
-        raise DockerStartContainerError("Could not start container {}. Exception {}".format(container.get('Id'), str(e)))
+        logger.info(f"Got exception starting actor container: {e}; (worker {worker_id};{execution_id})")
+        raise DockerStartContainerError(f"Could not start container {container.get('Id')}. Exception {str(e)}")
 
     # local bool tracking whether the actor container is still running
     running = True
@@ -562,9 +623,10 @@ def execute_actor(actor_id,
     # a counter of the number of iterations through the main "running" loop;
     # this counter is used to determine when less frequent actions, such as log aggregation, need to run.
     loop_idx = 0
+    log_ex = Actor.get_actor_log_ttl(actor_id)
     while running and not globals.force_quit:
         loop_idx += 1
-        logger.debug("top of while running loop; loop_idx: {}".format(loop_idx))
+        logger.debug(f"top of while running loop; loop_idx: {loop_idx}")
         datagram = None
         stats = None
         try:
@@ -572,7 +634,7 @@ def execute_actor(actor_id,
         except socket.timeout:
             pass
         except Exception as e:
-            logger.error("got exception from server.recv: {}; (worker {};{})".format(e, worker_id, execution_id))
+            logger.error(f"got exception from server.recv: {e}; (worker {worker_id};{execution_id})")
         logger.debug("right after try/except datagram block: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                         worker_id, execution_id))
         if datagram:
@@ -586,7 +648,7 @@ def execute_actor(actor_id,
 
         # only try to collect stats if we have a stats_obj:
         if stats_obj:
-            logger.debug("we have a stats_obj; trying to collect stats. (worker {};{})".format(worker_id, execution_id))
+            logger.debug(f"we have a stats_obj; trying to collect stats. (worker {worker_id};{execution_id})")
             try:
                 logger.debug("waiting on a stats obj: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                  worker_id, execution_id))
@@ -595,7 +657,7 @@ def execute_actor(actor_id,
                                                                             worker_id, execution_id))
             except StopIteration:
                 # we have read the last stats object - no need for processing
-                logger.debug("Got StopIteration; no stats object. (worker {};{})".format(worker_id, execution_id))
+                logger.debug(f"Got StopIteration; no stats object. (worker {worker_id};{execution_id})")
             except ReadTimeoutError:
                 # this is a ReadTimeoutError from docker, not requests. container is finished.
                 logger.info("next(stats) just timed out: {}; (worker {};{})".format(timeit.default_timer(),
@@ -607,7 +669,7 @@ def execute_actor(actor_id,
         # if we got a stats object, add it to the results; it is possible stats collection timed out and the object
         # is None
         if stats:
-            logger.debug("adding stats to results; (worker {};{})".format(worker_id, execution_id))
+            logger.debug(f"adding stats to results; (worker {worker_id};{execution_id})")
             try:
                 result['cpu'] += stats['cpu_stats']['cpu_usage']['total_usage']
             except KeyError as e:
@@ -622,7 +684,7 @@ def execute_actor(actor_id,
         # grab the logs every 5th iteration --
         if loop_idx % 5 == 0:
             logs = cli.logs(container.get('Id'))
-            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id)
+            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id, log_ex)
             logs = None
 
         # checking the container status to see if it is still running ----
@@ -653,7 +715,7 @@ def execute_actor(actor_id,
                 # stop_container could raise an exception - if so, we let it pass up and have the worker
                 # shut itself down.
                 stop_container(cli, container.get('Id'))
-                logger.info("container {} stopped. (worker {};{})".format(container.get('Id'), worker_id, execution_id))
+                logger.info(f"container {container.get('Id')} stopped. (worker {worker_id};{execution_id})")
 
                 # if we were able to stop the container, we can set running to False and keep the
                 # worker running
@@ -681,7 +743,7 @@ def execute_actor(actor_id,
                     running = False
             logger.debug("right after checking container state: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                            worker_id, execution_id))
-    logger.info("container stopped:{}; (worker {};{})".format(timeit.default_timer(), worker_id, execution_id))
+    logger.info(f"container stopped:{timeit.default_timer()}; (worker {worker_id};{execution_id})")
     stop = timeit.default_timer()
     globals.force_quit = False
 
@@ -737,7 +799,7 @@ def execute_actor(actor_id,
         except socket.timeout:
             break
         except Exception as e:
-            logger.error("Got exception from server.recv: {}; (worker {};{})".format(e, worker_id, execution_id))
+            logger.error(f"Got exception from server.recv: {e}; (worker {worker_id};{execution_id})")
         if datagram:
             try:
                 results_ch.put(datagram)
@@ -761,7 +823,7 @@ def execute_actor(actor_id,
             count = count + 1
             try:
                 cli.remove_container(container=container)
-                logger.info("Actor container removed. (worker {};{})".format(worker_id, execution_id))
+                logger.info(f"Actor container removed. (worker {worker_id};{execution_id})")
             except Exception as e:
                 # if the container is already gone we definitely want to quit:
                 if 'No such container' in str(e):
@@ -792,7 +854,11 @@ def execute_actor(actor_id,
         except Exception as e:
             logger.debug(f"got Exception trying to clean up fifo_host_path; e: {e}")
     if results_ch:
-        results_ch.close()
+        # check if the length of the results channel is empty and if so, delete it --
+        if len(results_ch._queue._queue) == 0:
+            results_ch.delete()
+        else:
+            results_ch.close()
     result['runtime'] = int(stop - start)
     logger.debug("right after removing fifo; about to return: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                          worker_id, execution_id))

@@ -14,7 +14,7 @@ def dashboard():
     try:
         jwt = g.jwt
     except AttributeError:
-        error = "JWT mising. context: {}".format(dir(g))
+        error = f"JWT mising. context: {dir(g)}"
         return render_template('dashboard.html',
                                actors=[],
                                jwt="",
@@ -25,12 +25,12 @@ def dashboard():
 
     jwt_header = g.jwt_header_name
     base_url = 'http://172.17.0.1:8000'
-    url = "{}/admin/actors".format(base_url)
+    url = f"{base_url}/admin/actors"
     error = None
     actors = None
-    logger.info("jwt_header from context: {}".format(jwt_header))
-    logger.debug("jwt from context: {}".format(jwt))
-    logger.info("url: {}".format(url))
+    logger.info(f"jwt_header from context: {jwt_header}")
+    logger.debug(f"jwt from context: {jwt}")
+    logger.info(f"url: {url}")
     if request.method == 'POST':
         logger.info("validating post params.")
         # validate POST parameters
@@ -55,13 +55,13 @@ def dashboard():
     if not error:
         # try and make a request to get the actors
         headers = {jwt_header: jwt}
-        url = "{}/admin/actors".format(base_url)
-        logger.info("Submitting GET to: {}".format(url))
+        url = f"{base_url}/admin/actors"
+        logger.info(f"Submitting GET to: {url}")
         try:
             rsp = requests.get(url, headers=headers)
         except Exception as e:
-            logger.error("Got an exception from /admin/actors. Exception: {}".format(e))
-            error = "Unable to retrieve actors: {}".format(e)
+            logger.error(f"Got an exception from /admin/actors. Exception: {e}")
+            error = f"Unable to retrieve actors: {e}"
             return render_template('dashboard.html',
                                    actors=None,
                                    jwt=jwt,
@@ -75,7 +75,7 @@ def dashboard():
                 msg = rsp.get("message")
             else:
                 msg = rsp.content
-            error = "Unable to retrieve actors. Error was: {}".format(msg)
+            error = f"Unable to retrieve actors. Error was: {msg}"
         else:
             logger.info("Request to /admin/actors successful.")
             data = json.loads(rsp.content.decode('utf-8'))
@@ -93,13 +93,13 @@ def dashboard():
                             a['worker']['lastHealthCheckTime'] = display_time(a['worker'].get('lastHealthCheckTime'))
                             a['worker']['lastExecutionTime'] = display_time(a['worker'].get('lastExecutionTime'))
                         except KeyError as e:
-                            logger.error("Error pulling worker data from admin api. Exception: {}".format(e))
+                            logger.error(f"Error pulling worker data from admin api. Exception: {e}")
                     else:
                         a['worker'] = {'lastHealthCheckTime': '',
                                        'lastExecutionTime': '',
                                        'id': '',
                                        'status': ''}
-                    logger.info("Adding actor data after converting to camel: {}".format(a))
+                    logger.info(f"Adding actor data after converting to camel: {a}")
                     a['createTime'] = display_time(a.get('createTime'))
                     a['lastUpdateTime'] = display_time(a.get('lastUpdateTime'))
                     actors.append(a)

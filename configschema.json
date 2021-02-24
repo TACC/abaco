@@ -170,11 +170,19 @@
       "type": "array",
       "description": "List of all allowable queues"
     },
-    "global_auth_object": {
+    "global_tenant_object": {
       "type": "object",
       "description": "Object containing global parameters which tenants may overwrite at times.",
       "additionalProperties": false,
       "properties": {
+        "log_ex": {
+          "type": "integer",
+          "description": "Default amount of time, in seconds, before a log is deleted from Mongo DB."
+        },
+        "log_ex_limit": {
+          "type": "integer",
+          "description": "Ceiling for custom log_ex able to be set for a tenant."
+        },
         "use_tas_uid": {
           "type": "boolean",
           "description": "Whether or not to use tas for authentication.",
@@ -221,13 +229,17 @@
             }
           },
           "required": [
-            "use_tas_uid"
+            "use_tas_uid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
           "required": [
             "actor_uid",
-            "actor_gid"
+            "actor_gid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
@@ -251,17 +263,29 @@
                 null
               ]
             }
-          }
+          },
+          "required": [
+            "log_ex",
+            "log_ex_limit"
+          ]
         }
       ]
     }
   },
   "patternProperties": {
-    "^.*_auth_object": {
+    "^.*_tenant_object": {
       "type": "object",
       "description": "Object containing tenant based properties.",
       "additionalProperties": false,
       "properties": {
+        "log_ex": {
+          "type": "integer",
+          "description": "Default amount of time, in seconds, before a log is deleted from Mongo DB."
+        },
+        "log_ex_limit": {
+          "type": "integer",
+          "description": "Ceiling for custom log_ex able to be set for a tenant."
+        },
         "use_tas_uid": {
           "type": "boolean",
           "description": "Whether or not to use tas for authentication for tenant."
@@ -305,13 +329,17 @@
             }
           },
           "required": [
-            "use_tas_uid"
+            "use_tas_uid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
           "required": [
             "actor_uid",
-            "actor_gid"
+            "actor_gid",
+            "log_ex",
+            "log_ex_limit"
           ]
         },
         {
@@ -335,7 +363,11 @@
                 null
               ]
             }
-          }
+          },
+          "required": [
+            "log_ex",
+            "log_ex_limit"  
+          ]
         }
       ]
     }
@@ -347,7 +379,7 @@
     "mongo_host",
     "mongo_port",
     "rabbit_uri",
-    "global_auth_object",
+    "global_tenant_object",
     "worker_socket_paths",
     "spawner_host_id",
     "worker_fifo_paths"

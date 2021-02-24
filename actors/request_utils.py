@@ -29,7 +29,7 @@ def handle_error(exc):
         response.status_code = exc.code
         return response
     else:
-        response = error(msg='Unrecognized exception type: {}. Exception: {}'.format(type(exc), exc))
+        response = error(msg=f'Unrecognized exception type: {type(exc)}. Exception: {exc}')
         response.status_code = 500
         return response
 
