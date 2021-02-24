@@ -1,6 +1,15 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.1.1 - 2021-02-24
+### Added
+- No change.
+### Changed
+- Feature parity to v2 1.8.1.
+- Fixes to ERROR logic and and bugs.
+### Removed
+- No change.
+
 ## 1.1.0 - 2021-02-01
 ### Added
 - Added support for a cron scheduling feature for actors. The cron schedule feature allows users to 
@@ -25,6 +34,58 @@ with increased pull quota to avoid "toomanyrequests: You have reached your pull 
 
 
 # V2 Changelog.
+## 1.8.1 - 2021-02-24
+### Added
+- No change.
+
+### Changed
+- Actors are no longer put into ERROR state when unrecognized exceptions occur during the starting of actor containers. 
+  Most of the time, these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or 
+  getting socket timeouts from docker. These are not the fault of the actor, and putting it (but not other actors who 
+  simply didn't happen to be executing at the time) in ERROR state is confusing to users and leads to actors not 
+  processing messages until the user notices and intervenes.
+- Fixed an issue where attempts to tear down the results channel associated with an execution could fail and cause an
+  actor to be put into the ERROR state.
+- Fixed issue where actor could be set to the ERROR state even after it was deleted. 
+
+### Removed
+- No change.
+
+
+## 1.8.0 - 2021-01-25
+### Added
+- Each actor now has a ``revision`` number property, a monotonically increasing integer that updates every time the
+actor's image is updated (including updates with ``force=True``). Workers are also started with the current revision 
+  number and stop processing messages once their revision number is less than the actor's current revision. 
+
+### Changed
+- The autoscaler algorithm has been updated to be more resilient to runtime exceptions and other issues.
+- A bug has been fixed that caused the status of an execution to remain in RUNNING state even after the actor was put
+in ERROR state.
+- A bug has been fixed that prevented the actor's mailbox queue in RabbitMQ from being deleted when the actor is deleted.
+- The channels module has been modified to make more use of the BasicTaskQueue class to decrease the RabbitMQ footprint
+of the system. Additionally, we have improved some handling of queues by more aggressively deleting them. 
+
+### Removed
+- No change.
+
+
+## 1.7.0 - 2020-11-10
+### Added
+- Added support for a cron scheduling feature for actors. The cron schedule feature allows users to 
+instruct Abaco to automatically execute actors based on a schedule provided by the user. More
+information available from the docs (https://tacc-cloud.readthedocs.io/projects/abaco/en/latest/technical/messages.html#cron-schedule).
+- Added support for configuring Abaco with a DockerHub credential to be used when pulling images
+from DockerHub. In particular, Abaco can be configured with the credentials of a licensed account
+with increased pull quota to avoid "toomanyrequests: You have reached your pull rate limit" errors from the Docker daemon. 
+
+### Changed
+- No change.
+
+### Removed
+- No change.
+
+
 ## 1.6.0 - 2020-04-30
 ### Added
 - Added the `GET /actors/search/{search_type}?{search_terms}` endpoint for mongo database full-text search and matching
