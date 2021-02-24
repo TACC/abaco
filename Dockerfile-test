@@ -30,6 +30,8 @@ RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/actors/requirements.txt
 RUN pip3 install pytest ipython #locustio
 
+RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
+RUN chmod +x rabbitmqadmin
 
 # Special flag for tests
 ENV _called_from_within_test=True
