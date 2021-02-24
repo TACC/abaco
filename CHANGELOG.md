@@ -1,6 +1,23 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.8.1 - 2021-02-24
+### Added
+- No change.
+
+### Changed
+- Actors are no longer put into ERROR state when unrecognized exceptions occur during the starting of actor containers. 
+  Most of the time, these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or 
+  getting socket timeouts from docker. These are not the fault of the actor, and putting it (but not other actors who 
+  simply didn't happen to be executing at the time) in ERROR state is confusing to users and leads to actors not 
+  processing messages until the user notices and intervenes.
+- Fixed an issue where attempts to tear down the results channel associated with an execution could fail and cause an
+  actor to be put into the ERROR state.
+- Fixed issue where actor could be set to the ERROR state even after it was deleted. 
+
+### Removed
+- No change.
+
 
 ## 1.8.0 - 2021-01-25
 ### Added
