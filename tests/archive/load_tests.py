@@ -5,10 +5,13 @@
 # Export the following variables to configure the behavior
 # BASE= the base URL for Abaco.
 # NUM_ACTORS = total number of actors
-# NUM_WORKERS = total number of workers per actor
 # NUM_MESSAGES_PER_ACTOR = total number of messages per actor
 # then run:
 # python3 load_tests.py
+#
+# no longer used:
+# NUM_WORKERS = total number of workers per actor
+
 import json
 import multiprocessing
 import os
@@ -45,21 +48,21 @@ def check_for_ready(actor_ids):
     """
     for aid in actor_ids:
         # check for workers to be ready
-        idx = 0
-        ready = False
-        while not ready and idx < 60:
-            url = '{}/actors/{}/workers'.format(base, aid)
-            rsp = requests.get(url, headers=headers)
-            result = basic_response_checks(rsp)
-            for worker in result:
-                if not worker['status'] == 'READY':
-                    idx = idx + 1
-                    time.sleep(2)
-                    continue
-                ready = True
-        if not ready:
-            print("ERROR - workers for actor {} never entered READY status.")
-            raise Exception()
+        # idx = 0
+        # ready = False
+        # while not ready and idx < 60:
+        #     url = '{}/actors/{}/workers'.format(base, aid)
+        #     rsp = requests.get(url, headers=headers)
+        #     result = basic_response_checks(rsp)
+        #     for worker in result:
+        #         if not worker['status'] == 'READY':
+        #             idx = idx + 1
+        #             time.sleep(2)
+        #             continue
+        #         ready = True
+        # if not ready:
+        #     print("ERROR - workers for actor {} never entered READY status.")
+        #     raise Exception()
         # now check that the actor itself is ready -
         ready = False
         idx = 0
@@ -207,6 +210,17 @@ def check_for_complete(actor_ids):
                 time.sleep(1)
     print("All executions complete.")
 
+def remove_actors(actor_ids):
+    for aid in actor_ids:
+        url = '{}/actors/{}'.format(base, aid)
+        rsp = requests.delete(url, headers=headers)
+        print(f"Send actor id {aid} sent delete request...")
+        try:
+            result = basic_response_checks(rsp)
+            print(f"actor id {aid} successfully deleted.")
+        except Exception as e:
+            print(f"got exception in request to delete actor {aid}; exception: {e}")
+
 
 def main():
     NUM_ACTORS = int(os.environ.get('NUM_ACTORS', 1))
@@ -217,11 +231,12 @@ def main():
         actor_ids.append(aid)
         print("registered actor # {}; id: {}".format(i, aid))
     reg_t = timeit.default_timer()
+    # change 1/2021 -- we no longer start workers because they are staretd by the A.S.
     # start up workers
-    NUM_WORKERS = int(os.environ.get('NUM_WORKERS', 3))
-    for aid in actor_ids:
-        start_workers(aid, NUM_WORKERS)
-    work_t = timeit.default_timer()
+    # NUM_WORKERS = int(os.environ.get('NUM_WORKERS', 3))
+    # for aid in actor_ids:
+    #     start_workers(aid, NUM_WORKERS)
+    # work_t = timeit.default_timer()
     # wait for actors and workers to reach READY status
     check_for_ready(actor_ids)
     ready_t = timeit.default_timer()
@@ -238,10 +253,14 @@ def main():
     # check for executions to complete -- TODO
     check_for_complete(actor_ids)
     end_t = timeit.default_timer()
+    delete_actors = os.environ.get('DELETE_ACTORS', "true")
+    if delete_actors == "true":
+        remove_actors(actor_ids)
+
     print(f"Final times -- ")
     print(f"complete run: {end_t - start_t}")
     print(f"Register: {reg_t - start_t}")
-    print(f"Start up workers: {work_t - reg_t}")
+    # print(f"Start up workers: {work_t - reg_t}")
     print(f"Workers ready: {ready_t - reg_t}")
     print(f"Send messages: {send_t - ready_t}")
     print(f"Complete executions: {end_t - send_t}")
