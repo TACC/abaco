@@ -18,7 +18,8 @@ from common.config import conf
 from codes import BUSY, READY, RUNNING
 import globals
 from models import Actor, Execution, get_current_utc_time, display_time, site
-from stores import workers_store
+from stores import workers_store, alias_store, configs_store
+import encrypt_utils
 
 
 TAG = os.environ.get('TAG') or conf.version or ''
@@ -448,6 +449,40 @@ def execute_actor(actor_id,
     :return: result (dict), logs (str) - `result`: statistics about resource consumption; `logs`: output from docker logs.
     """
     logger.debug(f"top of execute_actor(); (worker {worker_id};{execution_id})")
+
+    # get any configs for this actor
+    actor_configs = {}
+    config_list = []
+    aid = Actor.get_dbid(tenant, actor_id)
+
+    alias = None
+    for alias in alias_store[site()].items():
+        logger.debug(f"THE ALIAS IS {alias}")
+        if aid == alias['actor_id']:
+            alias = alias['alias']
+            # make it a list
+    # encode tenant in the name
+    for config in configs_store[site()].items():
+        if aid in config['actors'] or alias in config['actors']:
+            config_list.append(config)
+
+    for config in config_list:
+        logger.debug('CHECKING EACH CONFIG')
+        try:
+            if config['is_secret']:
+                value = encrypt_utils.decrypt(config['value'])
+                actor_configs[config['name']] = value
+            elif config['isSecret']:
+                value = encrypt_utils.decrypt(config['value'])
+                actor_configs[config['name']] = value
+            else:
+                actor_configs[config['name']] = config['value']
+
+        except:
+            logger.debug(f'something went wrong with config: {config}')
+
+    d['_actor_configs'] = actor_configs
+
 
     # initially set the global force_quit variable to False
     globals.force_quit = False

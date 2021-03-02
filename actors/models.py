@@ -22,7 +22,7 @@ from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
 from stores import actors_store, alias_store, executions_store, logs_store, nonce_store, \
-    permissions_store, workers_store, abaco_metrics_store
+    permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store
 
 from common.logs import get_logger
 logger = get_logger(__name__)
@@ -1980,6 +1980,42 @@ def get_permissions(actor_id):
         logger.error(f"Actor {actor_id} does not have entries in the permissions store, returning []")
         return {}
 
+def get_config_permissions(config):
+    """ Return all permissions for an actor
+    :param actor_id:
+    :return:
+    """
+    logger.debug(f"HERE IS THE CONFIG {config}")
+    config_permissions = []
+    logger.debug("1451")
+    try:
+        for actor_config in configs_permissions_store[site()].items(filter_inp={'config': {'$exists': True}}, proj_inp={'config': 1, '_id': 0}):
+            logger.debug(f'HERE IS THE CONFIG {actor_config}')
+        return configs_permissions_store[site()][config]
+    except KeyError:
+        raise errors.PermissionsException("Config {} does not exist".format(config))
+
+def permission_process(permissions, user, level, checkItem):
+    # get all permissions for this actor -
+    logger.debug("Here in permission_process")
+    WORLD_USER = 'ABACO_WORLD'
+    for p_user, p_name in permissions.items():
+        # if the actor has been shared with the WORLD_USER anyone can use it
+        if p_user == WORLD_USER:
+            logger.info("Allowing request - {} has been shared with the WORLD_USER.".format(checkItem))
+            return True
+        # otherwise, check if the permission belongs to this user and has the necessary level
+        if p_user == user:
+            p_pem = codes.PermissionLevel(p_name)
+            if p_pem >= level:
+                logger.info("Allowing request - user has appropriate permission with {}.".format(checkItem))
+                return True
+            else:
+                # we found the permission for the user but it was insufficient; return False right away
+                logger.info("Found permission {} for {}, rejecting request.".format(level, checkItem))
+                return False
+
+
 def set_permission(user, actor_id, level):
     """Set the permission for a user and level to an actor."""
     logger.debug("top of set_permission().")
@@ -1989,3 +2025,93 @@ def set_permission(user, actor_id, level):
     if not new:
         permissions_store[site()][actor_id, user] = str(level)
     logger.info(f"Permission set for actor: {actor_id}; user: {user} at level: {level}")
+
+
+def set_config_permission(user, actor_id, level):
+    """Set the permission for a user and level to an actor."""
+    logger.debug("top of set_permission().")
+    if not isinstance(level, PermissionLevel):
+        raise errors.DAOError("level must be a PermissionLevel object.")
+    new = configs_permissions_store[site()].add_if_empty([actor_id, user], str(level))
+    if not new:
+        configs_permissions_store[site()][actor_id, user] = str(level)
+    logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))
+
+
+class ActorConfig(AbacoDAO):
+    """Data access object for working with Actor configs."""
+
+    PARAMS = [
+        # param_name, required/optional/provided/derived, attr_name, type, help, default
+        ('tenant', 'provided', 'tenant', str, 'The tenant that this alias belongs to.', None),
+        ('name', 'required', 'name', str, 'Name of the config', None),
+        ('value', 'required', 'value', str, 'The value of the config; JSON Serializable. Set as the ENV VAR value.', None),
+        ('is_secret', 'required', 'is_secret', inputs.boolean, 'Whether the config should be encrypted at rest and not retrievable.', None),
+        # need write access to actor
+        ('actors', 'required', 'actors', str, 'List of actor IDs or aliases that should get this config/secret.', []),
+    ] # take both ids and aliases and figure out which one it is
+     # they need write access on actor or alias
+    # delete of aliases/ids needs to delete from configs
+
+    # the following nouns cannot be used for an alias as they
+    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization']
+    FORBIDDEN_CHAR = [':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
+
+
+    def get_derived_value(self, name, d):
+        """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
+        # first, see if the id attribute is already in the object:
+        try:
+            if d[name]:
+                return d[name]
+        except KeyError:
+            pass
+        # combine the tenant_id and client_key to get the unique id
+        return Client.get_client_id(d['tenant'], d['client_key'])
+
+    def display(self):
+        """Return a representation fit for display."""
+        self.pop('tenant')
+        return self.case()
+
+    def check_reserved_words(self):
+        if self.name in ActorConfig.RESERVED_WORDS:
+            raise errors.DAOError("{} is a reserved word. "
+                                  "The following reserved words cannot be used "
+                                  "for an alias: {}.".format(self.alias, Alias.RESERVED_WORDS))
+
+    def check_forbidden_char(self):
+        for char in ActorConfig.FORBIDDEN_CHAR:
+            if char in self.name:
+                raise errors.DAOError("'{}' is a forbidden character. "
+                                      "The following characters cannot be used "
+                                      "for an alias: ['{}'].".format(char, "', '".join(Alias.FORBIDDEN_CHAR)))
+
+
+    def check_and_create_config(self):
+        """Check to see if an alias is unique and create it if so. If not, raises a DAOError."""
+
+        # first, make sure alias is not a reserved word:
+        self.check_reserved_words()
+        # second, make sure alias is not using a forbidden char:
+        self.check_forbidden_char()
+        # attempt to create the alias within a transaction
+        obj = configs_store.add_if_empty([self.name], self)
+        if not obj:
+            raise errors.DAOError("Name {} already exists.".format(self.name))
+        return obj
+
+
+    # @classmethod
+    # def get_client_id(cls, tenant, key):
+    #     return '{}_{}'.format(tenant, key)
+    #
+    # @classmethod
+    # def get_client(cls, tenant, client_key):
+    #     return Client(clients_store[Client.get_client_id(tenant, client_key)])
+    #
+    # @classmethod
+    # def delete_client(cls, tenant, client_key):
+    #     del clients_store[Client.get_client_id(tenant, client_key)]
+
+

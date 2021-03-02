@@ -24,3 +24,4 @@ python-dateutil==2.8.1
 # cf., https://github.com/ucbrise/clipper/issues/573
 cloudpickle==0.5.2
 prometheus_client
+cryptography==2.9.2

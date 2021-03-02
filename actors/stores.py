@@ -256,7 +256,7 @@ def mongo_index_initialization():
         except errors.OperationFailure:
             # this will happen if the index already exists.
             pass
-        
+
         # Creating wildcard text indexing for full-text mongo search
         logs_store[site].create_index([('$**', TEXT)])
         executions_store[site].create_index([('$**', TEXT)])
@@ -283,6 +283,8 @@ nonce_store = {}
 alias_store = {}
 pregen_clients = {}
 abaco_metrics_store = {}
+configs_store = {}
+configs_permissions_store = {}
 
 # We go through each site, initializing database objects for ones we will use.
 for site in SITE_LIST:
@@ -317,6 +319,8 @@ for site in SITE_LIST:
     alias_store.update({site: site_config_store(db='alias_store')})
     pregen_clients.update({site: site_config_store(db='pregen_clients')})
     abaco_metrics_store.update({site: site_config_store(db='abaco_metrics_store')})
+    configs_store.update({site: site_config_store(db='configs_store')})
+    configs_permissions_store.update({site: site_config_store(db='configs_permissions_store')})
 
 if __name__ == "__main__":
     # Mongo indexes only go through init on primary site.

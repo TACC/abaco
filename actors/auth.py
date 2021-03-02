@@ -207,6 +207,7 @@ def authorization():
         or request.url_rule.rule == '/actors/' \
         or '/actors/admin' in request.url_rule.rule \
         or '/actors/aliases' in request.url_rule.rule \
+        or '/actors/configs' in request.url_rule.rule \
         or '/actors/utilization' in request.url_rule.rule \
         or '/actors/search/' in request.url_rule.rule:
         db_id = None
@@ -268,6 +269,23 @@ def authorization():
         # if we are here, it is either a GET or a new actor, so the request is allowed:
         logger.debug("new actor or GET on root connection. allowing request.")
         return True
+
+    # if actors/configs is in rule at all, return true
+    # aliases root collection has special rules as well -
+    if '/actors/configs' == request.url_rule.rule or '/actors/configs/' == request.url_rule.rule:
+        return True
+
+    if '/actors/configs' in request.url_rule.rule:
+        logger.debug('auth.py /actors/configs if statement')
+        config = get_config_id()
+        noun = 'config'
+        if request.method == 'GET':
+            # GET requests require READ access
+            has_pem = check_config_permissions(user=g.user, config=config, level=codes.READ)
+            # all other requests require UPDATE access
+        elif request.method in ['DELETE', 'POST', 'PUT']:
+            has_pem = check_config_permissions(user=g.user, config=config, level=codes.UPDATE)
+        # check for new url here
 
     # aliases root collection has special rules as well -
     if '/actors/aliases' == request.url_rule.rule or '/actors/aliases/' == request.url_rule.rule:
@@ -458,6 +476,16 @@ def get_alias_id():
     alias = path_split[3]
     logger.debug(f"alias: {alias}")
     return Alias.generate_alias_id(g.request_tenant_id, alias)
+
+def get_config_id():
+    """Get the alias from the request path."""
+    path_split = request.path.split("/")
+    if len(path_split) < 4:
+        logger.error(f"Unrecognized request -- could not find the config. path_split: {path_split}")
+        raise PermissionsException("Not authorized.")
+    config = path_split[3]
+    logger.debug(f"config: {config}")
+    return config
 
 def get_tenant_verify(tenant):
     """Return whether to turn on SSL verification."""
