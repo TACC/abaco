@@ -44,7 +44,7 @@ try:
         logger.debug("44")
         try:
             logger.debug(f"{logs_store._db.index_information()}")
-            logs_store._db.create_index("exp")
+            logs_store._db.create_index("exp", expireAfterSeconds=log_ex)
             logger.debug(f"{logs_store._db.index_information()}")
         except errors.OperationFailure:
             logger.debug("49")
