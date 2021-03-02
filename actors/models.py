@@ -23,7 +23,7 @@ import errors
 import codes
 
 from stores import actors_store, alias_store, clients_store, executions_store, logs_store, nonce_store, \
-    permissions_store, workers_store, abaco_metrics_store
+    permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store
 
 from agaveflask.logs import get_logger
 logger = get_logger(__name__)
@@ -1987,9 +1987,6 @@ def get_permissions(actor_id):
     try:
         return permissions_store[actor_id]
     except KeyError:
-<<<<<<< HEAD
-        raise PermissionsException("Actor {} does not exist".format(actor_id))
-=======
         raise errors.PermissionsException("Actor {} does not exist".format(actor_id))
 
 def get_config_permissions(config):
@@ -2027,7 +2024,6 @@ def permission_process(permissions, user, level, checkItem):
                 logger.info("Found permission {} for {}, rejecting request.".format(level, checkItem))
                 return False
 
->>>>>>> a9080e9... Adding completion to the config feature
 
 def set_permission(user, actor_id, level):
     """Set the permission for a user and level to an actor."""
@@ -2038,8 +2034,6 @@ def set_permission(user, actor_id, level):
     if not new:
         permissions_store[actor_id, user] = str(level)
     logger.info("Permission set for actor: {}; user: {} at level: {}".format(actor_id, user, level))
-<<<<<<< HEAD
-=======
 
 
 def set_config_permission(user, actor_id, level):
@@ -2067,6 +2061,12 @@ class ActorConfig(AbacoDAO):
     ] # take both ids and aliases and figure out which one it is
      # they need write access on actor or alias
     # delete of aliases/ids needs to delete from configs
+
+    # the following nouns cannot be used for an alias as they
+    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization']
+    FORBIDDEN_CHAR = [':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=']
+
+
     def get_derived_value(self, name, d):
         """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
         # first, see if the id attribute is already in the object:
@@ -2083,6 +2083,34 @@ class ActorConfig(AbacoDAO):
         self.pop('tenant')
         return self.case()
 
+    def check_reserved_words(self):
+        if self.name in ActorConfig.RESERVED_WORDS:
+            raise errors.DAOError("{} is a reserved word. "
+                                  "The following reserved words cannot be used "
+                                  "for an alias: {}.".format(self.alias, Alias.RESERVED_WORDS))
+
+    def check_forbidden_char(self):
+        for char in ActorConfig.FORBIDDEN_CHAR:
+            if char in self.name:
+                raise errors.DAOError("'{}' is a forbidden character. "
+                                      "The following characters cannot be used "
+                                      "for an alias: ['{}'].".format(char, "', '".join(Alias.FORBIDDEN_CHAR)))
+
+
+    def check_and_create_config(self):
+        """Check to see if an alias is unique and create it if so. If not, raises a DAOError."""
+
+        # first, make sure alias is not a reserved word:
+        self.check_reserved_words()
+        # second, make sure alias is not using a forbidden char:
+        self.check_forbidden_char()
+        # attempt to create the alias within a transaction
+        obj = configs_store.add_if_empty([self.name], self)
+        if not obj:
+            raise errors.DAOError("Name {} already exists.".format(self.name))
+        return obj
+
+
     # @classmethod
     # def get_client_id(cls, tenant, key):
     #     return '{}_{}'.format(tenant, key)
@@ -2096,4 +2124,3 @@ class ActorConfig(AbacoDAO):
     #     del clients_store[Client.get_client_id(tenant, client_key)]
 
 
->>>>>>> a9080e9... Adding completion to the config feature

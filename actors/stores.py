@@ -7,6 +7,9 @@ from pymongo import errors, TEXT
 from store import MongoStore
 from config import Config
 
+from agaveflask.logs import get_logger
+logger = get_logger(__name__)
+
 # Mongo is used for accounting, permissions and logging data for its scalability.
 mongo_user = None
 mongo_password = None
@@ -32,15 +35,23 @@ mongo_config_store = partial(
 logs_store = mongo_config_store(db='1')
 # create an expiry index for the log store if we want logs to expire
 log_ex = Config.get('web', 'log_ex')
+#logger.debug(f"{log_ex}")
 try:
+    logger.debug("40")
     log_ex = int(log_ex)
+    logger.debug("42")
     if not log_ex == -1:
+        logger.debug("44")
         try:
-            logs_store._db.create_index("exp", expireAfterSeconds=log_ex)
+            logger.debug(f"{logs_store._db.index_information()}")
+            logs_store._db.create_index("exp")
+            logger.debug(f"{logs_store._db.index_information()}")
         except errors.OperationFailure:
+            logger.debug("49")
             # this will happen if the index already exists.
             pass
 except (ValueError, configparser.NoOptionError):
+    logger.debug("53")
     pass
 
 permissions_store = mongo_config_store(db='2')
@@ -52,6 +63,8 @@ nonce_store = mongo_config_store(db='7')
 alias_store = mongo_config_store(db='8')
 pregen_clients = mongo_config_store(db='9')
 abaco_metrics_store = mongo_config_store(db='10')
+configs_store = mongo_config_store(db='11')
+configs_permissions_store = mongo_config_store(db='12')
 
 # Indexing
 logs_store.create_index([('$**', TEXT)])

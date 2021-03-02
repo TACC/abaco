@@ -21,7 +21,7 @@ from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, W
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
-from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
+from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
     set_permission, get_current_utc_time
 
 from mounts import get_all_mounts
@@ -29,6 +29,7 @@ import codes
 from stores import actors_store, alias_store, clients_store, workers_store, executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
+import encrypt_utils
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
@@ -1194,8 +1195,6 @@ class ActorStateResource(Resource):
         return json_data
 
 
-<<<<<<< HEAD
-=======
 class ActorConfigsResource(Resource):
     def get(self):
         logger.debug("top of GET /configs")
@@ -1231,7 +1230,7 @@ class ActorConfigsResource(Resource):
         # make actors string into list
         # args['actors'] = json.loads(actors)
         try:
-            actors = re.split(",",actors[0])
+            actors = re.split(",",actors)
             for count, wrd in enumerate(actors):
                 actors[count] = wrd.strip() 
         except:
@@ -1252,7 +1251,7 @@ class ActorConfigsResource(Resource):
             args['value'] = encrypt_utils.encrypt(args.get('value'))
         #logger.debug("config post args validated: {}.".format(actors))
         actor_config = ActorConfig(**args)
-
+        actor_config.check_and_create_config()
         #logger.debug(f"HERE IS THE LOG: {actor_config.is_secret}")
         configs_store[actor_config.name] = actor_config.to_db()
         # set permissions for this config
@@ -1340,6 +1339,8 @@ class ActorConfigResource(Resource):
         # args['api_server'] = config_obj.value
         logger.debug("Instantiating actor config object. args: {}".format(args))
         new_config_obj = ActorConfig(**args)
+        logger.debug("Check that the config has no forbidden characters")
+        actor_config.check_and_create_config()
         logger.debug("Actor Config object instantiated; updating actor config in configs_store. "
                      "config: {}".format(new_config_obj))
         configs_store[config] = new_config_obj
@@ -1375,7 +1376,6 @@ class ActorConfigResource(Resource):
         return ok(result=None, msg='Actor config {} deleted successfully.'.format(config))
 
 
->>>>>>> a9080e9... Adding completion to the config feature
 class ActorExecutionsResource(Resource):
     def get(self, actor_id):
         logger.debug("top of GET /actors/{}/executions".format(actor_id))
