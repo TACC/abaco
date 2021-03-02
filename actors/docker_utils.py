@@ -933,9 +933,15 @@ def execute_actor(actor_id,
     if results_ch:
         # check if the length of the results channel is empty and if so, delete it --
         if len(results_ch._queue._queue) == 0:
-            results_ch.delete()
+            try:
+                results_ch.delete()
+            except Exception as e:
+                logger.warn(f"Got exception trying to delete the results_ch, swallowing it; Exception: {e}")
         else:
-            results_ch.close()
+            try:
+                results_ch.close()
+            except Exception as e:
+                logger.warn(f"Got exception trying to close the results_ch, swallowing it; Exception: {e}")
     result['runtime'] = int(stop - start)
     logger.debug("right after removing fifo; about to return: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                          worker_id, execution_id))
