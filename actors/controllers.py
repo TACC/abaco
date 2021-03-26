@@ -96,6 +96,7 @@ class CronResource(Resource):
                         d['_abaco_execution_id'] = exc
                         d['_abaco_Content_Type'] = 'str'
                         d['_abaco_actor_revision'] = actor.get('revision')
+                        d['_abaco_api_server'] = actor.get('api_server')
                         ch = ActorMsgChannel(actor_id=actor_id)
                         ch.put_msg(message="This is your cron execution", d=d)
                         ch.close()
