@@ -1,6 +1,17 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.8.2 - 2021-03-26
+### Added
+- No change.
+
+### Changed
+- Fixed a bug which stopped cron jobs from creating a working access_token for actor usage.
+
+### Removed
+- No change.
+
+
 ## 1.8.1 - 2021-02-24
 ### Added
 - No change.
