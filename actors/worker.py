@@ -232,7 +232,9 @@ def subscribe(tenant,
 
     # start a separate thread for handling messages sent to the worker channel ----
     logger.info("Starting the process worker channel thread.")
-    t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag))
+    t = threading.Thread(target=process_worker_ch,
+                         args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag),
+                         daemon=True)
     t.start()
 
     # subscribe to the actor message queue -----
@@ -505,9 +507,9 @@ def subscribe(tenant,
             time.sleep(60)
             break
         except Exception as e:
-            logger.error("Worker {} got an unexpected exception trying to run actor for execution: {}."
+            logger.error(f"Worker {worker_id} got an unexpected exception trying to run actor for execution: {execution_id}."
                          "Putting the actor in error status and shutting down workers. "
-                         "Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
+                         f"Exception: {e}; Exception type: {type(e)}")
             # updated 2/2021 -- we no longer set the actor to ERROR state for unrecognized exceptions. Most of the time
             # these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or getting
             # socket timeouts from docker. these are not the fault of the actor, and putting it (but not other actors
