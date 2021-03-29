@@ -180,8 +180,8 @@ def response_format(rsp):
 
 def basic_response_checks(rsp, check_tenant=True):
     if not rsp.status_code in [200, 201]:
-        print(str(rsp.content)[:400])
-        pytest.fail(f'Status code: {rsp.status_code} not in [200, 201].')
+        print(rsp.content)
+    assert rsp.status_code in [200, 201]
     response_format(rsp)
     data = json.loads(rsp.content.decode('utf-8'))
     assert 'result' in data.keys()
