@@ -43,7 +43,7 @@ def create_gauges(actor_ids):
         try:
             actor = actors_store[site()][actor_id]
         except KeyError:
-            logger.error(f"actor {actor_id} does not exist in store; continuing to next actor.")
+            logger.info(f"actor {actor_id} does not exist in store; continuing to next actor.")
             continue
 
         # If the actor doesn't have a gauge, add one
@@ -241,16 +241,22 @@ def scale_down(actor_id, is_sync_actor=False):
             worker = workers.pop()
             logger.debug(f"check_ttl: {check_ttl} for worker: {worker}")
             if check_ttl:
-                last_execution = worker.get('last_execution_time')
-                if not last_execution:
-                    # if worker has made zero executions, use the create_time
-                    last_execution = worker.get('create_time')
-                try:
-                    # convert datetime to unix time integer
-                    last_execution = int(last_execution.timestamp())
-                except AttributeError:
-                    logger.error(f"metrics got exception trying to compute last_execution! ")
-                    last_execution = 0
+                last_execution = worker.get('last_execution_time', 0)
+                if not last_execution == 0:
+                    try:
+                        last_execution = int(last_execution.timestamp())
+                    except Exception as e:
+                        logger.error(f"metrics got exception trying to compute last_execution! e: {e}")
+                        last_execution = 0
+                # if worker has made zero executions, use the create_time
+                if last_execution == 0:
+                    last_execution = worker.get('create_time', 0)
+                    if not last_execution == 0:
+                        try:
+                            last_execution = int(last_execution.timestamp())
+                        except:
+                            logger.error(f"Could not cast last_execution {last_execution} to int(float()")
+                            last_execution = 0
                 logger.debug(f"using last_execution: {last_execution}")
                 if last_execution + sync_max_idle_time < time.time():
                     # shutdown worker
