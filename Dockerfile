@@ -16,8 +16,6 @@ RUN pip3 install -r /requirements.txt
 
 RUN touch /var/log/abaco.log
 
-# add fifo_host_path_dir
-RUN mkdir -p /Users/nicholasaufiero/tmp
 # set default threads for gunicorn
 ENV threads=3
 
