@@ -5,7 +5,7 @@ from agaveflask.utils import AgaveApi, handle_error
 
 from auth import authn_and_authz
 from controllers import AdminActorsResource, AdminWorkersResource, AdminExecutionsResource, \
-    ActorPermissionsResource, AliasPermissionsResource, WorkersResource, WorkerResource
+    ActorPermissionsResource, AliasPermissionsResource, WorkersResource, WorkerResource, ActorConfigsPermissionsResource
 from dashboard import dashboard
 
 app = Flask(__name__)
@@ -25,6 +25,7 @@ api.handle_user_exception = handle_error
 # Resources
 api.add_resource(WorkersResource, '/actors/<string:actor_id>/workers')
 api.add_resource(AliasPermissionsResource, '/actors/aliases/<string:identifier>/permissions')
+api.add_resource(ActorConfigsPermissionsResource, '/actors/configs/<string:identifier>/permissions')
 api.add_resource(ActorPermissionsResource, '/actors/<string:identifier>/permissions')
 api.add_resource(WorkerResource, '/actors/<string:actor_id>/workers/<string:worker_id>')
 api.add_resource(AdminActorsResource, '/actors/admin')
