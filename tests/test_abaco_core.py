@@ -71,7 +71,12 @@ import sys
 # these paths allow for importing modules from the actors package both in the docker container and native when the test
 # suite is launched from the command line.
 sys.path.append(os.path.split(os.getcwd())[0])
-sys.path.append('/actors')
+
+# updated 3/2021:
+# we need to insert the actors package at the front of the system path. there is a conflict with the actors.config
+# module and the config site-packge. when actors is at the end of the path, the config site package is imported in the
+# agaveflask module and that causes errors.
+sys.path.insert(0, '/actors')
 import time
 
 import cloudpickle
@@ -415,13 +420,13 @@ def test_register_config_multiple_actors(headers):
     actor_id = get_actor_id(headers)
     actor_id2 = get_actor_id(headers, name='abaco_test_suite_default_env')
     url = '{}/{}'.format(base_url,'/actors/configs')
-    data={"name":"another_config", 
+    data={"name":"a_multi_actor_config",
     "value":"my value", 
     "isSecret":True, 
     "actors":"{},{}".format(actor_id,actor_id2)}
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
-    assert result['actors'][0] == "{},{}".format(actor_id, actor_id2)
+    assert result['actors'] == "{},{}".format(actor_id, actor_id2)
 
 @pytest.mark.regapi
 def test_register_with_nonexistent_actor(headers):
@@ -483,6 +488,8 @@ def test_update_config_limited_headers(headers):
     "isSecret":True, 
     "actors":actor_id}
     rsp = requests.put(url, data=data, headers=limited_headers())
+    if not rsp.status_code == 400:
+        print(rsp.content)
     assert rsp.status_code == 400
 
 

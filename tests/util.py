@@ -67,6 +67,8 @@ def response_format(rsp):
     return data
 
 def basic_response_checks(rsp, check_tenant=True):
+    if not rsp.status_code in [200, 201]:
+        print(rsp.content)
     assert rsp.status_code in [200, 201]
     response_format(rsp)
     data = json.loads(rsp.content.decode('utf-8'))
