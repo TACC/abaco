@@ -16,17 +16,18 @@ from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 from parse import parse
 
-from auth import check_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
+from auth import check_permissions, check_config_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
-    set_permission, get_current_utc_time
+    get_config_permissions, set_permission, get_current_utc_time, set_config_permission
 
 from mounts import get_all_mounts
 import codes
-from stores import actors_store, alias_store, clients_store, workers_store, executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
+from stores import actors_store, alias_store, configs_store, configs_permissions_store, workers_store, \
+    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
 from worker import shutdown_workers, shutdown_worker
 import metrics_utils
 import encrypt_utils
@@ -40,10 +41,6 @@ PROMETHEUS_URL = 'http://172.17.0.1:9090'
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
-
-clients_gauge = Gauge('clients_count_for_clients_store',
-                      'Number of clients currently in the clients_store')
-
 
 
 try:
@@ -148,7 +145,7 @@ class MetricsResource(Resource):
         try:
             actor_ids, inbox_lengths, cmd_length = self.get_metrics()
         except Exception as e:
-            logger.error(f"MetricsResouce got exception from get_metrics(); e: {e}."
+            logger.error(f"MetricsResource got exception from get_metrics(); e: {e}."
                          f"Responding without running check_metrics."
                          f"Autoscaling is broken!!!!!!")
             return Response("Unhandled exception in get_metrics of MetricsResource!")
@@ -160,7 +157,7 @@ class MetricsResource(Resource):
         try:
             self.check_metrics(actor_ids, inbox_lengths, cmd_length)
         except Exception as e:
-            logger.error(f"MetricsResouce got exception from check_metrics(); e: {e}."
+            logger.error(f"MetricsResource got exception from check_metrics(); e: {e}."
                          f"Responding with an error."
                          f"Autoscaling is likely broken!!!")
             return Response("Unhandled exception in check_metrics MetricsResource!")
@@ -194,9 +191,13 @@ class MetricsResource(Resource):
             try:
                 current_message_count = inbox_lengths[actor_id]
             except KeyError as e:
-                logger.error("Got KeyError trying to get current_message_count. Exception: {}".format(e))
+                logger.info("Got KeyError trying to get current_message_count. Exception: {}".format(e))
+                # don't try to process the actor any further
+                continue
             except Exception as e:
                 logger.error(f"Uncaught exception in check_metrics; e: {e}")
+                # don't try to process the actor any further
+                continue
             workers = Worker.get_workers(actor_id)
             current_workers = len(workers)
             logger.debug(f"actor {actor_id}; Current message count: {current_message_count}; "
@@ -1225,56 +1226,64 @@ class ActorConfigsResource(Resource):
     def post(self):
         logger.info("top of POST to register a new config.")
         args = self.validate_post()
+
+        # Check that the actor ids correspond to real actors or aliases and that the user
+        # has UPDATE access to each of them ---
+        # first, split the string by comma
         actors = args.get('actors')
-        logger.debug(f"actors is {actors}")
-        logger.debug(f"actors[0] is {actors[0]}")
-        # make actors string into list
-        # args['actors'] = json.loads(actors)
         try:
-            actors = re.split(",",actors)
-            for count, wrd in enumerate(actors):
-                actors[count] = wrd.strip() 
-        except:
-            logger.debug("PASSING")
-        logger.debug(f"actors are {actors}")
-        # Check that the actor id corresponds to a real actor
-        for uid in actors:
-            logger.debug(f"actor is {uid}")
+            actors_list = re.split(",", actors)
+            for count, wrd in enumerate(actors_list):
+                actors_list[count] = wrd.strip()
+        except Exception as e:
+            logger.info(f"Got exception trying to parse actor parameter. e: {e}")
+            raise DAOError(f"Could not parse the actors parameter ({actors}). It should be a comma-separated list of "
+                           f"actors ids or alias ids. Details: {e}")
+        logger.debug(f"actors are {actors_list}")
+        # Loop through ids and check existence
+        for a in actors_list:
             try:
-                total_id = f"{g.tenant}_{uid}"
-                actors_store[total_id]
+                # need to check if this identifier is an actor id or an alias
+                db_id = f"{g.tenant}_{a}"
+                actors_store[db_id]
             except KeyError:
-                logger.debug("did not find actor: {}.".format(uid))
-                raise ResourceError("No actor found with id: {}.".format(uid), 404)
+                logger.debug(f"did not find actor: {db_id}. now checking alias")
+                try:
+                    alias_store[db_id]
+                except KeyError:
+                    raise ResourceError(f"No actor or alias found with id: {a}.", 404)
+            # also check that user has update access to actor --
+            check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE, roles=g.roles)
 
         args['tenant'] = g.tenant
         if args.get('isSecret') or args.get('is_secret'):
             args['value'] = encrypt_utils.encrypt(args.get('value'))
-        #logger.debug("config post args validated: {}.".format(actors))
+        logger.debug("config post args validated")
+        # create the ActorConfig object with the args --
         actor_config = ActorConfig(**args)
+        # additional checks for reserved words, forbidden characters and uniqueness
         actor_config.check_and_create_config()
-        #logger.debug(f"HERE IS THE LOG: {actor_config.is_secret}")
-        configs_store[actor_config.name] = actor_config.to_db()
+        # save the config to the db
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=actor_config.name)
+        configs_store[config_id] = actor_config.to_db()
         # set permissions for this config
-        set_config_permission(g.user, actor_config.name, UPDATE)
-        # return ok(result=config.display(), msg="Actor alias created successfully.")
+        set_config_permission(g.user, config_id, UPDATE)
         return ok(result=actor_config.display(), msg="Actor config created successfully.")
 
 
 class ActorConfigResource(Resource):
-    def get(self, config):
-        logger.debug("top of GET /actors/config/{}".format(config))
-        # alias_id = Alias.generate_alias_id(g.tenant, alias)
+    def get(self, config_name):
+        logger.debug(f"top of GET /actors/config/{config_name}")
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
         try:
-            config = ActorConfig.from_db(configs_store[config])
+            config = ActorConfig.from_db(configs_store[config_id])
         except KeyError:
-            logger.debug("did not find alias with id: {}".format(config))
-            raise ResourceError(
-                "No config found: {}.".format(config), 404)
-        logger.debug("found alias {}".format(config))
+            logger.debug(f"did not find config with id: {config_id}")
+            raise ResourceError(f"No config found: {config_name}.", 404)
+        logger.debug(f"found config {config}")
         return ok(result=config.display(), msg="Config retrieved successfully.")
 
-    # TODO check actorconfigpermissions before updating
+
     def validate_put(self):
         logger.debug("top of validate_put")
         try:
@@ -1294,87 +1303,91 @@ class ActorConfigResource(Resource):
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
                 msg = e.data.get('message')
-            raise DAOError("Invalid alias description. Missing required field: {}".format(msg))
+            raise DAOError(f"Invalid alias description. Could not determine if required fields are present. "
+                           f"Is the body valid JSON? Details: {msg}")
         return args
 
-    def put(self, config):
-        logger.debug("top of PUT /actors/configs/{}".format(config))
+    def put(self, config_name):
+        logger.debug(f"top of PUT /actors/configs/{config_name}")
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
         try:
-            config_obj = ActorConfig.from_db(configs_store[config])
+            config_obj = ActorConfig.from_db(configs_store[config_id])
         except KeyError:
-            logger.debug("did not find config with name: {}".format(config))
-            raise ResourceError("No config found: {}.".format(config), 404)
+            logger.debug(f"did not find config with name: {config_name}")
+            raise ResourceError(f"No config found: {config_name}.", 404)
         logger.debug("found config {}".format(config_obj))
         args = self.validate_put()
-        config_name = args.get('name')
-        # dbid = Actor.get_dbid(g.tenant, actor_id)
-        # update 10/2019: check that use has UPDATE permission on the actor -
-        if not check_config_permissions(user=g.user, config=config, level=codes.UPDATE, roles=g.roles):
-            raise PermissionsException(f"Not authorized -- you do not have UPDATE "
-                                       f"access to the actor config you want to update.")
-        # Check that the actor ids correspond to real actors
+        if not check_config_permissions(user=g.user, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+            raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
+
+        # Check that the actor ids correspond to real actors or aliases and that the user
+        # has UPDATE access to each of them ---
+        # first, split the string by comma
         actors = args.get('actors')
         try:
-            actors = re.split(",",actors[0])
-            for count, wrd in enumerate(actors):
-                actors[count] = wrd.strip() 
-        except:
-            pass
-        logger.debug(f"actors are {actors}")
-        # Loop through ids and check
-        for uid in actors:
-            logger.debug(f"actor is {uid}")
+            actors_list = re.split(",", actors)
+            for count, wrd in enumerate(actors_list):
+                actors_list[count] = wrd.strip()
+        except Exception as e:
+            logger.info(f"Got exception trying to parse actor parameter. e: {e}")
+            raise DAOError(f"Could not parse the actors parameter ({actors}). It should be a comma-separated list of "
+                           f"actors ids. Details: {e}")
+        logger.debug(f"actors are {actors_list}")
+        # Loop through ids and check existence
+        for a in actors_list:
             try:
-                total_id = f"{g.tenant}_{uid}"
-                actors_store[total_id]
+                # need to check if this identifier is an actor id or an alias
+                db_id = f"{g.tenant}_{a}"
+                actors_store[db_id]
             except KeyError:
-                logger.debug("did not find actor: {}.".format(uid))
-                raise ResourceError("No actor found with id: {}.".format(uid), 404)
+                logger.debug(f"did not find actor: {db_id}. now checking alias")
+                try:
+                    alias_store[db_id]
+                except KeyError:
+                    raise ResourceError(f"No actor or alias found with id: {a}.", 404)
+            # also check that user has update access to actor --
+            check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE, roles=g.roles)
 
-        logger.debug(f"config: {config}")
         # supply "provided" fields:
         args['tenant'] = config_obj.tenant
         args['name'] = config_obj.name
-        # args['actors'] = config_obj.actors
-        # args['is_secret'] = config_obj.is_secret
-        # args['api_server'] = config_obj.value
+        if args.get('isSecret') or args.get('is_secret'):
+            args['value'] = encrypt_utils.encrypt(args.get('value'))
         logger.debug("Instantiating actor config object. args: {}".format(args))
         new_config_obj = ActorConfig(**args)
+        logger.debug("Check that the config is not a reserved word")
+        new_config_obj.check_reserved_words()
         logger.debug("Check that the config has no forbidden characters")
-        actor_config.check_and_create_config()
+        new_config_obj.check_forbidden_char()
         logger.debug("Actor Config object instantiated; updating actor config in configs_store. "
                      "config: {}".format(new_config_obj))
-        configs_store[config] = new_config_obj
+        configs_store[config_id] = new_config_obj
         logger.debug(f"NEW CONFIG OBJ {new_config_obj}")
-        logger.info("actor config updated for config: {}.".format(config))
-        set_config_permission(g.user, new_config_obj.name, UPDATE)
+        logger.info(f"actor config updated for config: {config_id}.")
         return ok(result=new_config_obj.display(), msg="Actor config updated successfully.")
 
-    def delete(self, config):
-        logger.debug("top of DELETE /actors/configs/{}".format(config))
-        # alias_id = Alias.generate_alias_id(g.tenant, alias)
+    def delete(self, config_name):
+        logger.debug(f"top of DELETE /actors/configs/{config_name}")
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
         try:
-            actor_config = ActorConfig.from_db(configs_store[config])
+            ActorConfig.from_db(configs_store[config_id])
         except KeyError:
-            logger.debug("did not find alias with id: {}".format(config))
-            raise ResourceError(
-                "No alias found: {}.".format(config), 404)
+            raise ResourceError(f"No config found with name: {config_name}.", 404)
 
-        # update 10/2019: check that use has UPDATE permission on the actor -
-        # TODO - check: do we want to require UPDATE on the actor to delete the alias? Seems like UPDATE
-        #               on the alias iteself should be sufficient...
-        # if not check_permissions(user=g.user, identifier=alias.db_id, level=codes.UPDATE):
-        #     raise PermissionsException(f"Not authorized -- you do not have UPDATE "
-        #                                f"access to the actor associated with this alias.")
+        # check that the user has update access to the config
+        if not check_config_permissions(user=g.user, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+            raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
+
+        # delete the config and associated permissions
         try:
-            del configs_store[config]
+            del configs_store[config_id]
             # also remove all permissions - there should be at least one permissions associated
             # with the owner
-            del configs_permissions_store[config]
-            logger.info("Actor config {} deleted from actor config store.".format(config))
+            del configs_permissions_store[config_id]
+            logger.info(f"Actor config {config_id} deleted from actor config store.")
         except Exception as e:
-            logger.info("got Exception {} trying to delete alias {}".format(e, config))
-        return ok(result=None, msg='Actor config {} deleted successfully.'.format(config))
+            logger.info(f"got Exception {e} trying to delete alias {config_id}")
+        return ok(result=None, msg=f'Actor config {config_name} deleted successfully.')
 
 
 class ActorExecutionsResource(Resource):
@@ -2013,17 +2026,30 @@ class PermissionsResource(Resource):
     The code uses the request rule to determine which object is being referenced.
     """
     def get(self, identifier):
+        is_config = False
         if 'actors/aliases/' in request.url_rule.rule:
             logger.debug("top of GET /actors/aliases/{}/permissions.".format(identifier))
             id = Alias.generate_alias_id(g.tenant, identifier)
+        elif 'actors/configs' in request.url_rule.rule:
+            logger.debug("top of GET /actors/configs/{}/permissions.".format(identifier))
+            id = ActorConfig.get_config_db_key(g.tenant, identifier)
+            is_config = True
         else:
             logger.debug("top of GET /actors/{}/permissions.".format(identifier))
             id = g.db_id
-        try:
-            permissions = get_permissions(id)
-        except PermissionsException as e:
-            logger.debug("Did not find permissions. actor: {}.".format(actor_id))
-            raise ResourceError(e.msg, 404)
+        # config permissions are stored in a separate store --
+        if is_config:
+            try:
+                permissions = get_config_permissions(id)
+            except PermissionsException as e:
+                logger.debug(f"Did not find config permissions for config: {identifier}.")
+                raise ResourceError(e.msg, 404)
+        else:
+            try:
+                permissions = get_permissions(id)
+            except PermissionsException as e:
+                logger.debug(f"Did not find actor permissions for config: {identifier}.")
+                raise ResourceError(e.msg, 404)
         return ok(result=permissions, msg="Permissions retrieved successfully.")
 
     def validate_post(self):
@@ -2046,21 +2072,37 @@ class PermissionsResource(Resource):
 
     def post(self, identifier):
         """Add new permissions for an object `identifier`."""
+        is_confg = False
         if 'actors/aliases/' in request.url_rule.rule:
             logger.debug("top of POST /actors/aliases/{}/permissions.".format(identifier))
-            id = Alias.generate_alias_id(g.tenant, identifier)
+            dbid = Alias.generate_alias_id(g.tenant, identifier)
+        elif 'actors/configs/' in request.url_rule.rule:
+            logger.debug("top of POST /actors/configs/{}/permissions.".format(identifier))
+            is_confg = True
+            dbid = ActorConfig.get_config_db_key(g.tenant, identifier)
         else:
             logger.debug("top of POST /actors/{}/permissions.".format(identifier))
-            id = g.db_id
+            dbid = g.db_id
         args = self.validate_post()
-        logger.debug("POST permissions body validated for identifier: {}.".format(id))
-        set_permission(args['user'], id, PermissionLevel(args['level']))
-        logger.info("Permission added for user: {} actor: {} level: {}".format(args['user'], id, args['level']))
-        permissions = get_permissions(id)
+        logger.debug("POST permissions body validated for identifier: {}.".format(dbid))
+        if is_confg:
+            set_config_permission(g.user, config_id=dbid, level=PermissionLevel(args['level']))
+            permissions = get_config_permissions(config_id=dbid)
+        else:
+            set_permission(args['user'], dbid, PermissionLevel(args['level']))
+            permissions = get_permissions(actor_id=dbid)
+        logger.info(f"Permission added for user: {args['user']}; identifier: {dbid}; level: {args['level']}")
+
         return ok(result=permissions, msg="Permission added successfully.")
+
 
 class ActorPermissionsResource(PermissionsResource):
     pass
 
+
 class AliasPermissionsResource(PermissionsResource):
+    pass
+
+
+class ActorConfigsPermissionsResource(PermissionsResource):
     pass
