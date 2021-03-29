@@ -1,7 +1,7 @@
 from cryptography.fernet import Fernet
-from config import Config
+from common.config import conf
 
-key = Config.get('web', 'encryption_key')
+key = conf.get('web_encryption_key')
 f = Fernet(key.encode())
 
 # Encrypt the string 'value' passed in.

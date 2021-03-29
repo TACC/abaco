@@ -714,4 +714,12 @@ Configuring Mongo is easy. We add a mongo_config folder to run using docker-comp
 ## Note: Mongo expects the certificateKeyFile to actually be the concatanation of mongoCert.key and mongoCert.pem (cat mongoCert.key mongoCert.pem > file_to_feed_mongo.pem).
 This is important and oftentimes missed as most services require two seperate files.
 
-Large Edit: Mongo config is not easy. Mongo dockerfile has a "default" config with some automatic scripts and ip address binds. You cannot just set your own custom config without losing some environment variable functionaliy. Thing to do then is use the "command" feature of docker-compose and place the TLS flags in the command. 
+Large Edit: Mongo config is not easy. Mongo dockerfile has a "default" config with some automatic scripts and ip address binds. You cannot just set your own custom config without losing some environment variable functionaliy. Thing to do then is use the "command" feature of docker-compose and place the TLS flags in the command.
+
+Creating an Encryption Key with Fernet for Configs
+--------------------------------------------------
+Used to encrypt secrets
+Generate q key with the following:
+ >>> from cryptography.fernet import Fernet
+ >>> key = Fernet.generate_key()
+Place key in config-local.json under `web_encryption_key`

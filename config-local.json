@@ -65,6 +65,7 @@
         "default",
         "special"
     ],
+    "web_encryption_key": "djq6ghD6YMWU43TyxGy58pmw_I2hfroAvcbqz9kV23o=",
     "site_id": "tacc",
     "global_site_object": {
         "site_mongo_pass": "defaultpass",
