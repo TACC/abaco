@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 from common.config import conf
 import codes
-from models import Actor, Alias, get_permissions, is_hashid, Nonce
+from models import Actor, Alias, ActorConfig, get_permissions, is_hashid, Nonce, get_config_permissions, permission_process
 
 from errors import ClientException, ResourceError, PermissionsException
 
@@ -270,22 +270,23 @@ def authorization():
         logger.debug("new actor or GET on root connection. allowing request.")
         return True
 
-    # if actors/configs is in rule at all, return true
     # aliases root collection has special rules as well -
     if '/actors/configs' == request.url_rule.rule or '/actors/configs/' == request.url_rule.rule:
+        # anyone can GET their actor configs and anyone can create an actor config
         return True
 
     if '/actors/configs' in request.url_rule.rule:
         logger.debug('auth.py /actors/configs if statement')
-        config = get_config_id()
-        noun = 'config'
+        config_name = get_config_name()
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_config_permissions(user=g.user, config=config, level=codes.READ)
+            has_pem = check_config_permissions(user=g.user, config_id=config_id, level=codes.READ)
             # all other requests require UPDATE access
         elif request.method in ['DELETE', 'POST', 'PUT']:
-            has_pem = check_config_permissions(user=g.user, config=config, level=codes.UPDATE)
-        # check for new url here
+            has_pem = check_config_permissions(user=g.user, config_id=config_id, level=codes.UPDATE)
+        if not has_pem:
+            raise PermissionsException("You do not have sufficient access to this actor config.")
 
     # aliases root collection has special rules as well -
     if '/actors/aliases' == request.url_rule.rule or '/actors/aliases/' == request.url_rule.rule:
@@ -429,6 +430,29 @@ def check_permissions(user, identifier, level, roles=None):
                 return False
     # didn't find the user or world_user, return False
     logger.info(f"user had no permissions for {identifier}. Permissions found: {permissions}")
+    permissions = get_permissions(identifier)
+    if permission_process(permissions, user, level, identifier):
+        return True
+    # didn't find the user or world_user, return False
+    logger.info("user had no permissions for {}. Permissions found: {}".format(identifier, permissions))
+    return False
+
+
+def check_config_permissions(user, config_id, level, roles=None):
+    """
+    Check if a given `user` has permissions at level `level` for config with id `config_id`. The optional `roles`
+    attribute can be passed in to consider roles as well.
+    """
+    logger.debug(f"top of check_config_permissions; user: {user}; config: {config_id}; level: {level}; roles: {roles}")
+    # first, if roles were passed, check for admin role -
+    if roles:
+        if codes.ADMIN_ROLE in roles:
+            return True
+    # get all permissions for this config -
+    permissions = get_config_permissions(config_id)
+    if permission_process(permissions, user, level, config_id):
+        return True
+    # didn't find the user or world_user, return False
     return False
 
 
@@ -477,15 +501,16 @@ def get_alias_id():
     logger.debug(f"alias: {alias}")
     return Alias.generate_alias_id(g.request_tenant_id, alias)
 
-def get_config_id():
-    """Get the alias from the request path."""
+def get_config_name():
+    """Get the config name from the request path."""
+    logger.debug("top of auth.get_config_id()")
     path_split = request.path.split("/")
     if len(path_split) < 4:
         logger.error(f"Unrecognized request -- could not find the config. path_split: {path_split}")
         raise PermissionsException("Not authorized.")
-    config = path_split[3]
-    logger.debug(f"config: {config}")
-    return config
+    config_name = path_split[3]
+    logger.debug(f"returning config_name from path: {config_name}")
+    return config_name
 
 def get_tenant_verify(tenant):
     """Return whether to turn on SSL verification."""
