@@ -29,6 +29,40 @@ container. (Note that the actor currently has no way of refreshing the token her
 restricted to the life of the token, typically 4 hours). It is possible to turn off client generation by setting
 `generate_clients: False` within the workers stanza of the config file. See "Client Generation" below.
 
+Quick V3 Development Info
+----------------------
+
+This repository has a Makefile to make your life easier. This basically aliases a bit of grunt work to setup variables
+needed and other such things. The Makefile sets the current abaco working directory, abaco dockerhub tag, and some
+testing variables.
+
+In order to run v3 you need to ensure that you set the "service_password" variable inside of the config-local.json file.
+This service password is used to authenticate with the Tapis v3 components in develop. It is required to start
+everything up, else you'll run into many errors. So set that.
+
+Along with this, in order to talk to these components you'll need VPN access to get access to these components.
+
+
+To build and deploy locally:
+```
+make local-deploy
+```
+
+To run the Abaco testsuite:
+```
+make test
+```
+This test suite runs in both 'camel case' and 'snake case' modes. To do just one test run either:
+```
+make test-camel
+# or
+make test-snake
+```
+
+To take down all Abaco containers:  
+```
+make down
+```
 
 
 Development
@@ -66,9 +100,10 @@ preceded by a colon (:) character in it.
 For example,
 
 ```shell
-$ export TAG=:I-12
-$ docker build -t abaco/core$TAG .
+$ export TAG=I-12
+$ docker build -t abaco/core:$TAG .
 ```
+
 Auxiliary images can be built from the Dockerfiles within the images folder. In particular, the abaco/nginx image required
 to start up the stack can built from within the images/nginx directory. For example
 
