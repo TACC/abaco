@@ -1,18 +1,10 @@
 # Image: abaco/core
 
-from alpine:3.8
+from python:3.9.2
+RUN apt-get update && apt-get install -y vim
 
-RUN apk add --update musl python3 && rm /var/cache/apk/*
-RUN apk add --update bash && rm -f /var/cache/apk/*
-RUN apk add --update git && rm -f /var/cache/apk/*
-RUN apk add --update g++ -f /var/cache/apk/*
-RUN apk add --update python3-dev -f /var/cache/apk/*
-RUN apk add --update musl-dev -f /var/cache/apk/*
-RUN apk add --update libffi-dev -f /var/cache/apk/*
-RUN apk add --update openssl-dev -f /var/cache/apk/*
 ADD actors/requirements.txt /requirements.txt
-RUN pip3 install --upgrade pip
-RUN pip3 install -r /requirements.txt
+RUN pip install -r /requirements.txt
 
 RUN touch /var/log/abaco.log
 
