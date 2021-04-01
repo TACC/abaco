@@ -7,9 +7,9 @@ def main():
     try:
         m = cloudpickle.loads(raw_message)
     except Exception as e:
-        print("Got exception: {} trying to loads raw_message: {}. raw_message: {}".format(e, raw_message))
+        print(f"Got exception: {e} trying to loads raw_message: {raw_message}")
         raise e
-    print("Was able to execute cloudpickle.loads: {}".format(m))
+    print("Was able to execute cloudpickle.loads: {m}")
     f = m.get('func')
     if not f:
         print("Error - function attribute required. Got: {}".format(m))
@@ -19,7 +19,8 @@ def main():
     try:
         result = f(*args, **kwargs)
     except Exception as e:
-        print("Got exception trying to call f: {}. Exception: {}".format(f, e))
+        print(f"Got exception trying to call f: {f}. Exception: {e}")
+        raise e
     send_python_result(result)
     print("result: {}".format(result))
 
