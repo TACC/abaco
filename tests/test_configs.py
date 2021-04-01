@@ -20,11 +20,17 @@ def test_register_config(headers):
     data={'image': 'abacosamples/test',
           "name": "the_config",
           "value": "my value",
-          "isSecret": False,
           "actors": actor_id}
+    if case == 'snake':
+        data['is_secret'] = False
+    else:
+        data['isSecret'] = False
     rsp = requests.post(url, json=data, headers=headers)
     result = basic_response_checks(rsp)
-    assert result['isSecret'] == False
+    if case == 'snake':
+        assert result['is_secret'] == False
+    else:
+        assert result['isSecret'] == False
     assert result['name'] == 'the_config'
 
 def test_register_secret_config(headers):
@@ -32,11 +38,17 @@ def test_register_secret_config(headers):
     url = f'{base_url}/actors/configs'
     data={"name": "another_config", 
           "value": "my value", 
-          "isSecret": True, 
           "actors": actor_id}
+    if case == 'snake':
+        data['is_secret'] = True
+    else:
+        data['isSecret'] = True
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
-    assert result['isSecret'] == True
+    if case == 'snake':
+        assert result['is_secret'] == True
+    else:
+        assert result['isSecret'] == True
     assert result['name'] is not 'Another config'
 
 def test_register_config_multiple_actors(headers):
@@ -45,18 +57,24 @@ def test_register_config_multiple_actors(headers):
     url = f'{base_url}/actors/configs'
     data={"name": "a_multi_actor_config",
           "value": "my value", 
-          "isSecret": True, 
           "actors": f"{actor_id}, {actor_id2}"}
+    if case == 'snake':
+        data['is_secret'] = True
+    else:
+        data['isSecret'] = True
     rsp = requests.post(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
-    assert result['actors'] == f"{actor_id},{actor_id2}"
+    assert result['actors'] == f"{actor_id}, {actor_id2}"
 
 def test_register_with_nonexistent_actor(headers):
     url = f'{base_url}/actors/configs'
     data={"name": "another_config", 
           "value": "my value", 
-          "isSecret": True, 
           "actors": "henry"}
+    if case == 'snake':
+        data['is_secret'] = True
+    else:
+        data['isSecret'] = True
     rsp = requests.post(url, data=data, headers=headers)
     assert rsp.status_code == 404
 
@@ -69,7 +87,10 @@ def test_get_specific_config(headers):
     url = '{base_url}/actors/configs/the_config'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    assert result['isSecret'] == False
+    if case == 'snake':
+        assert result['is_secret'] == True
+    else:
+        assert result['isSecret'] == True
     assert result['name'] == 'the_config'
 
 def test_register_config_regular_headers(headers):
@@ -77,8 +98,11 @@ def test_register_config_regular_headers(headers):
     url = f'{base_url}/actors/configs'
     data={"name": "limited_config", 
           "value": "my value", 
-          "isSecret": False, 
           "actors": actor_id}
+    if case == 'snake':
+        data['is_secret'] = True
+    else:
+        data['isSecret'] = True
     rsp = requests.post(url, data=data, headers=regular_headers)
     result = basic_response_checks(rsp)
     
@@ -89,19 +113,28 @@ def test_update_config(headers):
     url = f'{base_url}/actors/configs/the_config'
     data={"name": "the_config", 
           "value": "my value", 
-          "isSecret": True, 
           "actors": f"{actor_id}, {actor_id2}"}
+    if case == 'snake':
+        data['is_secret'] = True
+    else:
+        data['isSecret'] = True
     rsp = requests.put(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
-    assert result['isSecret'] == True
+    if case == 'snake':
+        assert result['is_secret'] == True
+    else:
+        assert result['isSecret'] == True
 
 def test_update_config_regular_headers(headers):
     actor_id = get_actor_id(headers)
     url = f'{base_url}/actors/configs/the_config'
     data={"name": "the_config", 
           "value": "my value", 
-          "isSecret": True, 
           "actors": actor_id}
+    if case == 'snake':
+        data['is_secret'] = True
+    else:
+        data['isSecret'] = True
     rsp = requests.put(url, data=data, headers=regular_headers)
     if not rsp.status_code == 400:
         print(rsp.content)
