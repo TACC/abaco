@@ -1772,7 +1772,11 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of ensure_one_worker.")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant, 'actor_id': actor_id}
+        worker = {'status': REQUESTED,
+                  'id': worker_id,
+                  'tenant': tenant,
+                  'create_time': get_current_utc_time(),
+                  'actor_id': actor_id}
         workers_for_actor = len(workers_store.items({'actor_id': actor_id}))
         if workers_for_actor:
             logger.debug("did not get worker from add_if_empty.")
@@ -1795,7 +1799,12 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of request_worker().")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id, 'actor_id': actor_id}
+        worker = {'status': REQUESTED,
+                  'tenant': tenant,
+                  'id': worker_id,
+                  'actor_id': actor_id,
+                  'create_time': get_current_utc_time()
+                  }
         # it's possible the actor_id is not in the workers_store yet (i.e., new actor with no workers)
         # In that case we need to catch a KeyError:
         try:
