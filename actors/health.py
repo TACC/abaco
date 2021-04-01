@@ -21,7 +21,7 @@ import codes
 from common.config import conf
 from common.logs import get_logger
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
-from models import Actor, Worker, is_hashid, site
+from models import Actor, Worker, is_hashid, get_current_utc_time, site
 from channels import CommandChannel, WorkerChannel
 from stores import actors_store, executions_store, workers_store
 from worker import shutdown_worker
@@ -134,6 +134,38 @@ def zero_out_workers_db():
     for worker in workers_store[site()].items(proj_inp=None):
         del workers_store[site()][worker['_id']]
 
+def hard_delete_worker(actor_id, worker_id, worker_container_id=None, reason_str=None):
+    """
+    Hard delete of worker from the db. Will also try to hard remove the worker container id, if one is passed,
+    but does not stop for errors.
+    :param actor_id: db_id of the actor.
+    :param worker_id: id of the worker
+    :param worker_container_id: Docker container id of the worker container (optional)
+    :param reason_str: The reason the worker is being hard deleted (optional, for the logs only).
+    :return: None
+    """
+    logger.error(f"Top of hard_delete_worker for actor_id: {actor_id}; "
+                 f"worker_id: {worker_id}; "
+                 f"worker_container_id: {worker_container_id};"
+                 f"reason: {reason_str}")
+
+    # hard delete from worker db --
+    try:
+        Worker.delete_worker(actor_id, worker_id)
+        logger.info(f"worker {worker_id} deleted from store")
+    except Exception as e:
+        logger.error(f"Got exception trying to delete worker: {worker_id}; exception: {e}")
+
+    # also try to delete container --
+    if worker_container_id:
+        try:
+            rm_container(worker_container_id)
+            logger.info(f"worker {worker_id} container deleted from docker")
+        except Exception as e:
+            logger.error(f"Got exception trying to delete worker container; worker: {worker_id}; "
+                         f"container: {worker_container_id}; exception: {e}")
+
+
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""
     logger.info(f"Checking health for actor: {actor_id}")
@@ -146,60 +178,65 @@ def check_workers(actor_id, ttl):
     host_id = os.environ.get('SPAWNER_HOST_ID', conf.spawner_host_id)
     logger.debug(f"host_id: {host_id}")
     for worker in workers:
-        # if the worker has only been requested, it will not have a host_id.
+        worker_id = worker['id']
+        worker_status = worker.get('status')
+        # if the worker has only been requested, it will not have a host_id. it is possible
+        # the worker will ultimately get scheduled on a different host; however, if there is
+        # some issue and the worker is "stuck" in the early phases, we should remove it..
         if 'host_id' not in worker:
-            # @todo- we will skip for now, but we need something more robust in case the worker is never claimed.
-            continue
-        # ignore workers on different hosts
+            # check for an old create time
+            worker_create_t = worker.get('create_time')
+            # in versions prior to 1.9, worker create_time was not set until after it was READY
+            if not worker_create_t:
+                hard_delete_worker(actor_id, worker_id, reason_str='Worker did not have a host_id or create_time field.')
+            # if still no host after 5 minutes, delete it
+            if worker_create_t <  get_current_utc_time() - datetime.timedelta(minutes=5):
+                hard_delete_worker(actor_id, worker_id, reason_str='Worker did not have a host_id and had '
+                                                                   'old create_time field.')
+
+        # ignore workers on different hosts because this health agent cannot interact with the
+        # docker daemon responsible for the worker container..
         if not host_id == worker['host_id']:
             continue
-        # first check if worker is responsive; if not, will need to manually kill
-        logger.info(f"Checking health for worker: {worker}")
-        ch = WorkerChannel(worker_id=worker['id'])
-        worker_id = worker.get('id')
-        result = None
+
+        # we need to delete any worker that is in SHUTDOWN REQUESTED or SHUTTING down for too long
+        if worker_status == codes.SHUTDOWN_REQUESTED or worker_status == codes.SHUTTING_DOWN:
+            worker_last_health_check_time = worker.get('last_health_check_time')
+            if not worker_last_health_check_time:
+                worker_last_health_check_time = worker.get('create_time')
+            if not worker_last_health_check_time:
+                hard_delete_worker(actor_id, worker_id, reason_str='Worker in SHUTDOWN and no health checks.')
+            elif worker_last_health_check_time < get_current_utc_time() - datetime.timedelta(minutes=5):
+                hard_delete_worker(actor_id, worker_id, reason_str='Worker in SHUTDOWN for too long.')
+
+        # check if the worker has not responded to a health check recently; we use a relatively long period
+        # (60 minutes) of idle health checks in case there is an issue with sending health checks through rabbitmq.
+        # this needs to be watched closely though...
+        worker_last_health_check_time = worker.get('last_health_check_time')
+        if not worker_last_health_check_time or \
+                (worker_last_health_check_time < get_current_utc_time() - datetime.timedelta(minutes=60)):
+            hard_delete_worker(actor_id, worker_id, reason_str='Worker has not health checked for too long.')
+
+        # first send worker a health check
+        logger.info(f"sending worker {worker_id} a health check")
+        ch = WorkerChannel(worker_id=worker_id)
         try:
-            logger.debug(f"Issuing status check to channel: {worker['ch_name']}")
-            result = ch.put_sync('status', timeout=5)
-        except channelpy.exceptions.ChannelTimeoutException:
-            logger.info("Worker did not respond, removing container and deleting worker.")
-            try:
-                rm_container(worker['cid'])
-            except DockerError:
-                pass
-            try:
-                Worker.delete_worker(actor_id, worker_id)
-                logger.info(f"worker {worker_id} deleted from store")
-            except Exception as e:
-                logger.error(f"Got exception trying to delete worker: {e}")
-            # if the put_sync timed out and we removed the worker, we also need to delete the channel
-            # otherwise the un-acked message will remain.
-            try:
-                ch.delete()
-            except Exception as e:
-                logger.error(f"Got exception: {e} while trying to delete worker channel for worker: {worker_id}")
+            logger.debug("Issuing status check to channel: {}".format(worker['ch_name']))
+            ch.put('status')
+        except (channelpy.exceptions.ChannelTimeoutException, Exception) as e:
+            logger.error(f"Got exception of type {type(e)} trying to send worker {worker_id} a "
+                        f"health check. e: {e}")
         finally:
             try:
                 ch.close()
             except Exception as e:
                 logger.error(f"Got an error trying to close the worker channel for dead worker. Exception: {e}")
-        if result and not result == 'ok':
-            logger.error(f"Worker responded unexpectedly: {result}, deleting worker.")
-            try:
-                rm_container(worker['cid'])
-                Worker.delete_worker(actor_id, worker_id)
-            except Exception as e:
-                logger.error(f"Got error removing/deleting worker: {e}")
-        else:
-            # worker is healthy so update last health check:
-            Worker.update_worker_health_time(actor_id, worker_id)
-            logger.info("Worker ok.")
 
-        # now check if the worker has been idle beyond the ttl:
+        # now check if the worker has been idle beyond the max worker_ttl configured for this abaco:
         if ttl < 0:
             # ttl < 0 means infinite life
             logger.info("Infinite ttl configured; leaving worker")
-            return
+            continue
         # we don't shut down workers that are currently running:
         if not worker['status'] == codes.BUSY:
             last_execution = worker.get('last_execution_time', 0)
@@ -223,8 +260,6 @@ def check_workers(actor_id, ttl):
             # shutdown worker
             logger.info("Shutting down worker in error status.")
             shutdown_worker(actor_id, worker['id'])
-        # else:
-        #     logger.debug("Worker not in READY status, will postpone.")
 
 def get_host_queues():
     """
@@ -349,9 +384,9 @@ def main():
     ttl = conf.worker_worker_ttl
     ids = get_actor_ids()
     logger.info(f"Found {len(ids)} actor(s). Now checking status.")
-    for id in ids:
+    for aid in ids:
         # manage_workers(id)
-        check_workers(id, ttl)
+        check_workers(aid, ttl)
     tenants = get_tenants()
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
