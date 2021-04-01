@@ -5,9 +5,9 @@
 # give initial processes some time to launch
 sleep 30 #120
 
-# main loop runs every 10 minutes/20 seconds
+# main loop runs every 30 seconds
 while :
 do
     python3 -u /actors/health.py
-    sleep 600  #20
+    sleep 30 # 600
 done
