@@ -76,25 +76,28 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch, ag_clien
     global keep_running
     logger.info("Worker subscribing to worker channel...{}_{}".format(actor_id, worker_id))
     while keep_running:
-        msg, msg_obj = worker_ch.get_one()
+        try:
+            msg, msg_obj = worker_ch.get_one()
+        except Exception as e:
+            logger.error(f"worker {worker_id} got exception trying to read the worker channel! "
+                         f"sleeping for 10 seconds and then will try again; e: {e}")
+            time.sleep(10)
+            continue
         # receiving the message is enough to ack it - resiliency is currently handled in the calling code.
         msg_obj.ack()
         logger.debug("Received message in worker channel; msg: {}; {}_{}".format(msg, actor_id, worker_id))
         logger.debug("Type(msg)={}".format(type(msg)))
-        if type(msg) == dict:
-            value = msg.get('value', '')
-            if value == 'status':
-                # this is a health check, return 'ok' to the reply_to channel.
-                logger.debug("received health check. returning 'ok'.")
-                ch = msg['reply_to']
-                ch.put('ok')
-                # @TODO -
-                # delete the anonymous channel from this thread but sleep first to avoid the race condition.
-                time.sleep(1.5)
-                ch.delete()
-                # NOT doing this for now -- deleting entire anon channel instead (see above)
-                # clean up the event queue on this anonymous channel. this should be fixed in channelpy.
-                # ch._queue._event_queue
+        if msg == 'status':
+            # this is a health check, return 'ok' to the reply_to channel.
+            logger.debug("received health check. updating worker_health_time.")
+            try:
+                Worker.update_worker_health_time(actor_id, worker_id)
+            except Exception as e:
+                logger.error(f"worker {worker_id} got exception trying to update its health time! "
+                             f"sleeping for 10 seconds and then will try again; e: {e}")
+                time.sleep(10)
+                continue
+
         elif msg == 'force_quit':
             logger.info("Worker with worker_id: {} (actor_id: {}) received a force_quit message, "
                         "forcing the execution to halt...".format(worker_id, actor_id))
