@@ -894,7 +894,6 @@ class ActorsResource(Resource):
                 args['cron_on'] = True
             else:
                 raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
-                args['cron_on'] = False
         else:
             logger.debug("Cron schedule was not sent in")
         if Config.get('web', 'case') == 'camel':
