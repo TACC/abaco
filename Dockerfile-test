@@ -1,35 +1,21 @@
-# Test suite for abaco project.
-# Image: abaco/testsuite
+# Test image for abaco project.
+# Image: abaco/test
 
-# inherit from the flaskbase iamge:
-from tapis/flaskbase
+# Inherit from the abaco image (previously flaskbase):
+from abaco/core
+
+USER root
 
 
 ## FILE INITIALIZATION
-COPY configschema.json /home/tapis/configschema.json
 COPY config-local.json /home/tapis/config-local.json
 COPY config-local.json /home/tapis/config.json
-COPY actors /home/tapis/actors
-RUN chmod +x /home/tapis/actors/health_check.sh
 COPY tests /home/tapis/tests
 RUN chmod +x /home/tapis/tests/entry.sh
-# we mkdir's instead of copying because we don't
-# want to bring over folder contents by mistake.
-RUN mkdir -p /home/tapis/runtime_files /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/logs /home/tapis/runtime_files/data1 /home/tapis/runtime_files/data2
-# create abaco.log file for logs
-RUN mkdir -p /home/tapis/service/resources
-# create abaco.log file for logs
-RUN touch /home/tapis/runtime_files/logs/service.log
-COPY docs/specs/openapi_v3.yml /home/tapis/service/resources/openapi_v3.yml
-RUN touch /home/tapis/config.json
 
 
 ## PACKAGE INITIALIZATION
-RUN apt-get update && apt-get install python3-dev g++ -y
-RUN pip3 install --upgrade pip
-RUN pip3 install -r /home/tapis/actors/requirements.txt
 RUN pip3 install pytest ipython #locustio
-
 RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
 RUN chmod +x rabbitmqadmin
 
@@ -38,7 +24,6 @@ ENV _called_from_within_test=True
 
 
 ## PERMISSION INITIALIZATION
-RUN chown -R tapis:tapis /home/tapis
 USER tapis
 ENV PYTHONPATH .:*:actors:actors/*
 CMD ["./tests/entry.sh"]
