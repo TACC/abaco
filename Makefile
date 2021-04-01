@@ -11,8 +11,7 @@ export abaco_path := $(PWD)
 endif
 
 ifdef TAG
-#export TAG := $(TAG)
-export TAG := dev
+export TAG := $(TAG)
 else
 export TAG := dev
 endif
