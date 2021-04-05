@@ -108,7 +108,7 @@ pull:
 
 # Builds testsuite
 build-testsuite:
-	echo "build-testsuite deprecated; tests now packaged in the abaco/core image."
+	@echo "build-testsuite deprecated; tests now packaged in the abaco/core image."
 
 # Builds a few sample Docker images
 samples:
