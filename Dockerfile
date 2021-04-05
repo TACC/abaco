@@ -5,7 +5,7 @@
 FROM tapis/flaskbase:latest
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api
-
+ENV PYTHONPATH .:*:actors:actors/*
 
 ## FILE INITIALIZATION
 COPY configschema.json /home/tapis/configschema.json
@@ -21,12 +21,16 @@ RUN touch /home/tapis/config.json
 # create abaco.log file for logs
 RUN touch /home/tapis/runtime_files/logs/service.log
 RUN touch /home/tapis/runtime_files/logs/common.log
-
+# health_check and actors files.
 COPY actors /home/tapis/actors
 RUN chmod +x /home/tapis/actors/health_check.sh
-
+# regular abaco entrypoints
 ADD entry.sh /home/tapis/entry.sh
 RUN chmod +x /home/tapis/entry.sh
+# test entrypoints
+COPY tests /home/tapis/tests
+RUN chmod +x /home/tapis/tests/entry.sh
+
 
 
 RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
@@ -36,6 +40,8 @@ RUN chmod +x rabbitmqadmin
 RUN apt-get update && apt-get install python3-dev g++ sudo -y
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/actors/requirements.txt
+RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
+RUN chmod +x rabbitmqadmin
 
 
 ## PERMISSION INITIALIZATION
@@ -46,8 +52,16 @@ RUN groupadd -g 1001 docker_gid
 RUN usermod -aG tapis,host_gid,docker_gid tapis
 RUN chown -R tapis:tapis /home/tapis
 
+
+## TESTS INITIALIZATION
+
+
+## Note, set this env when running tests through Makefile.
+#ENV _called_from_within_test=True
+
 USER tapis
 
 EXPOSE 5000
 
+#CMD ["/home/tapis/tests/entry.sh"]
 CMD ["/home/tapis/entry.sh"]

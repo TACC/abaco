@@ -55,13 +55,9 @@ build-nginx:
 	@docker build -t abaco/nginx:$$TAG images/nginx/.
 
 
-# Builds testsuite
-build-testsuite:
-	@docker build -t abaco/testsuite:$$TAG -f Dockerfile-test .
-
-
 # Builds core locally and then runs with Abaco suite with that abaco/core image in daemon mode
 local-deploy: build-core build-nginx
+	sed -i.bak 's/TAG:.*/TAG: '$$TAG'/g' local-dev.conf 
 	@docker-compose --project-name=abaco up -d
 
 
@@ -85,7 +81,11 @@ test:
 test-camel: build-testsuite
 	@echo "\n\nCamel Case Tests.\n"
 	@echo "Converting config file to camel case and launching Abaco Stack.\n"
-	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e TESTS=tests -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=camel -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG
+	sed -i.bak 's/TAG:.*/TAG: '$$TAG'/g' local-dev.conf
+	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf 
+	make local-deploy
+	sleep $$docker_ready_wait 
+	docker run $$interactive --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/core:$$TAG $$test
 
 # Builds local everything and performs testsuite for snake case.
 # Converts local-dev.conf back to camel case after test.
@@ -94,7 +94,11 @@ test-camel: build-testsuite
 test-snake: build-testsuite
 	@echo "\n\nSnake Case Tests.\n"
 	@echo "Converting config file to snake case and launching Abaco Stack.\n"
-	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf; make local-deploy; sleep $$docker_ready_wait; docker run $$interactive --network=abaco_abaco -e TEST=tests -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=snake -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG
+	sed -i.bak 's/TAG:.*/TAG: '$$TAG'/g' local-dev.conf
+	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf
+	make local-deploy
+	sleep $$docker_ready_wait
+	docker run $$interactive --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/core:$$TAG $$test
 	@echo "Converting back to camel"; sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
 
 test-remote: build-testsuite
@@ -105,6 +109,9 @@ test-remote: build-testsuite
 pull:
 	@docker-compose pull
 
+# Builds testsuite
+build-testsuite:
+	echo "build-testsuite deprecated; tests now packaged in the abaco/core image."
 
 # Builds a few sample Docker images
 samples:
