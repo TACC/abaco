@@ -225,7 +225,7 @@ paths:
       tags:
       - Messages
       summary: sendMessage
-      description: Send an actor a message
+      description: Send an actor a string message
       operationId: sendMessage
       parameters:
       - name: actor_id
