@@ -48,10 +48,6 @@ RUN chown -R tapis:tapis /home/tapis
 
 USER tapis
 
-# set default threads for gunicorn
-ENV threads=3
-ENV processes=3
-
 EXPOSE 5000
 
 CMD ["/home/tapis/entry.sh"]

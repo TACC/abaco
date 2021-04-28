@@ -69,7 +69,9 @@ services:
             abaco_host_path: ${abaco_path}
             api: reg
             server: gunicorn
-            mongo_password:
+            threads: 1
+            processes: 1
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
@@ -88,9 +90,9 @@ services:
             abaco_host_path: ${abaco_path}
             server: gunicorn
             api: mes
-            threads: 12
-            processes: 12
-            mongo_password:
+            threads: 3
+            processes: 3
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
@@ -110,7 +112,9 @@ services:
             abaco_host_path: ${abaco_path}
             server: gunicorn
             api: admin
-            mongo_password:
+            threads: 1
+            processes: 1
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
@@ -235,7 +239,9 @@ services:
             abaco_host_path: ${abaco_path}
             server: dev
             api: metrics
-            mongo_password:
+            threads: 1
+            processes: 1
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
