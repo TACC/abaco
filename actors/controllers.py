@@ -65,7 +65,7 @@ class CronResource(Resource):
             logger.debug(f"cron_on equals {actor.get('cron_on')} for actor {actor_id}")
             try:
                 # Check if next execution == UTC current time
-                if self.cron_execution_datetime(actor):
+                if self.cron_execution_datetime(actor)==1:
                     # Check if cron switch is on
                     if actor.get('cron_on'):
                         d = {}
@@ -92,6 +92,10 @@ class CronResource(Resource):
                     else:
                         logger.debug("Actor's cron is not activated, but next execution will be incremented")
                         actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                elif self.cron_execution_datetime(actor) == 2:
+                    logger.debug(f"Execution time was in the past, now its in the future again")
+                    while self.cron_execution_datetime(actor) ==2: 
+                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
                 else:
                     logger.debug("now is not the time")
             except:
@@ -113,7 +117,12 @@ class CronResource(Resource):
         logger.debug(f"cron execution is {cron_execution}")
         # Return true/false comparing now with the next cron execution
         logger.debug(f"does cron == now? {cron_execution == now}")
-        return cron_execution == now
+        if cron_execution == now:
+            return 1
+        elif cron_execution < now:
+            return 2
+        else:
+            return 3
 
 
 class MetricsResource(Resource):
