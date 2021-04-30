@@ -148,8 +148,8 @@ vars:
 
 # Ends all active Docker containers needed for abaco
 down:
+	@docker kill `docker network inspect abaco_abaco --format '{{range $$k, $$v := .Containers}}{{printf "%s\n" $$k}}{{end}}'` 2>/dev/null || true
 	@docker-compose down
-
 
 # Does a clean and also deletes all images needed for abaco
 clean:
