@@ -2087,7 +2087,7 @@ class PermissionsResource(Resource):
         args = self.validate_post()
         logger.debug(f"POST permissions body validated for identifier: {dbid}.")
         if is_confg:
-            set_config_permission(g.user, config_id=dbid, level=PermissionLevel(args['level']))
+            set_config_permission(args['user'], config_id=dbid, level=PermissionLevel(args['level']))
             permissions = get_config_permissions(config_id=dbid)
         else:
             set_permission(args['user'], dbid, PermissionLevel(args['level']))
