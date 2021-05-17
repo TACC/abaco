@@ -65,37 +65,16 @@ class CronResource(Resource):
             logger.debug(f"cron_on equals {actor.get('cron_on')} for actor {actor_id}")
             try:
                 # Check if next execution == UTC current time
-                if self.cron_execution_datetime(actor)==1:
-                    # Check if cron switch is on
-                    if actor.get('cron_on'):
-                        d = {}
-                        logger.debug("the current time is the same as the next cron scheduled, adding execution")
-                        # Execute actor
-                        before_exc_time = timeit.default_timer()
-                        exc = Execution.add_execution(actor_id, {'cpu': 0,
-                                                'io': 0,
-                                                'runtime': 0,
-                                                'status': codes.SUBMITTED,
-                                                'executor': 'cron'})
-                        logger.debug("execution has been added, now making message")
-                        # Create & add message to the queue 
-                        d['Time_msg_queued'] = before_exc_time
-                        d['_abaco_execution_id'] = exc
-                        d['_abaco_Content_Type'] = 'str'
-                        d['_abaco_actor_revision'] = actor.get('revision')
-                        ch = ActorMsgChannel(actor_id=actor_id)
-                        ch.put_msg(message="This is your cron execution", d=d)
-                        ch.close()
-                        logger.debug(f"Message added to actor inbox. id: {actor_id}.")
-                        # Update the actor's next execution
-                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
-                    else:
-                        logger.debug("Actor's cron is not activated, but next execution will be incremented")
-                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
-                elif self.cron_execution_datetime(actor) == 2:
+                if self.cron_execution_datetime(actor)=="now":
+                    actor_exec(actor,actor_id)
+                elif self.cron_execution_datetime(actor) == "past":
                     logger.debug(f"Execution time was in the past, now its in the future again")
-                    while self.cron_execution_datetime(actor) ==2: 
-                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                    actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex_past(actor, actor_id)
+                    #by the end the cron_next_ex can either be now or in future
+                    if self.cron_execution_datetime(actor)==1:
+                        actor_exec(actor,actor_id)
+                    else:
+                       logger.debug("now is not the time") 
                 else:
                     logger.debug("now is not the time")
             except:
@@ -118,11 +97,39 @@ class CronResource(Resource):
         # Return true/false comparing now with the next cron execution
         logger.debug(f"does cron == now? {cron_execution == now}")
         if cron_execution == now:
-            return 1
+            return "now"
         elif cron_execution < now:
-            return 2
+            return "past"
         else:
-            return 3
+            return "future"
+
+def actor_exec(actor,actor_id):
+# Check if cron switch is on
+    if actor.get('cron_on'):
+        d = {}
+        logger.debug("the current time is the same as the next cron scheduled, adding execution")
+        # Execute actor
+        before_exc_time = timeit.default_timer()
+        exc = Execution.add_execution(actor_id, {'cpu': 0,
+                                'io': 0,
+                                'runtime': 0,
+                                'status': codes.SUBMITTED,
+                                'executor': 'cron'})
+        logger.debug("execution has been added, now making message")
+        # Create & add message to the queue 
+        d['Time_msg_queued'] = before_exc_time
+        d['_abaco_execution_id'] = exc
+        d['_abaco_Content_Type'] = 'str'
+        d['_abaco_actor_revision'] = actor.get('revision')
+        ch = ActorMsgChannel(actor_id=actor_id)
+        ch.put_msg(message="This is your cron execution", d=d)
+        ch.close()
+        logger.debug(f"Message added to actor inbox. id: {actor_id}.")
+        # Update the actor's next execution
+        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+    else:
+        logger.debug("Actor's cron is not activated, but next execution will be incremented")
+        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
 
 
 class MetricsResource(Resource):
