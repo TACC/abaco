@@ -1,6 +1,42 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.9.0 - 2021-05-17
+### Added
+- Added a new Actor Configs feature with API endpoint for managing configuration shared across several actors, including 
+  "secrets" which are encrypted at rest in the Abaco database. 
+- A new ``encryption_key`` config within the ``[web]`` stanza of the abaco.conf file has been added and
+  is required (this is used by the Actor Configs feature). All existing Abaco deployments must add such
+  an encryption key to their config file before starting up the platform with the new version.
+- Workers now have a ``create_time`` attribute which is populated when their id is initially assigned (at request time)  
+  so that we can detect situations such as a worker being in REQUESTED status for a long period for a long 
+  period of time.
+
+### Changed
+- Updated the way worker health checks work so that they i) use unidirectional messages from health to worker 
+  (i.e., worker no longer replies) and ii) workers update their own ``last_health_check_time``. This 
+  significantly simplifies the architecture and more easily handles the case where workers are no longer 
+  responsive. There is also a new ``hard_delete_worker()`` function in the health module which is used in cases
+  where the worker is unresponsive. This should mitigate some issues we have seen with workers getting 
+  "stuck" in various statuses and not progressing, particularly when we see very high latency in the network.
+- Increased the frequency with which health checks run to once every 30 seconds (was previously once every 
+  10 minutes). This should also help with the aforementioned "stuck" workers issue. 
+- The worker channel thread for workers now runs as a daemon thread, so that it automatically exits if the 
+  worker's main thread exits (i.e., the worker crashes).
+- Updated the ``abaco/core`` software, including Docker image to use Python 3.9 and updated the version of 
+  several dependent packages, including cloudpickle, cryptography, pycrypto and pyzmq.
+- Fixed a bug in the autoscaler that was computing a worker's ``last_execution_time`` incorrectly.
+- The test code has been move to the ``abaco/core`` image for simplicity. The ``abaco/testsuite`` image 
+  should be considered deprecated.
+- Updated the code in several places to use f-strings instead of ```.format()``.`
+- Updates to the Makefile.
+
+### Removed
+- The ``abaco/testsuite`` image has been deprecated. All test code is now bundled in ``the abaco/core`` image.
+- Code cleanup including removal of unreachable code lines and removal of a student's personal tmp directory 
+  that was inadvertently added to the Dockerfile.
+
+
 ## 1.8.2 - 2021-03-26
 ### Added
 - No change.
