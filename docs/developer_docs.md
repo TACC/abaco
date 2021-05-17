@@ -723,3 +723,4 @@ Generate q key with the following:
  >>> from cryptography.fernet import Fernet
  >>> key = Fernet.generate_key()
 Place key in config-local.json under `web_encryption_key`
+The key in local-config.json is just an example used for local development (it is NOT used in any hosted Abaco deployments)
