@@ -1,6 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
 ## 1.9.0 - 2021-05-17
 ### Added
 - Added a new Actor Configs feature with API endpoint for managing configuration shared across several actors, including 
@@ -54,7 +55,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Actors are no longer put into ERROR state when unrecognized exceptions occur during the starting of actor containers. 
-  Most of the time, these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or 
+  Most of the time, these exceptions are due to internal system errors, such as not being able to talk to RabbitMQ or 
   getting socket timeouts from docker. These are not the fault of the actor, and putting it (but not other actors who 
   simply didn't happen to be executing at the time) in ERROR state is confusing to users and leads to actors not 
   processing messages until the user notices and intervenes.
@@ -67,6 +68,7 @@ All notable changes to this project will be documented in this file.
 
 
 ## 1.8.0 - 2021-01-25
+=======
 ### Added
 - Each actor now has a ``revision`` number property, a monotonically increasing integer that updates every time the
 actor's image is updated (including updates with ``force=True``). Workers are also started with the current revision 
