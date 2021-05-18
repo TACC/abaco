@@ -844,6 +844,9 @@ class Actor(AbacoDAO):
         return time
     
     #this function assumes that cron_next_ex is in the past, due to some failure
+    # this function to updates cron_next_ex, so the actor starts getting executed at the same times that it
+    # would execute if the cron never failed; it also prints all the times the cron failed to execute when it
+    # was suppose to in the logger
     @classmethod
     def set_next_ex_past(cls, actor, actor_id):
             logger.debug("In set_next_ex_past")
