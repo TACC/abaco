@@ -56,25 +56,28 @@ class SearchResource(Resource):
 class CronResource(Resource):
     def get(self):
         logger.debug("HERE I AM IN GET /cron")
-        actor_ids = [actor['db_id'] for actor in actors_store.items()]
+        actor_ids = [actor['db_id'] for actor in actors_store[site()].items()]
         logger.debug(f"actor ids are {actor_ids}")
         # Loop through all actor ids to check for cron schedules
         for actor_id in actor_ids:
             # Create actor based on the actor_id
-            actor = actors_store[actor_id]
+            actor = actors_store[site()][actor_id]
             logger.debug(f"cron_on equals {actor.get('cron_on')} for actor {actor_id}")
             try:
                 # Check if next execution == UTC current time
-                if self.cron_execution_datetime(actor)=="now":
-                    actor_exec(actor,actor_id)
+                if self.cron_execution_datetime(actor) == "now":
+                    #executes the actor and cron is updated
+                    self.actor_exec(actor,actor_id)
                 elif self.cron_execution_datetime(actor) == "past":
-                    logger.debug(f"Execution time was in the past, now its in the future again")
-                    actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex_past(actor, actor_id)
-                    #by the end the cron_next_ex can either be now or in future
-                    if self.cron_execution_datetime(actor)==1:
-                        actor_exec(actor,actor_id)
+                    logger.debug("Cron_next_ex was in the past")
+                    #increments the cron_next_ex so the actor is executed when it is next expected
+                    actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex_past(actor, actor_id)
+                    logger.debug("Now Cron_next_ex is in the present or future")
+                    #if cron_next_ex is in the present than the actor is executed and cron is updated
+                    if self.cron_execution_datetime(actor) == "now":
+                        self.actor_exec(actor,actor_id)
                     else:
-                       logger.debug("now is not the time") 
+                        logger.debug("now is not the time")
                 else:
                     logger.debug("now is not the time")
             except:
@@ -102,34 +105,35 @@ class CronResource(Resource):
             return "past"
         else:
             return "future"
-
-def actor_exec(actor,actor_id):
-# Check if cron switch is on
-    if actor.get('cron_on'):
-        d = {}
-        logger.debug("the current time is the same as the next cron scheduled, adding execution")
-        # Execute actor
-        before_exc_time = timeit.default_timer()
-        exc = Execution.add_execution(actor_id, {'cpu': 0,
-                                'io': 0,
-                                'runtime': 0,
-                                'status': codes.SUBMITTED,
-                                'executor': 'cron'})
-        logger.debug("execution has been added, now making message")
-        # Create & add message to the queue 
-        d['Time_msg_queued'] = before_exc_time
-        d['_abaco_execution_id'] = exc
-        d['_abaco_Content_Type'] = 'str'
-        d['_abaco_actor_revision'] = actor.get('revision')
-        ch = ActorMsgChannel(actor_id=actor_id)
-        ch.put_msg(message="This is your cron execution", d=d)
-        ch.close()
-        logger.debug(f"Message added to actor inbox. id: {actor_id}.")
-        # Update the actor's next execution
-        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
-    else:
-        logger.debug("Actor's cron is not activated, but next execution will be incremented")
-        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+    
+    def actor_exec(self, actor, actor_id):
+        # Check if cron switch is on
+        logger.debug("inside actor_exec method")
+        if actor.get('cron_on'):
+            d = {}
+            logger.debug("the current time is the same as the next cron scheduled, adding execution")
+            # Execute actor
+            before_exc_time = timeit.default_timer()
+            exc = Execution.add_execution(actor_id, {'cpu': 0,
+                                    'io': 0,
+                                    'runtime': 0,
+                                    'status': codes.SUBMITTED,
+                                    'executor': 'cron'})
+            logger.debug("execution has been added, now making message")
+            # Create & add message to the queue 
+            d['Time_msg_queued'] = before_exc_time
+            d['_abaco_execution_id'] = exc
+            d['_abaco_Content_Type'] = 'str'
+            d['_abaco_actor_revision'] = actor.get('revision')
+            ch = ActorMsgChannel(actor_id=actor_id)
+            ch.put_msg(message="This is your cron execution", d=d)
+            ch.close()
+            logger.debug(f"Message added to actor inbox. id: {actor_id}.")
+            # Update the actor's next execution
+            actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+        else:
+            logger.debug("Actor's cron is not activated, but next execution will be incremented")
+            actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
 
 
 class MetricsResource(Resource):
@@ -137,17 +141,14 @@ class MetricsResource(Resource):
         logger.debug("AUTOSCALER initiating new run --------")
         do_autoscaling = True
         enable_autoscaling = conf.get('worker_autoscaling')
-        if hasattr(enable_autoscaling, 'lower'):
-            if not enable_autoscaling.lower() == 'true':
-                logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
-                do_autoscaling = False
-        else:
-            logger.debug("No autoscaler configuration found; exiting.")
+        if not enable_autoscaling:
+            logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
             do_autoscaling = False
+            return
         try:
             actor_ids, inbox_lengths, cmd_length = self.get_metrics()
         except Exception as e:
-            logger.error(f"MetricsResouce got exception from get_metrics(); e: {e}."
+            logger.error(f"MetricsResource got exception from get_metrics(); e: {e}."
                          f"Responding without running check_metrics."
                          f"Autoscaling is broken!!!!!!")
             return Response("Unhandled exception in get_metrics of MetricsResource!")
@@ -159,14 +160,14 @@ class MetricsResource(Resource):
         try:
             self.check_metrics(actor_ids, inbox_lengths, cmd_length)
         except Exception as e:
-            logger.error(f"MetricsResouce got exception from check_metrics(); e: {e}."
+            logger.error(f"MetricsResource got exception from check_metrics(); e: {e}."
                          f"Responding with an error."
                          f"Autoscaling is likely broken!!!")
             return Response("Unhandled exception in check_metrics MetricsResource!")
 
         # self.add_workers(actor_ids)
         logger.debug("AUTOSCALER run complete --------")
-        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+        return #Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
     def get_metrics(self):
         logger.debug("top of get_metrics")
@@ -212,10 +213,10 @@ class MetricsResource(Resource):
                                  "Exception: {}".format(actor_id, e))
             if not max_workers:
                 try:
-                    conf = conf.spawner_max_workers_per_actor
-                    max_workers = int(conf)
+                    max_workers_conf = conf.spawner_max_workers_per_actor
+                    max_workers = int(max_workers_conf)
                 except Exception as e:
-                    logger.error(f"Unable to get/cast max_workers_per_actor config ({conf}) to int. "
+                    logger.error(f"Unable to get/cast max_workers_per_actor config ({max_workers_conf}) to int. "
                                  f"Exception: {e}")
                     max_workers = 1
             logger.debug(f"actor: {actor_id}; Max workers: {max_workers}")

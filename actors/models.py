@@ -843,7 +843,7 @@ class Actor(AbacoDAO):
         logger.debug(f"returning {time}")
         return time
     
-    #this function assumes that cron_next_ex is in the past
+    #this function assumes that cron_next_ex is in the past, due to some failure
     @classmethod
     def set_next_ex_past(cls, actor, actor_id):
             logger.debug("In set_next_ex_past")
@@ -852,6 +852,7 @@ class Actor(AbacoDAO):
             cron_parsed = parse("{} + {} {}", cron)
             time_increment = int(cron_parsed.fixed[1])
             unit_time = cron_parsed.fixed[2]
+            logger.debug(f"cron_parsed[1] is {time_increment}")
             # Parse the cron_next_ex into another list of the form [year, month, day, hour]
             cron_next_ex = actor['cron_next_ex']
             cron_nextex_parsed = parse("{}-{}-{} {}", cron_next_ex)
@@ -860,9 +861,9 @@ class Actor(AbacoDAO):
                 int(cron_nextex_parsed[2]), int(cron_nextex_parsed[3]))
             # Create a datetime object for current time
             now = datetime.datetime.utcnow()
+            now = datetime.datetime(now.year, now.month, now.day, now.hour)
             #initialize certain variables to report when Cron failed
             timeswherecronfailed=[]
-            logger.debug(f"cron_parsed[1] is {time_increment}")
             # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
             # we use a while loop
             if unit_time == "month" or unit_time == "months":
@@ -890,7 +891,7 @@ class Actor(AbacoDAO):
                 logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
                 actors_store[actor_id, 'cron_on'] = False
             new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
-            logger.debug("The cron faild to execute the actor at")
+            logger.debug("The cron failed to execute the actor at")
             logger.debug(timeswherecronfailed)
             return new_cron  
 
