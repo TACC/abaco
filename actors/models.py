@@ -1723,8 +1723,7 @@ class Worker(AbacoDAO):
         ('host_ip', 'optional', 'host_ip', str, 'ip of the host where worker is running.', None),
         ('create_time', 'derived', 'create_time', str, "Time (UTC) that this actor was created.", {}),
         ('last_execution_time', 'optional', 'last_execution_time', str, 'Last time the worker executed an actor container.', None),
-        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the worker had a health check.',
-         None),
+        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the worker had a health check.', None),
         ]
 
     def get_derived_value(self, name, d):

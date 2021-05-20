@@ -184,7 +184,7 @@ def allow_autoscaling(max_workers, num_workers, cmd_length):
         logger.debug(f'Will NOT scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
         return False
 
-    logger.debug(f'Will scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
+    logger.debug(f'Will scale up: num_workers ({num_workers}) was <= max_workers ({max_workers})')
     return True
 
 def scale_up(actor_id):
@@ -241,20 +241,17 @@ def scale_down(actor_id, is_sync_actor=False):
             worker = workers.pop()
             logger.debug(f"check_ttl: {check_ttl} for worker: {worker}")
             if check_ttl:
+                last_execution = worker.get('last_execution_time')
+                if not last_execution:
+                    # if worker has made zero executions, use the create_time
+                    last_execution = worker.get('create_time')
                 try:
-                    last_execution = int(float(worker.get('last_execution_time', 0)))
-                except Exception as e:
-                    logger.error(f"metrics got exception trying to compute last_execution! e: {e}")
+                    # convert datetime to unix time integer
+                    last_execution = int(last_execution.timestamp())
+                except AttributeError:
+                    logger.error(f"metrics got exception trying to compute last_execution! ")
                     last_execution = 0
-                # if worker has made zero executions, use the create_time
-                if last_execution == 0:
-                    last_execution = worker.get('create_time', 0)
                 logger.debug(f"using last_execution: {last_execution}")
-                try:
-                    last_execution = int(float(last_execution))
-                except:
-                    logger.error(f"Could not cast last_execution {last_execution} to int(float()")
-                    last_execution = 0
                 if last_execution + sync_max_idle_time < time.time():
                     # shutdown worker
                     logger.info("OK to shut down this worker -- beyond ttl.")
