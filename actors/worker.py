@@ -602,8 +602,8 @@ if __name__ == '__main__':
                 ch.put('stop-no-delete')
                 logger.info(f"Worker main loop sent 'stop-no-delete' message to itself; worker_id: {worker_id}.")
                 ch.close()
-                msg = "worker caught exception from main loop. worker exiting. e" \
-                      "Exception: {} worker_id: {}".format(e, worker_id)
+                msg = f"worker caught exception from main loop. worker exiting. e" \
+                      f"Exception: {e} worker_id: {worker_id}"
                 logger.info(msg)
             except Exception as e:
                 logger.error(f"worker main thread got exception trying to send stop-no-delete message to itself;"

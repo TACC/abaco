@@ -15,7 +15,7 @@ COPY actors /actors
 COPY docs/specs/openapi_v3.yml /home/tapis/service/resources/openapi_v3.yml
 # we mkdir's instead of copying because we don't
 # want to bring over folder contents by mistake.
-RUN mkdir -p /home/tapis/runtime_files /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/logs /home/tapis/runtime_files/data1 /home/tapis/runtime_files/data2
+RUN mkdir -p /home/tapis/runtime_files /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/logs /home/tapis/runtime_files/data1 /home/tapis/runtime_files/data2 /home/tapis/runtime_files/certs
 # touch config.json
 RUN touch /home/tapis/config.json
 # create abaco.log file for logs

@@ -1938,8 +1938,7 @@ class Worker(AbacoDAO):
                     if not (prev_status == "READY" and status == "READY"):
                         raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:
-            logger.warning("Got exception trying to update worker {} subfield status to {}; "
-                         "e: {}; type(e): {}".format(worker_id, status, e, type(e)))
+            logger.warning(f"Got exception trying to update worker {worker_id} subfield status to {status}; e: {e}; type(e): {type(e)}")
 
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000

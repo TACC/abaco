@@ -704,3 +704,14 @@ dockerhub_username_2
 dockerhub_password_2
 etc.
 See stache entry "CIC (Abaco) DockerHub credentials" for credentials.
+
+Christian's Notes on Mongo TLS
+------------------------------
+On the server side in the case of sites, we're looking for [Mongo TLS with Client Certificate Validation](https://docs.mongodb.com/manual/tutorial/configure-ssl/#set-up-mongod-and-mongos-with-client-certificate-validation).
+On the client side we're looking for [client connections where Mongo requires client certificates](https://docs.mongodb.com/manual/tutorial/configure-ssl-clients/#connect-to-mongodb-instance-that-requires-client-certificates--tls-options-)
+
+Configuring Mongo is easy. We add a mongo_config folder to run using docker-compose. In said config we requireTLS and give Mongo's certificateKeyFile and CAFile.
+## Note: Mongo expects the certificateKeyFile to actually be the concatanation of mongoCert.key and mongoCert.pem (cat mongoCert.key mongoCert.pem > file_to_feed_mongo.pem).
+This is important and oftentimes missed as most services require two seperate files.
+
+Large Edit: Mongo config is not easy. Mongo dockerfile has a "default" config with some automatic scripts and ip address binds. You cannot just set your own custom config without losing some environment variable functionaliy. Thing to do then is use the "command" feature of docker-compose and place the TLS flags in the command. 

@@ -68,7 +68,7 @@ def get_worker(wid):
 def clean_up_socket_dirs():
     logger.debug("top of clean_up_socket_dirs")
     # Following gets the container path dir and cleans that, ignores host
-    socket_dir = os.path.join('/', conf.worker_socket_paths.split(':')[1].strip('/'))
+    socket_dir = conf.worker_socket_paths.split(':')[1]
     logger.debug(f"processing socket_dir: {socket_dir}")
     for p in os.listdir(socket_dir):
         # check to see if p is a worker
@@ -81,7 +81,7 @@ def clean_up_socket_dirs():
 def clean_up_fifo_dirs():
     logger.debug("top of clean_up_fifo_dirs")
     # Following gets the container path dir and cleans that, ignores host
-    fifo_dir = os.path.join('/', conf.worker_fifo_paths.split(':')[1].strip('/'))
+    fifo_dir = conf.worker_fifo_paths.split(':')[1]
     logger.debug(f"processing fifo_dir: {fifo_dir}")
     for p in os.listdir(fifo_dir):
         # check to see if p is a worker

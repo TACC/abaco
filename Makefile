@@ -147,9 +147,9 @@ vars:
 
 
 # Ends all active Docker containers needed for abaco
+# This kills any workers on the "abaco_abaco" network.
+# In order to work on any network, the script needs to someone get network from the docker-compose.yml
 down:
-	# This kills any workers on the "abaco_abaco" network.
-	# In order to work on any network, the script needs to someone get network from the docker-compose.yml
 	@docker kill `docker network inspect abaco_abaco --format '{{range $$k, $$v := .Containers}}{{printf "%s\n" $$k}}{{end}}'` 2>/dev/null || true
 	@docker-compose down
 

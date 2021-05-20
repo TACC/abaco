@@ -116,24 +116,22 @@ def wait_for_rabbit():
     fn_call = f'/home/tapis/rabbitmqadmin -H {rabbit_dash_host} '
 
     # Get admin credentials from rabbit_uri. Add auth to fn_call if it exists.
-    admin_user = conf['admin_rabbitmq_user'] or None
-    admin_pass = conf['admin_rabbitmq_pass'] or None
 
-    if admin_user and admin_pass:
-        fn_call += (f'-u {admin_user} ')
-        fn_call += (f'-p {admin_pass} ')
-    else:
-        fn_call += (f'-u {admin_user} ')
+    admin_user = conf['admin_rabbitmq_user'] or "guest"
+    admin_pass = conf['admin_rabbitmq_pass'] or "guest"
+
+    fn_call += (f'-u {admin_user} ')
+    fn_call += (f'-p {admin_pass} ')
 
     # We poll to check rabbitmq is operational. Done by trying to list vhosts, arbitrary command.
     # Exit code 0 means rabbitmq is running. Need access to rabbitmq dash/management panel.
-    i = 5
+    i = 8
     while i:
         result = subprocess.run(fn_call + f'list vhosts', shell=True)
         if result.returncode == 0:
             break
         else:
-            time.sleep(3)
+            time.sleep(2)
         i -= 1
     time.sleep(7)
 
