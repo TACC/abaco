@@ -1804,7 +1804,11 @@ class Worker(AbacoDAO):
         logger.debug("top of ensure_one_worker.")
         site_id = site_id or site()
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant, 'actor_id': actor_id}
+        worker = {'status': REQUESTED,
+                  'id': worker_id,
+                  'tenant': tenant,
+                  'create_time': get_current_utc_time(),
+                  'actor_id': actor_id}
         workers_for_actor = len(workers_store[site_id].items({'actor_id': actor_id}))
         if workers_for_actor:
             logger.debug(f"workers_for_actor was: {workers_for_actor}; returning None.")
@@ -1827,8 +1831,12 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of request_worker().")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id, 'actor_id': actor_id}
-        # it's possible the actor_id is not in the workers_store[site()] yet (i.e., new actor with no workers)
+        worker = {'status': REQUESTED,
+                  'tenant': tenant,
+                  'id': worker_id,
+                  'actor_id': actor_id,
+                  'create_time': get_current_utc_time()}
+        # it's possible the actor_id is not in the workers_store yet (i.e., new actor with no workers)
         # In that case we need to catch a KeyError:
         try:
             # we know this worker_id is new since we just generated it, so we don't need to use the update
