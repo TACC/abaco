@@ -102,7 +102,11 @@ def rabbit_initialization():
                 break
             elif result.stderr:
                 rabbit_error = result.stderr.decode('UTF-8')
-                if "Access refused" in rabbit_error:
+                if "Errno 111" in rabbit_error:
+                    msg = "Rabbit still initializing."
+                    logger.debug(msg)
+                    continue
+                elif "Access refused" in rabbit_error:
                     msg = "Rabbit admin user or pass misconfigured."
                     logger.critical(msg)
                     raise RuntimeError(msg)
