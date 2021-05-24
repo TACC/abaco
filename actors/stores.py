@@ -262,8 +262,8 @@ def mongo_index_initialization():
 
 if __name__ == "__main__":
     # Rabbit and Mongo only go through init on primary site.
-    rabbit_initialization()
     mongo_initialization()
+    rabbit_initialization()
 
 # We do this outside of a function because the 'store' objects need to be imported
 # by other scripts. Functionalizing it would create more code and make it harder

@@ -193,6 +193,7 @@ def check_workers(actor_id, ttl):
             if worker_create_t <  get_current_utc_time() - datetime.timedelta(minutes=5):
                 hard_delete_worker(actor_id, worker_id, reason_str='Worker did not have a host_id and had '
                                                                    'old create_time field.')
+            continue
 
         # ignore workers on different hosts because this health agent cannot interact with the
         # docker daemon responsible for the worker container..

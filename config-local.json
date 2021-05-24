@@ -40,7 +40,7 @@
     "spawner_docker_network": "abaco_abaco",
     "docker_dd": "unix://var/run/docker.sock",
     "worker_init_count": 1,
-    "worker_autoscaling": false,
+    "worker_autoscaling": true,
     "worker_max_run_time": -1,
     "worker_max_cpus": 1000000000,
     "worker_worker_ttl": 86400,
