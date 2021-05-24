@@ -221,7 +221,11 @@ def mongo_initialization():
             
             # Getattr gets the database on the mongo_client to create user on
             site_database = getattr(mongo_client, site_db_name)
-            site_database.command("createUser", site_mongo_user, pwd=site_mongo_pass, roles=[{'role': 'readWrite', 'db': site_db_name}])
+            try:
+                site_database.command("createUser", site_mongo_user, pwd=site_mongo_pass, roles=[{'role': 'readWrite', 'db': site_db_name}])
+            except errors.OperationFailure:
+                msg = f"User {site_mongo_user} already exists, skipping init. (roles could be wrong)."
+                logger.warning(msg)
             logger.debug(f"MongoDB init complete for site: {site}.")
             print(f"MongoDB init complete for site: {site}.")
     except Exception as e:
