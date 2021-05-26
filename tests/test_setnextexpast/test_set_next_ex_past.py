@@ -20,12 +20,12 @@ class TestCalc(unittest.TestCase):
     #if the increment is n hours then the next cron_next_ex could be now or some m(where m < n) hour from now depending on the previous cron_next_ex
     #if the difference between now and the previous cron_next_ex is exactly a multiple of n, than the new cron_next_ex should be now
     #otherwise it should be a now plus the difference between n and the n modulus of (now - precious cron_next_ex)
-    # for example if n equals 5 and the last ex was 2 hour ago than the next execution would be 3( 5 - (2 mod 5)) hours from now
+    # for example if n equals 5 and the last ex was 2 hour ago than the next execution would be 3=( 5 - (2 mod 5)) hours from now
     def test_nhours(self):
         #we make the n a random integer from 2 to 1000 to capture a large variety of possibilities everytime we test
         n = random.randint(2,1000)
         cs = f"2021-01-31 05 + {n} hours"
-        cnext = "2021-05-20 12"
+        cnext = "2021-05-20 12"             #anything from the past
         result = set_next_ex_past.set_next_ex_past(cs,cnext)
         #finding the expected
         # Parse the cron_next_ex into another list of the form [year, month, day, hour]
@@ -36,6 +36,7 @@ class TestCalc(unittest.TestCase):
         # Create a datetime object for current time in cron schedule format
         now = datetime.datetime.utcnow()
         now = datetime.datetime(now.year, now.month, now.day, now.hour)
+
         time_difference_seconds = (now-cron_datetime).total_seconds()
         time_difference = time_difference_seconds//3600
         modulus = time_difference % n
@@ -53,7 +54,7 @@ class TestCalc(unittest.TestCase):
     # or if the hour is a bit below that cron__next_ex than the next execution will happen the next day
     def test_1day(self):
         cs = "2021-01-31 05 + 1 day"
-        cnext = "2021-05-20 12"
+        cnext = "2021-05-20 12"     #could be anything in the past
         result = set_next_ex_past.set_next_ex_past(cs,cnext)
         now = datetime.datetime.utcnow()
         #the hour needs to be the same as the previous cnext no matter how the day is incremented
@@ -246,9 +247,9 @@ class TestCalc(unittest.TestCase):
     #returns what we would expect it to return. 
     def test_day28plusmonth(self):
         n = 5
-        p = 29
+        p = 28
         cs = f"2021-01-31 05 + {n} months"
-        cnext = f"2020-03-{p} 12"
+        cnext = f"2012-03-{p} 12"
         result = set_next_ex_past.set_next_ex_past(cs,cnext)
         #finding the expected
         # Parse the cron_next_ex into another list of the form [year, month, day, hour]
@@ -288,7 +289,7 @@ class TestCalc(unittest.TestCase):
         n = 2
         p = 31
         cs = f"2021-01-31 05 + {n} months"
-        cnext = f"2020-03-{p} 12"
+        cnext = f"2012-03-{p} 12"
         result = set_next_ex_past.set_next_ex_past(cs,cnext)
         #finding the expected
         # Parse the cron_next_ex into another list of the form [year, month, day, hour]
