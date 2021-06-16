@@ -522,7 +522,9 @@ def get_container_user(actor, execution_id, actor_id):
         exec = executions_store[site()][f'{actor_id}_{execution_id}']
         uid = exec['executor_uid']
         gid = exec['executor_gid']
-    logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
+        logger.debug(f"The uid: {uid} and gid: {gid} from the executor.")       
+    else:
+        logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
     if not uid:
         if conf.global_tenant_object.get("use_tas_uid") and not actor.get('use_container_uid'):
             logger.warn('Warning - legacy actor running as image UID without use_container_uid!')
