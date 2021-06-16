@@ -1599,15 +1599,22 @@ class MessagesResource(Resource):
             logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
         # create an execution
         before_exc_timer = timeit.default_timer()
-        #get the uid and gid from the executor
-        uid, gid, homedir = get_uid_gid_homedir(actor_id, g.username, g.tenant_id)
-        exc = Execution.add_execution(dbid, {'cpu': 0,
-                                             'io': 0,
-                                             'runtime': 0,
-                                             'status': SUBMITTED,
-                                             'executor': g.username,
-                                             'executor_uid': uid,               #this is the uid and gid of the executor not the owner which is needed if the actor is ran as an executor
-                                             'executor_gid': gid})
+        if actors_store[site()][dbid]["run_as_executor"]:
+            #get the uid and gid from the executor
+            uid, gid, homedir = get_uid_gid_homedir(actor_id, g.username, g.tenant_id)
+            exc = Execution.add_execution(dbid, {'cpu': 0,
+                                                'io': 0,
+                                                'runtime': 0,
+                                                'status': SUBMITTED,
+                                                'executor': g.username,
+                                                'executor_uid': uid,               #this is the uid and gid of the executor not the owner which is needed if the actor is ran as an executor
+                                                'executor_gid': gid})
+        else:
+            exc = Execution.add_execution(dbid, {'cpu': 0,
+                                                'io': 0,
+                                                'runtime': 0,
+                                                'status': SUBMITTED,
+                                                'executor': g.username})
         after_exc_timer = timeit.default_timer()
         logger.info(f"Execution {exc} added for actor {actor_id}")
         d['_abaco_execution_id'] = exc
