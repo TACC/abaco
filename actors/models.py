@@ -776,7 +776,8 @@ class Actor(AbacoDAO):
         ('log_ex', 'optional', 'log_ex', int, 'Amount of time, in seconds, after which logs will expire', None),
         ('cron_on', 'optional', 'cron_on', inputs.boolean, 'Whether cron is on or off', False),
         ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
-        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None)
+        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
+        ('run_as_executor', 'optional', 'run_as_executor', inputs.boolean, 'Whether Uid and Gid is of the executer', False)
         ]
 
     SYNC_HINT = 'sync'
@@ -1425,6 +1426,8 @@ class Execution(AbacoDAO):
         ('api_server', 'required', 'api_server', str, 'The base URL for the tenant that this actor belongs to.', None),
         ('actor_id', 'required', 'actor_id', str, 'The human readable id for the actor associated with this execution.', None),
         ('executor', 'required', 'executor', str, 'The user who triggered this execution.', None),
+        ('exec_uid','optional', 'exec_uid', str , "the executer uid", None),
+        ('exec_gid','optional', 'exec_gid', str , "the executer gid", None),
         ('worker_id', 'optional', 'worker_id', str, 'The worker who supervised this execution.', None),
         ('message_received_time', 'derived', 'message_received_time', str, 'Time (UTC) the message was received.', None),
         ('start_time', 'optional', 'start_time', str, 'Time (UTC) the execution started.', None),

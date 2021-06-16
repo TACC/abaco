@@ -1041,11 +1041,15 @@ class ActorResource(Resource):
                 cron = args.get('cronSchedule')
             if 'cronOn' in args and args.get('cronOn') is not None:
                 actor['cron_on'] = args.get('cronOn')
+            if 'runAsExecutor' in args and args.get('runAsExecutor') is not None:
+                actor['run_as_executor'] = args.get('runAsExecutor')
         else:
             if 'cron_schedule' in args and args.get('cron_schedule') is not None:
                 cron = args.get('cron_schedule')
             if 'cron_on' in args and args.get('cron_on') is not None:
                 actor['cron_on'] = args.get('cron_on')
+            if 'run_as_executor' in args and args.get('run_as_executor') is not None:
+                actor['run_as_executor'] = args.get('run_as_executor')
         if cron is not None:
             # set_cron checks for the 'now' alias 
             # It also checks that the cron schedule is greater than or equal to the current UTC time
@@ -1595,17 +1599,22 @@ class MessagesResource(Resource):
             logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
         # create an execution
         before_exc_timer = timeit.default_timer()
+        #get the uid and gid from the executor
+        uid, gid, homedir = get_uid_gid_homedir(actor_id, g.username, g.tenant_id)
         exc = Execution.add_execution(dbid, {'cpu': 0,
                                              'io': 0,
                                              'runtime': 0,
                                              'status': SUBMITTED,
-                                             'executor': g.username})
+                                             'executor': g.username,
+                                             'executor_uid': uid,               #this is the uid and gid of the executor not the owner which is needed if the actor is ran as an executor
+                                             'executor_gid': gid})
         after_exc_timer = timeit.default_timer()
         logger.info(f"Execution {exc} added for actor {actor_id}")
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         d['_abaco_actor_revision'] = actor.revision
         logger.debug(f"Final message dictionary: {d}")
+        
         before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
         after_ch_timer = timeit.default_timer()
