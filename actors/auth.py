@@ -126,9 +126,9 @@ def check_nonce():
         raise PermissionsException("No JWT or nonce provided.")
     logger.debug(f"checking nonce with id: {nonce_id}")
     # the nonce encodes the tenant in its id:
-    g.tenant_id = Nonce.get_tenant_from_nonce_id(nonce_id)
-    g.api_server = get_api_server(g.tenant_id)
-    logger.debug(f"tenant associated with nonce: {g.tenant_id}; api_server assoicated with nonce: {g.api_server}")
+    g.request_tenant_id = Nonce.get_tenant_from_nonce_id(nonce_id)
+    g.api_server = get_api_server(g.request_tenant_id)
+    logger.debug(f"tenant associated with nonce: {g.request_tenant_id}; api_server assoicated with nonce: {g.api_server}")
     # get the actor_id base on the request path
     actor_id, actor_identifier = get_db_id()
     logger.debug(f"db_id: {actor_id}; actor_identifier: {actor_identifier}")
@@ -139,7 +139,7 @@ def check_nonce():
     if is_hashid(actor_identifier):
         Nonce.check_and_redeem_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id, level=level)
     else:
-        alias_id = Alias.generate_alias_id(tenant=g.tenant_id, alias=actor_identifier)
+        alias_id = Alias.generate_alias_id(tenant=g.request_tenant_id, alias=actor_identifier)
         Nonce.check_and_redeem_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id, level=level)
     # if we were able to redeem the nonce, update auth context with the actor owner data:
     logger.debug("nonce valid and redeemed.")
@@ -150,33 +150,33 @@ def check_nonce():
     g.username = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = [nonce.roles]
-    logger.debug(f"setting g.tenant_id: {g.tenant_id}; g.username: {g.username}")
+    logger.debug(f"setting g.request_tenant_id: {g.request_tenant_id}; g.username: {g.username}")
 
 
 def get_user_sk_roles():
     """
     """
-    logger.debug(f"Getting SK roles on tenant {g.tenant_id} and user {g.username}")
+    logger.debug(f"Getting SK roles on tenant {g.request_tenant_id} and user {g.username}")
     start_timer = timeit.default_timer()
     try:
-        roles_obj = t.sk.getUserRoles(tenant=g.tenant_id, user=g.username)
+        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.username)
     except Exception as e:
         end_timer = timeit.default_timer()
         total = (end_timer - start_timer) * 1000
         if total > 4000:
-            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.tenant_id}")
+            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
         raise e
     end_timer = timeit.default_timer()
     total = (end_timer - start_timer) * 1000
     if total > 4000:
-        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.tenant_id}")
+        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
     roles_list = roles_obj.names
     logger.debug(f"Roles received: {roles_list}")
     g.roles = roles_list
 
 
 def get_user_site_id():
-    user_tenant_obj = t.tenant_cache.get_tenant_config(tenant_id=g.tenant_id)
+    user_tenant_obj = t.tenant_cache.get_tenant_config(tenant_id=g.request_tenant_id)
     user_site_obj = user_tenant_obj.site
     g.site_id = user_site_obj.site_id
 
@@ -433,11 +433,11 @@ def get_db_id():
         actor_identifier = path_split[idx]
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
-    logger.debug(f"actor_identifier: {actor_identifier}; tenant: {g.tenant_id}")
+    logger.debug(f"actor_identifier: {actor_identifier}; tenant: {g.request_tenant_id}")
     if actor_identifier == 'search':
         raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
-        actor_id = Actor.get_actor_id(g.tenant_id, actor_identifier)
+        actor_id = Actor.get_actor_id(g.request_tenant_id, actor_identifier)
     except KeyError:
         logger.info(f"Unrecognized actor_identifier: {actor_identifier}. Actor not found")
         raise ResourceError(f"Actor with identifier '{actor_identifier}' not found", 404)
@@ -447,7 +447,7 @@ def get_db_id():
         logger.error(msg)
         raise ResourceError(msg)
     logger.debug(f"actor_id: {actor_id}")
-    return Actor.get_dbid(g.tenant_id, actor_id), actor_identifier
+    return Actor.get_dbid(g.request_tenant_id, actor_id), actor_identifier
 
 def get_alias_id():
     """Get the alias from the request path."""
@@ -457,7 +457,7 @@ def get_alias_id():
         raise PermissionsException("Not authorized.")
     alias = path_split[3]
     logger.debug(f"alias: {alias}")
-    return Alias.generate_alias_id(g.tenant_id, alias)
+    return Alias.generate_alias_id(g.request_tenant_id, alias)
 
 def get_tenant_verify(tenant):
     """Return whether to turn on SSL verification."""
@@ -589,9 +589,9 @@ def get_token_default():
     Returns the default token attribute based on the tenant and instance configs.
     """
 
-    tenant_tenant_object = conf.get(f"{g.tenant_id}_tenant_object") or {}
+    tenant_tenant_object = conf.get(f"{g.request_tenant_id}_tenant_object") or {}
     default_token = tenant_tenant_object.get("default_token") or conf.global_tenant_object.get("default_token")
-    logger.debug(f"got default_token: {default_token}. Either for {g.tenant_id} or global.")
+    logger.debug(f"got default_token: {default_token}. Either for {g.request_tenant_id} or global.")
     ## We have to stringify the boolean as it's listed with results and it would require a database change.
     if default_token:
         default_token = 'true'

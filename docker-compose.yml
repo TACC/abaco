@@ -21,7 +21,7 @@ services:
         ports:
             - "27017:27017"
         volumes:
-            - /home/trust/abaco/runtime_files/certs:/data/ssl
+            - ./runtime_files/certs:/data/ssl
         networks:
             - abaco
         ulimits:
@@ -72,7 +72,7 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-            - /home/trust/abaco/runtime_files/certs:/home/tapis/runtime_files/certs
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             api: reg
@@ -92,7 +92,7 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-            - /home/trust/abaco/runtime_files/certs:/home/tapis/runtime_files/certs
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         ports:
             - "5001:5000"
         environment:
@@ -115,7 +115,7 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-            - /home/trust/abaco/runtime_files/certs:/home/tapis/runtime_files/certs
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         ports:
             - "5003:5000"
         environment:
@@ -140,7 +140,7 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-            - /home/trust/abaco/runtime_files/certs:/home/tapis/runtime_files/certs
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             _abaco_secret: 123
@@ -162,7 +162,7 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-            - /home/trust/abaco/runtime_files/certs:/home/tapis/runtime_files/certs
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             mongo_password:
@@ -186,7 +186,7 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-            - /home/trust/abaco/runtime_files/certs:/home/tapis/runtime_files/certs
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             _abaco_secret: 123
@@ -246,7 +246,7 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
-            - /home/trust/abaco/runtime_files/certs:/home/tapis/runtime_files/certs
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         ports:
             - "5004:5000"
         environment:
