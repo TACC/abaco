@@ -91,7 +91,7 @@ def cycling_headers(regular_headers, privileged_headers):
     return {'regular': regular_headers,
             'privileged': privileged_headers}
 
-def get_tapis_token_headers(user, alt_tenant):
+def get_tapis_token_headers(user, alt_tenant=None):
     # Use alternative tenant if provided.
     if alt_tenant:
         tenant = alt_tenant
