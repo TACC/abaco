@@ -515,19 +515,18 @@ def get_container_user(actor, execution_id, actor_id):
     if actor.get('use_container_uid'):
         logger.info("actor set to use_container_uid. Returning None for user")
         return None
-    uid = actor.get('uid')
-    gid = actor.get('gid')
-    # if the run_as_executor attribute is turned on then we need to change the uid and gid of the worker before execution
+# if the run_as_executor attribute is turned on then we need to change the uid and gid of the worker before execution          
     if actor.get('run_as_executor'):
         exec = executions_store[site()][f'{actor_id}_{execution_id}']
         uid = exec['executor_uid']
         gid = exec['executor_gid']
-        logger.debug(f"The uid: {uid} and gid: {gid} from the executor.")       
-    else:
+        logger.debug(f"The uid: {uid} and gid: {gid} from the executor.")
+# if there is no executor_uid or gid and get_container_uid is false than we have to use the actor uid and gid
+    if not uid:    
+        uid = actor.get('uid')
+        gid = actor.get('gid')
         logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
     if not uid:
-        if conf.global_tenant_object.get("use_tas_uid") and not actor.get('use_container_uid'):
-            logger.warn('Warning - legacy actor running as image UID without use_container_uid!')
         user = None
     elif not gid:
         user = uid
