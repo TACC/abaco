@@ -17,6 +17,7 @@ from util import headers, base_url, case, \
     get_tapis_token_headers, alternative_tenant_headers, delete_actors, nshresth_header, jstubbs_header
 
 def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
+    #registering the actor
     url = f'{base_url}/actors'
     data = {'image': 'nshresth/abacotest:1.0', 'runAsExecutor': True}
     rsp = requests.post(url, data=data, headers=nshresth_header)
@@ -31,6 +32,7 @@ def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
     else:
         assert result['runAsExecutor'] == True
 	
+    #updating the permission for the actor
     actorid = result['id']
     url2 = f'{base_url}/actors/{actorid}/permissions'
     data2 = {"user":"jstubbs", "level":"EXECUTE"}
@@ -39,6 +41,7 @@ def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
     result2 = basic_response_checks(rsp2)
     assert result2["jstubbs"] == "EXECUTE"
     
+    #sending a message as jstubbs
     url3 = f'{base_url}/actors/{actorid}/messages'
     data3 = {"message":"hello"}
     headers3 = jstubbs_header
@@ -51,6 +54,7 @@ def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
         assert result3['executionId'] is not None
         execid = result3['executionId']
     
+    #we have to wait a bit until the execution is finished
     time.sleep(60)
     url4 = f'{base_url}/actors/{actorid}/executions/{execid}/logs'
     headers4 = nshresth_header
