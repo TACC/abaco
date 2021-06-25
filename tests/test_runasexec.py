@@ -55,12 +55,19 @@ def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
         execid = result3['executionId']
     
     #we have to wait a bit until the execution is finished
-    time.sleep(60)
-    url4 = f'{base_url}/actors/{actorid}/executions/{execid}/logs'
-    headers4 = nshresth_header
-    rsp4 = requests.get(url4, headers=headers4)
-    result4 = basic_response_checks(rsp4)
-    k = result4["logs"].split("***")
+    result4 = {'status' : 'SUBMITTED'}
+    while result4['status'] != 'COMPLETE':
+        url4 = f'{base_url}/actors/{actorid}/executions/{execid}'
+        headers4 = nshresth_header
+        rsp4 = requests.get(url4, headers=headers4)
+        result4 = basic_response_checks(rsp4)
+
+    #getting the execution logs
+    url5 = f'{base_url}/actors/{actorid}/executions/{execid}/logs'
+    headers5 = nshresth_header
+    rsp5 = requests.get(url5, headers=headers5)
+    result5 = basic_response_checks(rsp5)
+    k = result5["logs"].split("***")        #the uid and gid is spelled out on the end
     assert k[-1] == '\nuid=811324 gid=811324\n'
 
 #check if useContaineruid and runAsexecutor can both simultaneously be turned on.
