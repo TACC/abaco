@@ -16,7 +16,7 @@ from werkzeug.exceptions import BadRequest
 from agaveflask.utils import RequestParser, ok
 from parse import parse
 
-from auth import check_permissions, check_config_permissions, get_tas_data, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
+from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from config import Config

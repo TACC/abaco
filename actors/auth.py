@@ -456,6 +456,8 @@ def get_tenant_userstore_prefix(tenant):
         return 'SD2E'
     if tenant == 'TACC':
         return 'TACC'
+    if tenant == 'A2CPS':
+        return 'A2CPS'
     if tenant == 'DESIGNSAFE':
         return 'TACC'
     if tenant == 'IPLANTC-ORG':
@@ -487,14 +489,16 @@ def get_tenants():
             'SD2E',
             'SGCI',
             'TACC-PROD',
-            'VDJSERVER-ORG']
+            'VDJSERVER-ORG',
+            'A2CPS']
 
 def tenant_can_use_tas(tenant):
     """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
     the TACC IdP"""
     if tenant == 'DESIGNSAFE' or \
        tenant == 'SD2E' or \
-       tenant == 'TACC-PROD':
+       tenant == 'TACC-PROD' or \
+       tenant == 'A2CPS':
         return True
     # all other tenants use some other IdP so username will not be a TAS account:
     return False
