@@ -26,6 +26,8 @@ def get_api_server(tenant_name):
     # todo - lookup tenant in tenants table
     if tenant_name.upper() == '3DEM':
         return 'https://api.3dem.org'
+    if tenant_name.upper() == 'A2CPS':
+        return 'https://api.a2cps.org'
     if tenant_name.upper() == 'AGAVE-PROD':
         return 'https://public.agaveapi.co'
     if tenant_name.upper() == 'ARAPORT-ORG':
@@ -532,6 +534,8 @@ def get_tenant_userstore_prefix(tenant):
         return 'SD2E'
     if tenant == 'TACC':
         return 'TACC'
+    if tenant == 'A2CPS':
+        return 'A2CPS'
     if tenant == 'DESIGNSAFE':
         return 'TACC'
     if tenant == 'IPLANTC-ORG':
@@ -551,6 +555,7 @@ def get_tenant_userstore_prefix(tenant):
 def get_tenants():
     """Return a list of tenants"""
     return ['3DEM',
+            'A2CPS',
             'AGAVE-PROD',
             'ARAPORT-ORG',
             'DESIGNSAFE',
@@ -568,7 +573,7 @@ def get_tenants():
 def tenant_can_use_tas(tenant):
     """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
     the TACC IdP"""
-    if tenant in ['DESIGNSAFE', 'SD2E', 'TACC', 'tacc']:
+    if tenant in ['DESIGNSAFE', 'SD2E', 'TACC', 'tacc', 'A2CPS']:
         return True
     # all other tenants use some other IdP so username will not be a TAS account:
     return False
