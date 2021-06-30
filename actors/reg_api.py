@@ -39,7 +39,7 @@ api.add_resource(AliasNonceResource, '/actors/aliases/<string:alias>/nonces/<str
 api.add_resource(SearchResource, '/actors/search/<string:search_type>')
 api.add_resource(CronResource, '/cron')
 api.add_resource(ActorConfigsResource, '/actors/configs')
-api.add_resource(ActorConfigResource, '/actors/configs/<string:config>')
+api.add_resource(ActorConfigResource, '/actors/configs/<string:config_name>')
 
 api.add_resource(ActorResource, '/actors/<string:actor_id>')
 api.add_resource(ActorStateResource, '/actors/<string:actor_id>/state')
