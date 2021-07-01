@@ -88,3 +88,7 @@ def test_run_as_not_tas(headers):
    rsp = requests.post(url, data=data, headers=headers)
    data = json.loads(rsp.content.decode('utf-8'))
    assert data['message'] == "Run_as_executor isn't supported for your tenant"
+
+# Clean up
+def test_delete_actors(headers):
+    delete_actors(headers)
