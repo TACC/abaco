@@ -45,6 +45,7 @@ deploy:
 build-core:
 	@docker build -t abaco/core:$$TAG ./
 
+
 # Builds prometheus locally
 build-prom:
 	@docker build -t abaco/prom:$$TAG prometheus/.
@@ -57,7 +58,7 @@ build-nginx:
 
 # Builds core locally and then runs with Abaco suite with that abaco/core image in daemon mode
 local-deploy: build-core build-nginx
-	sed -i.bak 's/TAG:.*/TAG: '$$TAG'/g' local-dev.conf 
+	sed -i '' 's/"version".*/"version": ":$(TAG)",/g' config-local.json
 	@docker-compose --project-name=abaco up -d
 
 
@@ -72,7 +73,7 @@ test:
 	make test-snake
 	make down
 	@echo "Converting back to camel"
-	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf
+	sed -i '' 's/"web_case".*/"web_case": "camel",/g' config-local.json
 
 
 # Builds local everything and performs testsuite for camel case.
@@ -80,12 +81,12 @@ test:
 # ex: export test=test/load_tests.py
 test-camel: build-testsuite
 	@echo "\n\nCamel Case Tests.\n"
-	@echo "Converting config file to camel case and launching Abaco Stack.\n"
-	sed -i.bak 's/TAG:.*/TAG: '$$TAG'/g' local-dev.conf
-	sed -i.bak 's/case: snake/case: camel/g' local-dev.conf 
+	@echo "Converting config file to camel case and launching Abaco Stack."
+	sed -i '' 's/"version".*/"version": ":$(TAG)",/g' config-local.json
+	sed -i '' 's/"web_case".*/"web_case": "camel",/g' config-local.json
 	make local-deploy
 	sleep $$docker_ready_wait 
-	docker run $$interactive --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=camel -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/core:$$TAG $$test
+	docker run $$interactive --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e TESTS=/home/tapis/tests -e base_url=http://nginx -e _called_from_within_test=True -e maxErrors=$$maxErrors -e case=camel -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core:$$TAG
 
 # Builds local everything and performs testsuite for snake case.
 # Converts local-dev.conf back to camel case after test.
@@ -93,16 +94,17 @@ test-camel: build-testsuite
 # ex: export test=test/load_tests.py
 test-snake: build-testsuite
 	@echo "\n\nSnake Case Tests.\n"
-	@echo "Converting config file to snake case and launching Abaco Stack.\n"
-	sed -i.bak 's/TAG:.*/TAG: '$$TAG'/g' local-dev.conf
-	sed -i.bak 's/case: camel/case: snake/g' local-dev.conf
+	@echo "Converting config file to snake case and launching Abaco Stack."
+	sed -i '' 's/"version".*/"version": ":$(TAG)",/g' config-local.json
+	sed -i '' 's/"web_case".*/"web_case": "camel",/g' config-local.json
 	make local-deploy
 	sleep $$docker_ready_wait
-	docker run $$interactive --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e maxErrors=$$maxErrors -e case=snake -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/core:$$TAG $$test
-	@echo "Converting back to camel"; sed -i.bak 's/case: snake/case: camel/g' local-dev.conf
+	docker run $$interactive --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e TESTS=/home/tapis/tests -e base_url=http://nginx -e _called_from_within_test=True -e maxErrors=$$maxErrors -e case=snake -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core:$$TAG
+	@echo "Converting back to camel"
+	sed -i '' 's/"web_case".*/"web_case": "camel",/g' config-local.json
 
 test-remote: build-testsuite
-	docker run $$interactive -e base_url=http://master.staging.tapis.io/v3/ -e maxErrors=$$maxErrors -e case=camel -e abaco_host_path=$$abaco_path -v /:/host -v $$abaco_path/local-dev.conf:/etc/service.conf --rm abaco/testsuite:$$TAG $$test
+	docker run $$interactive -e TESTS=/home/tapis/tests -e base_url=http://master.staging.tapis.io/v3/ -e maxErrors=$$maxErrors -e _called_from_within_test=True  -e case=camel -e abaco_host_path=$$abaco_path -v /:/host $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/testsuite:$$TAG
 
 
 # Pulls all Docker images not yet available but needed to run Abaco suite

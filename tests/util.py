@@ -14,7 +14,7 @@ case = os.environ.get('case', 'snake')
 testuser_tenant = os.environ.get('tenant', 'dev')
 
 def get_service_tapis_client():
-    with open('config-local.json') as json_file:
+    with open('config.json') as json_file:
         conf = json.load(json_file)
     sk_url = os.environ.get('sk_url', conf['primary_site_admin_tenant_base_url'])
     tenant_id = os.environ.get('tenant', 'admin')
@@ -108,7 +108,7 @@ def get_tapis_token_headers(user, alt_tenant):
 
 @pytest.fixture(scope='session', autouse=True)
 def wait_for_rabbit():
-    with open('config-local.json') as json_file:
+    with open('config.json') as json_file:
         conf = json.load(json_file)
 
     rabbit_dash_host = conf['rabbit_dash_host']

@@ -14,10 +14,47 @@ from util import headers, base_url, case, \
     get_tapis_token_headers, alternative_tenant_headers, delete_actors
 
 
+# Setup
+def test_register_actor(headers):
+    url = f'{base_url}/actors'
+    data = {'image': 'jstubbs/abaco_test', 'name': 'abaco_test_suite', 'stateless': False}
+    rsp = requests.post(url, data=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == '_abaco_testuser_admin'
+    assert result['image'] == 'jstubbs/abaco_test'
+    assert result['name'] == 'abaco_test_suite'
+    assert result['id'] is not None
+
+
+def test_register_actor_default_env(headers):
+    url = f'{base_url}/actors'
+    data = {'image': 'abacosamples/test',
+            'name': 'abaco_test_suite_default_env',
+            'stateless': True,
+            'default_environment': {'default_env_key1': 'default_env_value1',
+                                    'default_env_key2': 'default_env_value2'}
+            }
+    if case == 'camel':
+        data.pop('default_environment')
+        data['defaultEnvironment']= {'default_env_key1': 'default_env_value1',
+                                     'default_env_key2': 'default_env_value2'}
+    rsp = requests.post(url, json=data, headers=headers)
+    result = basic_response_checks(rsp)
+    assert 'description' in result
+    assert 'owner' in result
+    assert result['owner'] == '_abaco_testuser_admin'
+    assert result['image'] == 'abacosamples/test'
+    assert result['name'] == 'abaco_test_suite_default_env'
+    assert result['id'] is not None
+
+
+# Testing
 def test_register_config(headers):
     actor_id = get_actor_id(headers)
     url = f'{base_url}/actors/configs'
-    data={'image': 'abacosamples/test',
+    data={"image": "abacosamples/test",
           "name": "the_config",
           "value": "my value",
           "actors": actor_id}
@@ -36,9 +73,9 @@ def test_register_config(headers):
 def test_register_secret_config(headers):
     actor_id = get_actor_id(headers)
     url = f'{base_url}/actors/configs'
-    data={"name": "another_config", 
-          "value": "my value", 
-          "actors": actor_id}
+    data = {"name": "another_config", 
+            "value": "my value", 
+            "actors": actor_id}
     if case == 'snake':
         data['is_secret'] = True
     else:
@@ -55,9 +92,9 @@ def test_register_config_multiple_actors(headers):
     actor_id = get_actor_id(headers)
     actor_id2 = get_actor_id(headers, name='abaco_test_suite_default_env')
     url = f'{base_url}/actors/configs'
-    data={"name": "a_multi_actor_config",
-          "value": "my value", 
-          "actors": f"{actor_id}, {actor_id2}"}
+    data = {"name": "a_multi_actor_config",
+            "value": "my value", 
+            "actors": f"{actor_id}, {actor_id2}"}
     if case == 'snake':
         data['is_secret'] = True
     else:
@@ -68,9 +105,9 @@ def test_register_config_multiple_actors(headers):
 
 def test_register_with_nonexistent_actor(headers):
     url = f'{base_url}/actors/configs'
-    data={"name": "another_config", 
-          "value": "my value", 
-          "actors": "henry"}
+    data = {"name": "another_config", 
+            "value": "my value", 
+            "actors": "henry"}
     if case == 'snake':
         data['is_secret'] = True
     else:
@@ -79,26 +116,26 @@ def test_register_with_nonexistent_actor(headers):
     assert rsp.status_code == 404
 
 def test_get_configs(headers):
-    url = '{base_url}/actors/configs'
+    url = f'{base_url}/actors/configs'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
 
 def test_get_specific_config(headers):
-    url = '{base_url}/actors/configs/the_config'
+    url = f'{base_url}/actors/configs/the_config'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     if case == 'snake':
-        assert result['is_secret'] == True
+        assert result['is_secret'] == False
     else:
-        assert result['isSecret'] == True
+        assert result['isSecret'] == False
     assert result['name'] == 'the_config'
 
-def test_register_config_regular_headers(headers):
+def test_register_config_regular_headers(headers, regular_headers):
     actor_id = get_actor_id(headers)
     url = f'{base_url}/actors/configs'
-    data={"name": "limited_config", 
-          "value": "my value", 
-          "actors": actor_id}
+    data = {"name": "limited_config", 
+            "value": "my value", 
+            "actors": actor_id}
     if case == 'snake':
         data['is_secret'] = True
     else:
@@ -111,9 +148,9 @@ def test_update_config(headers):
     actor_id = get_actor_id(headers)
     actor_id2 = get_actor_id(headers, name='abaco_test_suite_default_env')
     url = f'{base_url}/actors/configs/the_config'
-    data={"name": "the_config", 
-          "value": "my value", 
-          "actors": f"{actor_id}, {actor_id2}"}
+    data = {"name": "the_config",
+            "value": "my value",
+            "actors": f"{actor_id}, {actor_id2}"}
     if case == 'snake':
         data['is_secret'] = True
     else:
@@ -125,12 +162,12 @@ def test_update_config(headers):
     else:
         assert result['isSecret'] == True
 
-def test_update_config_regular_headers(headers):
+def test_update_config_regular_headers(headers, regular_headers):
     actor_id = get_actor_id(headers)
     url = f'{base_url}/actors/configs/the_config'
-    data={"name": "the_config", 
-          "value": "my value", 
-          "actors": actor_id}
+    data = {"name": "the_config", 
+            "value": "my value",
+            "actors": actor_id}
     if case == 'snake':
         data['is_secret'] = True
     else:

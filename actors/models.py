@@ -1988,7 +1988,7 @@ def get_config_permissions(config_id):
     """
     logger.debug(f"top of get_config_permissions for config_id: {config_id}")
     try:
-        return configs_permissions_store[site()][config]
+        return configs_permissions_store[site()][config_id]
     except KeyError:
         raise errors.PermissionsException(f"Config {config_id} does not exist")
 
@@ -2073,17 +2073,6 @@ class ActorConfig(AbacoDAO):
         """
         return f"{tenant_id}_{name}"
 
-    def get_derived_value(self, name, d):
-        """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
-        # first, see if the id attribute is already in the object:
-        try:
-            if d[name]:
-                return d[name]
-        except KeyError:
-            pass
-        # combine the tenant_id and client_key to get the unique id
-        return Client.get_client_id(d['tenant'], d['client_key'])
-
     def display(self):
         """Return a representation fit for display."""
         self.pop('tenant')
@@ -2110,22 +2099,7 @@ class ActorConfig(AbacoDAO):
         self.check_forbidden_char()
         # attempt to create the config within a transaction
         config_id = ActorConfig.get_config_db_key(tenant_id=self.tenant, name=self.name)
-        obj = configs_store.add_if_empty([config_id], self)
+        obj = configs_store[site()].add_if_empty([config_id], self)
         if not obj:
             raise errors.DAOError(f"Config {self.name} already exists; please choose another name for your config")
         return obj
-
-
-    # @classmethod
-    # def get_client_id(cls, tenant, key):
-    #     return '{}_{}'.format(tenant, key)
-    #
-    # @classmethod
-    # def get_client(cls, tenant, client_key):
-    #     return Client(clients_store[Client.get_client_id(tenant, client_key)])
-    #
-    # @classmethod
-    # def delete_client(cls, tenant, client_key):
-    #     del clients_store[Client.get_client_id(tenant, client_key)]
-
-

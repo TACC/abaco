@@ -280,13 +280,13 @@ def authorization():
     if '/actors/configs' in request.url_rule.rule:
         logger.debug('auth.py /actors/configs if statement')
         config_name = get_config_name()
-        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_config_permissions(user=g.user, config_id=config_id, level=codes.READ)
+            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.READ)
             # all other requests require UPDATE access
         elif request.method in ['DELETE', 'POST', 'PUT']:
-            has_pem = check_config_permissions(user=g.user, config_id=config_id, level=codes.UPDATE)
+            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE)
         if not has_pem:
             raise PermissionsException("You do not have sufficient access to this actor config.")
 

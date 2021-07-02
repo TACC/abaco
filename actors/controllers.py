@@ -44,7 +44,7 @@ try:
 except:
     ACTOR_MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_ACTOR', 20)
 ACTOR_MAX_WORKERS = int(ACTOR_MAX_WORKERS)
-logger.info("METRICS - running with ACTOR_MAX_WORKERS = {}".format(ACTOR_MAX_WORKERS))
+logger.info(f"METRICS - running with ACTOR_MAX_WORKERS = {ACTOR_MAX_WORKERS}")
 
 ACTOR_MAX_WORKERS = conf.spawner_max_workers_per_actor or int(os.environ.get('MAX_WORKERS_PER_ACTOR', 20))
 logger.info(f"METRICS - running with ACTOR_MAX_WORKERS = {ACTOR_MAX_WORKERS}")
@@ -202,8 +202,7 @@ class MetricsResource(Resource):
                 try:
                     max_workers = int(actor['max_workers'])
                 except Exception as e:
-                    logger.error("max_workers defined for actor_id {} but could not cast to int. "
-                                 "Exception: {}".format(actor_id, e))
+                    logger.error(f"max_workers defined for actor_id {actor_id} but could not cast to int. Exception: {e}")
             if not max_workers:
                 try:
                     max_workers_conf = conf.spawner_max_workers_per_actor
@@ -451,8 +450,7 @@ class AliasesResource(Resource):
         args['api_server'] = g.api_server
         logger.debug(f"Instantiating alias object. args: {args}")
         alias = Alias(**args)
-        logger.debug("Alias object instantiated; checking for uniqueness and creating alias. "
-                     "alias: {}".format(alias))
+        logger.debug(f"Alias object instantiated; checking for uniqueness and creating alias. alias: {alias}")
         alias.check_and_create_alias()
         logger.info(f"alias added for actor: {dbid}.")
         set_permission(g.username, alias.alias_id, UPDATE)
@@ -521,8 +519,7 @@ class AliasResource(Resource):
         args['api_server'] = alias_obj.api_server
         logger.debug(f"Instantiating alias object. args: {args}")
         new_alias_obj = Alias(**args)
-        logger.debug("Alias object instantiated; updating alias in alias_store. "
-                     "alias: {}".format(new_alias_obj))
+        logger.debug(f"Alias object instantiated; updating alias in alias_store. alias: {new_alias_obj}")
         alias_store[site()][alias_id] = new_alias_obj
         logger.info(f"alias updated for actor: {dbid}.")
         set_permission(g.username, new_alias_obj.alias_id, UPDATE)
@@ -613,7 +610,7 @@ class AliasNoncesResource(Resource):
         if 'level' in args:
             if not args['level'] in ALIAS_NONCE_PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
-                               "The level attribute must be one of: {}".format(ALIAS_NONCE_PERMISSION_LEVELS))
+                               f"The level attribute must be one of: {ALIAS_NONCE_PERMISSION_LEVELS}")
         if conf.web_case == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
@@ -684,7 +681,7 @@ def check_for_link_cycles(db_id, link_dbid):
                 link_dbid = Actor.get_dbid(g.request_tenant_id, link_id)
             except Exception as e:
                 logger.error("corrupt link data; could not resolve link attribute in "
-                             "actor: {}; exception: {}".format(actor, e))
+                             f"actor: {actor}; exception: {e}")
                 continue
             # we do not want to override the proposed link passed in, as this actor could already have
             # a link (that was valid) and we need to check that the proposed link still works
@@ -741,10 +738,10 @@ def validate_link(args):
         check_permissions(g.username, link_dbid, EXECUTE)
     except Exception as e:
         logger.info("Got exception trying to check permissions for actor link. "
-                    "Exception: {}; link: {}".format(e, link_dbid))
+                    f"Exception: {e}; link: {link_dbid}")
         raise DAOError("Invalid link parameter. The link must be a valid "
                        "actor id or alias for which you have EXECUTE permission. "
-                       "Additional info: {}".format(e))
+                       f"Additional info: {e}")
     logger.debug("check_permissions passed.")
     # POSTs to create new actors do not have db_id's assigned and cannot result in
     # cycles
@@ -912,9 +909,7 @@ class ActorsResource(Resource):
              '$addToSet': {'actor_dbids': actor.db_id}},
              upsert=True)
 
-        logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
-                                                                                   actor.image,
-                                                                                   actor.tenant))
+        logger.debug(f"new actor saved in db. id: {actor.db_id}. image: {actor.image}. tenant: {actor.tenant}")
         if num_init_workers > 0:
             actor.ensure_one_worker()
         logger.debug("ensure_one_worker() called")
@@ -952,8 +947,7 @@ class ActorResource(Resource):
                 for execution in executions_by_actor:
                     del logs_store[site()][execution['id']]
             except KeyError as e:
-                logger.info("got KeyError {} trying to retrieve actor or executions with id {}".format(
-                    e, id))
+                logger.info(f"got KeyError {e} trying to retrieve actor or executions with id {id}")
         # shutdown workers ----
         logger.info(f"calling shutdown_workers() for actor: {id}")
         shutdown_workers(id)
@@ -1210,7 +1204,7 @@ class ActorConfigsResource(Resource):
         logger.debug(f"CONFIGS: {configs_store[site()].items()}")
         for v in configs_store[site()].items():
             logger.debug(f"item is {v}")
-            if v['tenant'] == g.tenant:
+            if v['tenant'] == g.request_tenant_id:
                 configs.append(ActorConfig.from_db(v).display())
         logger.info("actor configs retrieved.")
         return ok(result=configs, msg="Actor Configs retrieved successfully.")
@@ -1223,7 +1217,7 @@ class ActorConfigsResource(Resource):
             msg = 'Unable to process the JSON description.'
             if hasattr(e, 'data'):
                 msg = e.data.get('message')
-            raise DAOError("Invalid config description. Missing required field: {}".format(msg))
+            raise DAOError(f"Invalid config description. Missing required field: {msg}")
         return args
 
     def post(self):
@@ -1235,7 +1229,7 @@ class ActorConfigsResource(Resource):
         # first, split the string by comma
         actors = args.get('actors')
         try:
-            actors_list = re.split(",", actors)
+            actors_list = actors.replace(" ", "").split(',')
             for count, wrd in enumerate(actors_list):
                 actors_list[count] = wrd.strip()
         except Exception as e:
@@ -1247,7 +1241,7 @@ class ActorConfigsResource(Resource):
         for a in actors_list:
             try:
                 # need to check if this identifier is an actor id or an alias
-                db_id = f"{g.tenant}_{a}"
+                db_id = f"{g.request_tenant_id}_{a}"
                 actors_store[site()][db_id]
             except KeyError:
                 logger.debug(f"did not find actor: {db_id}. now checking alias")
@@ -1256,9 +1250,9 @@ class ActorConfigsResource(Resource):
                 except KeyError:
                     raise ResourceError(f"No actor or alias found with id: {a}.", 404)
             # also check that user has update access to actor --
-            check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE, roles=g.roles)
+            check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
 
-        args['tenant'] = g.tenant
+        args['tenant'] = g.request_tenant_id
         if args.get('isSecret') or args.get('is_secret'):
             args['value'] = encrypt_utils.encrypt(args.get('value'))
         logger.debug("config post args validated")
@@ -1267,17 +1261,17 @@ class ActorConfigsResource(Resource):
         # additional checks for reserved words, forbidden characters and uniqueness
         actor_config.check_and_create_config()
         # save the config to the db
-        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=actor_config.name)
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=actor_config.name)
         configs_store[site()][config_id] = actor_config.to_db()
         # set permissions for this config
-        set_config_permission(g.user, config_id, UPDATE)
+        set_config_permission(g.username, config_id, UPDATE)
         return ok(result=actor_config.display(), msg="Actor config created successfully.")
 
 
 class ActorConfigResource(Resource):
     def get(self, config_name):
-        logger.debug(f"top of GET /actors/config/{config_name}")
-        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
+        logger.debug(f"top of GET /actors/configs/{config_name}")
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
         try:
             config = ActorConfig.from_db(configs_store[site()][config_id])
         except KeyError:
@@ -1312,15 +1306,15 @@ class ActorConfigResource(Resource):
 
     def put(self, config_name):
         logger.debug(f"top of PUT /actors/configs/{config_name}")
-        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
         try:
             config_obj = ActorConfig.from_db(configs_store[site()][config_id])
         except KeyError:
             logger.debug(f"did not find config with name: {config_name}")
             raise ResourceError(f"No config found: {config_name}.", 404)
-        logger.debug("found config {}".format(config_obj))
+        logger.debug(f"found config {config_obj}")
         args = self.validate_put()
-        if not check_config_permissions(user=g.user, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+        if not check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
             raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
 
         # Check that the actor ids correspond to real actors or aliases and that the user
@@ -1328,7 +1322,7 @@ class ActorConfigResource(Resource):
         # first, split the string by comma
         actors = args.get('actors')
         try:
-            actors_list = re.split(",", actors)
+            actors_list = actors.replace(" ", "").split(',')
             for count, wrd in enumerate(actors_list):
                 actors_list[count] = wrd.strip()
         except Exception as e:
@@ -1340,7 +1334,7 @@ class ActorConfigResource(Resource):
         for a in actors_list:
             try:
                 # need to check if this identifier is an actor id or an alias
-                db_id = f"{g.tenant}_{a}"
+                db_id = f"{g.request_tenant_id}_{a}"
                 actors_store[site()][db_id]
             except KeyError:
                 logger.debug(f"did not find actor: {db_id}. now checking alias")
@@ -1349,21 +1343,20 @@ class ActorConfigResource(Resource):
                 except KeyError:
                     raise ResourceError(f"No actor or alias found with id: {a}.", 404)
             # also check that user has update access to actor --
-            check_permissions(user=g.user, identifier=db_id, level=codes.UPDATE, roles=g.roles)
+            check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
 
         # supply "provided" fields:
         args['tenant'] = config_obj.tenant
         args['name'] = config_obj.name
         if args.get('isSecret') or args.get('is_secret'):
             args['value'] = encrypt_utils.encrypt(args.get('value'))
-        logger.debug("Instantiating actor config object. args: {}".format(args))
+        logger.debug(f"Instantiating actor config object. args: {args}")
         new_config_obj = ActorConfig(**args)
         logger.debug("Check that the config is not a reserved word")
         new_config_obj.check_reserved_words()
         logger.debug("Check that the config has no forbidden characters")
         new_config_obj.check_forbidden_char()
-        logger.debug("Actor Config object instantiated; updating actor config in configs_store. "
-                     "config: {}".format(new_config_obj))
+        logger.debug(f"Actor Config object instantiated; updating actor config in configs_store. config: {new_config_obj}")
         configs_store[site()][config_id] = new_config_obj
         logger.debug(f"NEW CONFIG OBJ {new_config_obj}")
         logger.info(f"actor config updated for config: {config_id}.")
@@ -1371,14 +1364,14 @@ class ActorConfigResource(Resource):
 
     def delete(self, config_name):
         logger.debug(f"top of DELETE /actors/configs/{config_name}")
-        config_id = ActorConfig.get_config_db_key(tenant_id=g.tenant, name=config_name)
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
         try:
             ActorConfig.from_db(configs_store[site()][config_id])
         except KeyError:
             raise ResourceError(f"No config found with name: {config_name}.", 404)
 
         # check that the user has update access to the config
-        if not check_config_permissions(user=g.user, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+        if not check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
             raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
 
         # delete the config and associated permissions
@@ -1414,8 +1407,7 @@ class ActorExecutionsResource(Resource):
                 summary = ExecutionsSummary(db_id=dbid)
             except DAOError as e:
                 logger.debug(f"did not find executions summary: {actor_id}")
-                raise ResourceError("Could not retrieve executions summary for actor: {}. "
-                                    "Details: {}".format(actor_id, e), 404)
+                raise ResourceError(f"Could not retrieve executions summary for actor: {actor_id}. Details: {e}", 404)
             return ok(result=summary.display(), msg="Actor executions retrieved successfully.")
 
     def post(self, actor_id):
@@ -1503,7 +1495,7 @@ class ActorNoncesResource(Resource):
         if 'level' in args:
             if not args['level'] in PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
-                               "The level attribute must be one of: {}".format(PERMISSION_LEVELS))
+                               f"The level attribute must be one of: {PERMISSION_LEVELS}")
         if conf.web_case == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
@@ -1562,12 +1554,12 @@ class ActorExecutionResource(Resource):
         # check status of execution:
         if not exc.status == codes.RUNNING:
             logger.debug(f"execution not in {codes.RUNNING} status: {exc.status}")
-            raise ResourceError("Cannot force quit an execution not in {} status. "
-                                "Execution was found in status: {}".format(codes.RUNNING, exc.status))
+            raise ResourceError(f"Cannot force quit an execution not in {codes.RUNNING} status. "
+                                f"Execution was found in status: {exc.status}")
         # send force_quit message to worker:
         # TODO - should we set the execution status to FORCE_QUIT_REQUESTED?
-        logger.debug("issuing force quit to worker: {} "
-                     "for actor_id: {} execution_id: {}".format(exc.worker_id, actor_id, execution_id))
+        logger.debug(f"issuing force quit to worker: {exc.worker_id} "
+                     f"for actor_id: {actor_id} execution_id: {execution_id}")
         ch = WorkerChannel(worker_id=exc.worker_id)
         ch.put('force_quit')
         msg = f'Issued force quit command for execution {execution_id}.'
@@ -1592,14 +1584,14 @@ class ActorExecutionResultsResource(Resource):
         # result = []
         # num = 0
         # limit = request.args.get('limit', 1)
-        # logger.debug("limit: {}".format(limit))
+        # logger.debug(f"limit: {limit}")
         # while num < limit:
         #     try:
         #         result.append(ch.get(timeout=0.1))
         #         num += 1
         #     except Exception:
         #         break
-        # logger.debug("collected {} results".format(num))
+        # logger.debug(f"collected {num} results")
         # ch.close()
         # return Response(result)
 
@@ -1964,8 +1956,7 @@ class WorkersResource(Resource):
             raise ResourceError(e.msg, 404)
         current_number_workers = len(workers)
         if current_number_workers < num:
-            logger.debug("There were only {} workers for actor: {} so we're adding more.".format(current_number_workers,
-                                                                                                 actor_id))
+            logger.debug(f"There were only {current_number_workers} workers for actor: {actor_id} so we're adding more.")
             num_to_add = int(num) - len(workers)
             logger.info(f"adding {num_to_add} more workers for actor {actor_id}")
             for idx in range(num_to_add):
@@ -1973,7 +1964,7 @@ class WorkersResource(Resource):
                 # spawners.
                 worker_id = Worker.request_worker(tenant=g.request_tenant_id,
                                                   actor_id=dbid)
-                logger.info("New worker id: {}".format(worker_id[0]))
+                logger.info(f"New worker id: {worker_id[0]}")
                 ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,
                            worker_id=worker_id,
@@ -2030,10 +2021,10 @@ class PermissionsResource(Resource):
         is_config = False
         if 'actors/aliases/' in request.url_rule.rule:
             logger.debug(f"top of GET /actors/aliases/{identifier}/permissions.")
-            id = Alias.generate_alias_id(g.tenant, identifier)
+            id = Alias.generate_alias_id(g.request_tenant_id, identifier)
         elif 'actors/configs' in request.url_rule.rule:
             logger.debug(f"top of GET /actors/configs/{identifier}/permissions.")
-            id = ActorConfig.get_config_db_key(g.tenant, identifier)
+            id = ActorConfig.get_config_db_key(g.request_tenant_id, identifier)
             is_config = True
         else:
             logger.debug(f"top of GET /actors/{identifier}/permissions.")
@@ -2067,8 +2058,7 @@ class PermissionsResource(Resource):
             raise DAOError(f"Invalid permissions description: {msg}")
 
         if not args['level'] in PERMISSION_LEVELS:
-            raise ResourceError("Invalid permission level: {}. \
-            The valid values are {}".format(args['level'], PERMISSION_LEVELS))
+            raise ResourceError(f"Invalid permission level: {args['level']}. The valid values are {PERMISSION_LEVELS}")
         return args
 
     def post(self, identifier):
@@ -2076,11 +2066,11 @@ class PermissionsResource(Resource):
         is_confg = False
         if 'actors/aliases/' in request.url_rule.rule:
             logger.debug(f"top of POST /actors/aliases/{identifier}/permissions.")
-            dbid = Alias.generate_alias_id(g.tenant, identifier)
+            dbid = Alias.generate_alias_id(g.request_tenant_id, identifier)
         elif 'actors/configs/' in request.url_rule.rule:
             logger.debug(f"top of POST /actors/configs/{identifier}/permissions.")
             is_confg = True
-            dbid = ActorConfig.get_config_db_key(g.tenant, identifier)
+            dbid = ActorConfig.get_config_db_key(g.request_tenant_id, identifier)
         else:
             logger.debug(f"top of POST /actors/{identifier}/permissions.")
             dbid = g.db_id
