@@ -65,11 +65,11 @@ def headers():
 
 @pytest.fixture(scope='session', autouse=True)
 def nshresth_header():
-    return get_tapis_token_headers2('nshresth', 'tacc')
+    return get_tapis_token_headers('nshresth', 'tacc')
 
 @pytest.fixture(scope='session', autouse=True)
 def jstubbs_header():
-    return get_tapis_token_headers2('jstubbs', 'tacc')
+    return get_tapis_token_headers('jstubbs', 'tacc')
 
 @pytest.fixture(scope='session', autouse=True)
 def privileged_headers():
@@ -102,24 +102,9 @@ def cycling_headers(regular_headers, privileged_headers):
 def get_tapis_token_headers(user, alt_tenant=None):
     # Use alternative tenant if provided.
     if alt_tenant:
-        tenant = alt_tenant
+        testuser_tenant = alt_tenant
     token_res = t.tokens.create_token(account_type='user', 
                                       token_tenant_id=testuser_tenant,
-                                      token_username=user,
-                                      access_token_ttl=999999,
-                                      generate_refresh_token=False,
-                                      use_basic_auth=False)
-    if not token_res.access_token or not token_res.access_token.access_token:
-        raise KeyError(f"Did not get access token; token response: {token_res}")
-    header_dat = {"X-Tapis-Token": token_res.access_token.access_token}
-    return header_dat
-
-def get_tapis_token_headers2(user, alt_tenant=None):
-    # Use alternative tenant if provided.
-    if alt_tenant:
-        tenant = alt_tenant
-    token_res = t.tokens.create_token(account_type='user', 
-                                      token_tenant_id='tacc',
                                       token_username=user,
                                       access_token_ttl=999999,
                                       generate_refresh_token=False,
