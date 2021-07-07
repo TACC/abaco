@@ -228,8 +228,6 @@ class Spawner(object):
 
         # start an actor executor container and wait for a confirmation that image was pulled.
         attempts = 0
-        # worker = get_worker(worker_id)
-        # worker['status'] = PULLING_IMAGE
         Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE, site_id)
         try:
             logger.debug(f"spawner pulling image {image}...")

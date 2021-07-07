@@ -75,25 +75,28 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
     global keep_running
     logger.info(f"Worker subscribing to worker channel...{actor_id}_{worker_id}")
     while keep_running:
-        msg, msg_obj = worker_ch.get_one()
+        try:
+            msg, msg_obj = worker_ch.get_one()
+        except Exception as e:
+            logger.error(f"worker {worker_id} got exception trying to read the worker channel! "
+                         f"sleeping for 10 seconds and then will try again; e: {e}")
+            time.sleep(10)
+            continue
         # receiving the message is enough to ack it - resiliency is currently handled in the calling code.
         msg_obj.ack()
         logger.debug(f"Received message in worker channel; msg: {msg}; {actor_id}_{worker_id}")
         logger.debug(f"Type(msg)={type(msg)}")
-        if type(msg) == dict:
-            value = msg.get('value', '')
-            if value == 'status':
-                # this is a health check, return 'ok' to the reply_to channel.
-                logger.debug("received health check. returning 'ok'.")
-                ch = msg['reply_to']
-                ch.put('ok')
-                # @TODO -
-                # delete the anonymous channel from this thread but sleep first to avoid the race condition.
-                time.sleep(1.5)
-                ch.delete()
-                # NOT doing this for now -- deleting entire anon channel instead (see above)
-                # clean up the event queue on this anonymous channel. this should be fixed in channelpy.
-                # ch._queue._event_queue
+        if msg == 'status':
+            # this is a health check, return 'ok' to the reply_to channel.
+            logger.debug("received health check. updating worker_health_time.")
+            try:
+                Worker.update_worker_health_time(actor_id, worker_id)
+            except Exception as e:
+                logger.error(f"worker {worker_id} got exception trying to update its health time! "
+                             f"sleeping for 10 seconds and then will try again; e: {e}")
+                time.sleep(10)
+                continue
+
         elif msg == 'force_quit':
             logger.info("Worker with worker_id: {} (actor_id: {}) received a force_quit message, "
                         "forcing the execution to halt...".format(worker_id, actor_id))
@@ -197,7 +200,9 @@ def subscribe(tenant,
 
     # start a separate thread for handling messages sent to the worker channel ----
     logger.info("Starting the process worker channel thread.")
-    t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch))
+    t = threading.Thread(target=process_worker_ch,
+                         args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag),
+                         daemon=True)
     t.start()
 
     # subscribe to the actor message queue -----
@@ -452,9 +457,9 @@ def subscribe(tenant,
             time.sleep(60)
             break
         except Exception as e:
-            logger.error("Worker {} got an unexpected exception trying to run actor for execution: {}."
+            logger.error(f"Worker {worker_id} got an unexpected exception trying to run actor for execution: {execution_id}."
                          "Putting the actor in error status and shutting down workers. "
-                         "Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
+                         f"Exception: {e}; Exception type: {type(e)}")
             # updated 2/2021 -- we no longer set the actor to ERROR state for unrecognized exceptions. Most of the time
             # these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or getting
             # socket timeouts from docker. these are not the fault of the actor, and putting it (but not other actors
@@ -608,8 +613,8 @@ if __name__ == '__main__':
                 ch.put('stop-no-delete')
                 logger.info(f"Worker main loop sent 'stop-no-delete' message to itself; worker_id: {worker_id}.")
                 ch.close()
-                msg = "worker caught exception from main loop. worker exiting. e" \
-                      "Exception: {} worker_id: {}".format(e, worker_id)
+                msg = f"worker caught exception from main loop. worker exiting. e" \
+                      f"Exception: {e} worker_id: {worker_id}"
                 logger.info(msg)
             except Exception as e:
                 logger.error(f"worker main thread got exception trying to send stop-no-delete message to itself;"
