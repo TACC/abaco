@@ -17,7 +17,7 @@ from docker_utils import DockerError, DockerStartContainerError, DockerStopConta
 from errors import WorkerException
 import globals
 from models import Actor, Execution, Worker, site
-from stores import actors_store, workers_store
+from stores import actors_store, workers_store, executions_store
 
 from common.logs import get_logger
 logger = get_logger(__name__)
@@ -378,7 +378,7 @@ def subscribe(tenant,
         logger.debug(f"Actor default environment: {environment}")
 
         # construct the user field from the actor's uid and gid:
-        user = get_container_user(actor)
+        user = get_container_user(actor, execution_id, actor_id)
         logger.debug(f"Final user valiue: {user}")
         # overlay the default_environment registered for the actor with the msg
         # dictionary
@@ -515,17 +515,23 @@ def subscribe(tenant,
         logger.info(f"worker time stamps updated; worker_id: {worker_id}")
     logger.info(f"global.keep_running no longer true. worker is now exited. worker id: {worker_id}")
 
-def get_container_user(actor):
+def get_container_user(actor, execution_id, actor_id):
     logger.debug("top of get_container_user")
     if actor.get('use_container_uid'):
         logger.info("actor set to use_container_uid. Returning None for user")
         return None
-    uid = actor.get('uid')
-    gid = actor.get('gid')
-    logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
+# if the run_as_executor attribute is turned on then we need to change the uid and gid of the worker before execution          
+    if actor.get('run_as_executor'):
+        exec = executions_store[site()][f'{actor_id}_{execution_id}']
+        uid = exec['executor_uid']
+        gid = exec['executor_gid']
+        logger.debug(f"The uid: {uid} and gid: {gid} from the executor.")
+# if there is no executor_uid or gid and get_container_uid is false than we have to use the actor uid and gid
+    if not uid:    
+        uid = actor.get('uid')
+        gid = actor.get('gid')
+        logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
     if not uid:
-        if conf.global_tenant_object.get("use_tas_uid") and not actor.get('use_container_uid'):
-            logger.warn('Warning - legacy actor running as image UID without use_container_uid!')
         user = None
     elif not gid:
         user = uid

@@ -64,6 +64,14 @@ def headers():
     return get_tapis_token_headers('_abaco_testuser_admin', None)
 
 @pytest.fixture(scope='session', autouse=True)
+def nshresth_header():
+    return get_tapis_token_headers('nshresth', 'tacc')
+
+@pytest.fixture(scope='session', autouse=True)
+def jstubbs_header():
+    return get_tapis_token_headers('jstubbs', 'tacc')
+
+@pytest.fixture(scope='session', autouse=True)
 def privileged_headers():
     return get_tapis_token_headers('_abaco_testuser_privileged', None)
 
@@ -91,12 +99,10 @@ def cycling_headers(regular_headers, privileged_headers):
     return {'regular': regular_headers,
             'privileged': privileged_headers}
 
-def get_tapis_token_headers(user, alt_tenant):
-    # Use alternative tenant if provided.
-    if alt_tenant:
-        tenant = alt_tenant
+def get_tapis_token_headers(user, alt_tenant=None):
+    # Uses alternative tenant if provided.
     token_res = t.tokens.create_token(account_type='user', 
-                                      token_tenant_id=testuser_tenant,
+                                      token_tenant_id=alt_tenant or testuser_tenant,
                                       token_username=user,
                                       access_token_ttl=999999,
                                       generate_refresh_token=False,
