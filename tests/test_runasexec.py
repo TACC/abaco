@@ -16,8 +16,8 @@ from util import headers, base_url, case, \
     execute_actor, get_tenant, privileged_headers, regular_headers, \
     get_tapis_token_headers, alternative_tenant_headers, delete_actors, nshresth_header, jstubbs_header
 
-def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
-    #registering the actor
+def test_run_as_executor_actor(nshresth_header, jstubbs_header):
+    # Registering the actor
     url = f'{base_url}/actors'
     data = {'image': 'nshresth/abacotest:1.0', 'runAsExecutor': True}
     rsp = requests.post(url, data=data, headers=nshresth_header)
@@ -32,18 +32,18 @@ def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
     else:
         assert result['runAsExecutor'] == True
 	
-    #updating the permission for the actor
-    actorid = result['id']
-    url2 = f'{base_url}/actors/{actorid}/permissions'
-    data2 = {"user":"jstubbs", "level":"EXECUTE"}
+    # Updating the permission for the actor
+    actorId = result['id']
+    url2 = f'{base_url}/actors/{actorId}/permissions'
+    data2 = {"user": "jstubbs", "level": "EXECUTE"}
     headers2 = nshresth_header
     rsp2 = requests.post(url2, data=data2, headers=headers2)
     result2 = basic_response_checks(rsp2)
     assert result2["jstubbs"] == "EXECUTE"
     
-    #sending a message as jstubbs
-    url3 = f'{base_url}/actors/{actorid}/messages'
-    data3 = {"message":"hello"}
+    # Sending a message as jstubbs
+    url3 = f'{base_url}/actors/{actorId}/messages'
+    data3 = {"message": "hello"}
     headers3 = jstubbs_header
     rsp3 = requests.post(url3, data=data3, headers=headers3)
     result3 = basic_response_checks(rsp3)
@@ -54,23 +54,24 @@ def test_runAsexecuteor_actor(nshresth_header, jstubbs_header):
         assert result3['executionId'] is not None
         execid = result3['executionId']
     
-    #we have to wait a bit until the execution is finished
-    result4 = {'status' : 'SUBMITTED'}
+    # We have to wait a bit until the execution is finished
+    result4 = {'status': 'SUBMITTED'}
     while result4['status'] != 'COMPLETE':
-        url4 = f'{base_url}/actors/{actorid}/executions/{execid}'
+        url4 = f'{base_url}/actors/{actorId}/executions/{execid}'
         headers4 = nshresth_header
         rsp4 = requests.get(url4, headers=headers4)
         result4 = basic_response_checks(rsp4)
 
-    #getting the execution logs
-    url5 = f'{base_url}/actors/{actorid}/executions/{execid}/logs'
+    # Getting the execution logs
+    url5 = f'{base_url}/actors/{actorId}/executions/{execid}/logs'
     headers5 = nshresth_header
     rsp5 = requests.get(url5, headers=headers5)
     result5 = basic_response_checks(rsp5)
-    k = result5["logs"].split("***")        #the uid and gid is spelled out on the end
+    # The uid and gid is spelled out on the end of the logs
+    k = result5["logs"].split("***")
     assert k[-1] == '\nuid=811324 gid=811324\n'
 
-#check if useContaineruid and runAsexecutor can both simultaneously be turned on.
+# Check if useContaineruid and runAsexecutor can both simultaneously be turned on.
 def test_use_and_run(privileged_headers):
     url = f'{base_url}/actors'
     data = {'image': 'nshresth/abacotest:1.0', 'runAsExecutor': True, 'useContainerUid': True}
@@ -81,13 +82,13 @@ def test_use_and_run(privileged_headers):
     else:
         assert data['message'] == "Cannot set both useContainerUid and runAsExecutor as true"
 
-#check if the user is in TAS
+# Check if the user is in TAS
 def test_run_as_not_tas(headers):
    url = f'{base_url}/actors'
    data = {'image': 'nshresth/abacotest:1.0', 'runAsExecutor': True}
    rsp = requests.post(url, data=data, headers=headers)
    data = json.loads(rsp.content.decode('utf-8'))
-   assert data['message'] == "Run_as_executor isn't supported for your tenant"
+   assert data['message'] == "run_as_executor isn't supported for your tenant"
 
 # Clean up
 def test_delete_actors(headers):
