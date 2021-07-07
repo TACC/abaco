@@ -121,19 +121,31 @@ def test_delete_worker(headers):
     rsp = requests.get(url, headers=headers)
     # workers collection returns the tenant_id since it is an admin api
     result = basic_response_checks(rsp, check_tenant=False)
+    print(result)
+    assert len(result) == 2
 
     # delete the first one
     id = result[0].get('id')
     url = f'{base_url}/actors/{actor_id}/workers/{id}'
     rsp = requests.delete(url, headers=headers)
     result = basic_response_checks(rsp, check_tenant=False)
+    print(result)
     time.sleep(4)
 
     # get the update list of workers
     url = f'{base_url}/actors/{actor_id}/workers'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp, check_tenant=False)
-    assert len(result) == 1
+    if len(result) >= 1:
+        shutdown_requested = False
+        for actor in result:
+            if actor['status'] == "SHUTDOWN_REQUESTED":
+                shutdown_requested = True
+        if not shutdown_requested:
+            # try one more time.
+            rsp = requests.get(url, headers=headers)
+            result = basic_response_checks(rsp, check_tenant=False)
+            assert len(result) == 1
 
 def test_list_permissions(headers):
     actor_id = get_actor_id(headers)
