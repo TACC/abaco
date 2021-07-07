@@ -777,7 +777,7 @@ class Actor(AbacoDAO):
         ('cron_on', 'optional', 'cron_on', inputs.boolean, 'Whether cron is on or off', False),
         ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
         ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
-        ('run_as_executor', 'optional', 'run_as_executor', inputs.boolean, 'Whether Uid and Gid is of the executer', False)
+        ('run_as_executor', 'optional', 'run_as_executor', inputs.boolean, 'Whether UID and GID is of the executer', False)
         ]
 
     SYNC_HINT = 'sync'
