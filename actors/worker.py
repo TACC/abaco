@@ -200,9 +200,7 @@ def subscribe(tenant,
 
     # start a separate thread for handling messages sent to the worker channel ----
     logger.info("Starting the process worker channel thread.")
-    t = threading.Thread(target=process_worker_ch,
-                         args=(tenant, worker_ch, actor_id, worker_id, actor_ch, ag),
-                         daemon=True)
+    t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch))
     t.start()
 
     # subscribe to the actor message queue -----
