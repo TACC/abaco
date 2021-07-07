@@ -777,7 +777,8 @@ class Actor(AbacoDAO):
         ('log_ex', 'optional', 'log_ex', int, 'Amount of time, in seconds, after which logs will expire', None),
         ('cron_on', 'optional', 'cron_on', inputs.boolean, 'Whether cron is on or off', False),
         ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
-        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None)
+        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
+        ('run_as_executor', 'optional', 'run_as_executor', inputs.boolean, 'Whether UID and GID is of the executer', False)
         ]
 
     SYNC_HINT = 'sync'
@@ -842,7 +843,62 @@ class Actor(AbacoDAO):
             actors_store[actor_id, 'cron_on'] = False
         time = f"{end.year}-{end.month}-{end.day} {end.hour}"
         logger.debug(f"returning {time}")
-        return time  
+        return time
+    
+    #this function assumes that cron_next_ex is in the past, due to some failure
+    # this function updates cron_next_ex, so the actor starts getting executed at the same times that it
+    # would execute if the cron never failed; it also prints all the times the cron failed to execute when it
+    # was suppose to in the logger
+    @classmethod
+    def set_next_ex_past(cls, actor, actor_id):
+            logger.debug("In set_next_ex_past")
+            # Parse cron into [datetime, increment, unit of time]
+            cron = actor['cron_schedule']
+            cron_parsed = parse("{} + {} {}", cron)
+            time_increment = int(cron_parsed.fixed[1])
+            unit_time = cron_parsed.fixed[2]
+            logger.debug(f"cron_parsed[1] is {time_increment}")
+            # Parse the cron_next_ex into another list of the form [year, month, day, hour]
+            cron_next_ex = actor['cron_next_ex']
+            cron_nextex_parsed = parse("{}-{}-{} {}", cron_next_ex)
+            # Create a datetime object from the cron_next_ex_parsed list
+            cron_datetime = datetime.datetime(int(cron_nextex_parsed[0]), int(cron_nextex_parsed[1]), \
+                int(cron_nextex_parsed[2]), int(cron_nextex_parsed[3]))
+            # Create a datetime object for current time
+            now = datetime.datetime.utcnow()
+            now = datetime.datetime(now.year, now.month, now.day, now.hour)
+            #initialize certain variables to report when Cron failed
+            timeswherecronfailed=[]
+            # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
+            # we use a while loop
+            if unit_time == "month" or unit_time == "months":
+                while cron_datetime<now:                                                        #while cron_next_ex is less than now
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)                                       #recording when cron failed
+                    cron_datetime = cron_datetime + relativedelta(months=+time_increment)       #increment the cron_next_ex value by time increment
+            elif unit_time == "week" or unit_time == "weeks":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(weeks=time_increment)
+            elif unit_time == "day" or unit_time == "days":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(days=time_increment)
+            elif unit_time == "hour" or unit_time == "hours":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(hours=time_increment)
+            else:
+                # The unit of time is not supported, turn off cron or else it will continue to execute
+                logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
+                actors_store[actor_id, 'cron_on'] = False
+            new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+            logger.debug("The cron failed to execute the actor at")
+            logger.debug(timeswherecronfailed)
+            return new_cron  
 
     @classmethod
     def set_cron(cls, cron):
@@ -1371,6 +1427,8 @@ class Execution(AbacoDAO):
         ('api_server', 'required', 'api_server', str, 'The base URL for the tenant that this actor belongs to.', None),
         ('actor_id', 'required', 'actor_id', str, 'The human readable id for the actor associated with this execution.', None),
         ('executor', 'required', 'executor', str, 'The user who triggered this execution.', None),
+        ('executor_uid','optional', 'executor_uid', str , "The executer UID.", None),
+        ('executor_gid','optional', 'executor_gid', str , "The executer GID.", None),
         ('worker_id', 'optional', 'worker_id', str, 'The worker who supervised this execution.', None),
         ('message_received_time', 'derived', 'message_received_time', str, 'Time (UTC) the message was received.', None),
         ('start_time', 'optional', 'start_time', str, 'Time (UTC) the execution started.', None),
@@ -2033,7 +2091,6 @@ def set_permission(user, actor_id, level):
     if not new:
         permissions_store[site()][actor_id, user] = str(level)
     logger.info(f"Permission set for actor: {actor_id}; user: {user} at level: {level}")
-
 
 def set_config_permission(user, config_id, level):
     """Set the permission for user `user` and level `level` to an actor config with id `config_id`."""

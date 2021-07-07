@@ -73,34 +73,19 @@ class CronResource(Resource):
             logger.debug(f"cron_on equals {actor.get('cron_on')} for actor {actor_id}")
             try:
                 # Check if next execution == UTC current time
-                if self.cron_execution_datetime(actor):
-                    # Check if cron switch is on
-                    if actor.get('cron_on'):
-                        d = {}
-                        logger.debug("the current time is the same as the next cron scheduled, adding execution")
-                        # Execute actor
-                        before_exc_time = timeit.default_timer()
-                        exc = Execution.add_execution(actor_id, {'cpu': 0,
-                                                'io': 0,
-                                                'runtime': 0,
-                                                'status': codes.SUBMITTED,
-                                                'executor': 'cron'})
-                        logger.debug("execution has been added, now making message")
-                        # Create & add message to the queue 
-                        d['Time_msg_queued'] = before_exc_time
-                        d['_abaco_execution_id'] = exc
-                        d['_abaco_Content_Type'] = 'str'
-                        d['_abaco_actor_revision'] = actor.get('revision')
-                        d['_abaco_api_server'] = actor.get('api_server')
-                        ch = ActorMsgChannel(actor_id=actor_id)
-                        ch.put_msg(message="This is your cron execution", d=d)
-                        ch.close()
-                        logger.debug(f"Message added to actor inbox. id: {actor_id}.")
-                        # Update the actor's next execution
-                        actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                if self.cron_execution_datetime(actor) == "now":
+                    #executes the actor and cron is updated
+                    self.actor_exec(actor,actor_id)
+                elif self.cron_execution_datetime(actor) == "past":
+                    logger.debug("Cron_next_ex was in the past")
+                    #increments the cron_next_ex so the actor is executed when it is next expected
+                    actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex_past(actor, actor_id)
+                    logger.debug("Now Cron_next_ex is in the present or future")
+                    #if cron_next_ex is in the present than the actor is executed and cron is updated
+                    if self.cron_execution_datetime(actor) == "now":
+                        self.actor_exec(actor,actor_id)
                     else:
-                        logger.debug("Actor's cron is not activated, but next execution will be incremented")
-                        actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                        logger.debug("now is not the time")
                 else:
                     logger.debug("now is not the time")
             except:
@@ -122,7 +107,41 @@ class CronResource(Resource):
         logger.debug(f"cron execution is {cron_execution}")
         # Return true/false comparing now with the next cron execution
         logger.debug(f"does cron == now? {cron_execution == now}")
-        return cron_execution == now
+        if cron_execution == now:
+            return "now"
+        elif cron_execution < now:
+            return "past"
+        else:
+            return "future"
+    
+    def actor_exec(self, actor, actor_id):
+        # Check if cron switch is on
+        logger.debug("inside actor_exec method")
+        if actor.get('cron_on'):
+            d = {}
+            logger.debug("the current time is the same as the next cron scheduled, adding execution")
+            # Execute actor
+            before_exc_time = timeit.default_timer()
+            exc = Execution.add_execution(actor_id, {'cpu': 0,
+                                    'io': 0,
+                                    'runtime': 0,
+                                    'status': codes.SUBMITTED,
+                                    'executor': 'cron'})
+            logger.debug("execution has been added, now making message")
+            # Create & add message to the queue 
+            d['Time_msg_queued'] = before_exc_time
+            d['_abaco_execution_id'] = exc
+            d['_abaco_Content_Type'] = 'str'
+            d['_abaco_actor_revision'] = actor.get('revision')
+            ch = ActorMsgChannel(actor_id=actor_id)
+            ch.put_msg(message="This is your cron execution", d=d)
+            ch.close()
+            logger.debug(f"Message added to actor inbox. id: {actor_id}.")
+            # Update the actor's next execution
+            actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+        else:
+            logger.debug("Actor's cron is not activated, but next execution will be incremented")
+            actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
 
 
 class MetricsResource(Resource):
@@ -834,9 +853,19 @@ class ActorsResource(Resource):
         # whether to use TAS, use a fixed UID, etc.) and 2) use the uid and gid created in the container.
         # Case 2) allows containers to be run as root and requires admin role in Abaco.
         use_container_uid = args.get('use_container_uid')
+        run_as_executor = args.get('run_as_executor')
         if conf.web_case == 'camel':
             use_container_uid = args.get('useContainerUid')
+            run_as_executor = args.get('runAsExecutor')
         logger.debug(f"request set use_container_uid: {use_container_uid}; type: {type(use_container_uid)}")
+        if use_container_uid and run_as_executor:
+            if conf.web_case == 'camel':
+                raise DAOError("Cannot set both useContainerUid and runAsExecutor as true")
+            else:
+                raise DAOError("Cannot set both use_container_uid and run_as_executor as true")
+        if run_as_executor:
+            if not tenant_can_use_tas(g.tenant_id):
+                raise DAOError("Run_as_executor isn't supported for your tenant")
         if not use_container_uid:
             logger.debug("use_container_uid was false. looking up uid and gid...")
             uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.request_tenant_id)
@@ -1028,11 +1057,19 @@ class ActorResource(Resource):
                 cron = args.get('cronSchedule')
             if 'cronOn' in args and args.get('cronOn') is not None:
                 actor['cron_on'] = args.get('cronOn')
+            if 'runAsExecutor' in args and args.get('runAsExecutor') is not None:
+                actor['run_as_executor'] = args.get('runAsExecutor')
         else:
             if 'cron_schedule' in args and args.get('cron_schedule') is not None:
                 cron = args.get('cron_schedule')
             if 'cron_on' in args and args.get('cron_on') is not None:
                 actor['cron_on'] = args.get('cron_on')
+            if 'run_as_executor' in args and args.get('run_as_executor') is not None:
+                actor['run_as_executor'] = args.get('run_as_executor')
+        #Run_as_executor only works for TAS tenants so we need to check if the tenant uses TAS
+        if actor['run_as_executor']:
+            if not tenant_can_use_tas(g.tenant_id):
+                raise DAOError("Run_as_executor isn't supported for your tenant")
         if cron is not None:
             # set_cron checks for the 'now' alias 
             # It also checks that the cron schedule is greater than or equal to the current UTC time
@@ -1081,6 +1118,12 @@ class ActorResource(Resource):
         use_container_uid = args.get('use_container_uid')
         if conf.web_case == 'camel':
             use_container_uid = args.get('useContainerUid')
+        if actor['use_container_uid'] and actor['run_as_executor']:
+            if conf.web_case == 'camel':
+                raise DAOError("Cannot set both useContainerUid and runAsExecutor as true")
+            else:
+                raise DAOError("Cannot set both use_container_uid and run_as_executor as true")
+                 
         if not use_container_uid:
             uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.request_tenant_id)
             if uid:
@@ -1773,17 +1816,29 @@ class MessagesResource(Resource):
             logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
         # create an execution
         before_exc_timer = timeit.default_timer()
-        exc = Execution.add_execution(dbid, {'cpu': 0,
-                                             'io': 0,
-                                             'runtime': 0,
-                                             'status': SUBMITTED,
-                                             'executor': g.username})
+        if actors_store[site()][dbid]["run_as_executor"]:
+            #get the uid and gid from the executor
+            uid, gid, homedir = get_uid_gid_homedir(actor_id, g.username, g.tenant_id)
+            exc = Execution.add_execution(dbid, {'cpu': 0,
+                                                'io': 0,
+                                                'runtime': 0,
+                                                'status': SUBMITTED,
+                                                'executor': g.username,
+                                                'executor_uid': uid,               #this is the uid and gid of the executor not the owner which is needed if the actor is ran as an executor
+                                                'executor_gid': gid})
+        else:
+            exc = Execution.add_execution(dbid, {'cpu': 0,
+                                                'io': 0,
+                                                'runtime': 0,
+                                                'status': SUBMITTED,
+                                                'executor': g.username})
         after_exc_timer = timeit.default_timer()
         logger.info(f"Execution {exc} added for actor {actor_id}")
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         d['_abaco_actor_revision'] = actor.revision
         logger.debug(f"Final message dictionary: {d}")
+        
         before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
         after_ch_timer = timeit.default_timer()
