@@ -1,4 +1,4 @@
-# Test suite for abaco project.
+# Core image for Abaco project - Includes files for testing.
 # Image: abaco/core
 
 # inherit from the flaskbase iamge:

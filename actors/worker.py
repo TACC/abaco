@@ -514,28 +514,34 @@ def subscribe(tenant,
     logger.info(f"global.keep_running no longer true. worker is now exited. worker id: {worker_id}")
 
 def get_container_user(actor, execution_id, actor_id):
-    logger.debug("top of get_container_user")
-    if actor.get('use_container_uid'):
-        logger.info("actor set to use_container_uid. Returning None for user")
-        return None
-# if the run_as_executor attribute is turned on then we need to change the uid and gid of the worker before execution          
-    if actor.get('run_as_executor'):
-        exec = executions_store[site()][f'{actor_id}_{execution_id}']
-        uid = exec['executor_uid']
-        gid = exec['executor_gid']
-        logger.debug(f"The uid: {uid} and gid: {gid} from the executor.")
-# if there is no executor_uid or gid and get_container_uid is false than we have to use the actor uid and gid
-    if not uid:    
-        uid = actor.get('uid')
-        gid = actor.get('gid')
-        logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
-    if not uid:
-        user = None
-    elif not gid:
-        user = uid
-    else:
-        user = f'{uid}:{gid}'
-    return user
+    try:
+        logger.debug("top of get_container_user")
+        uid = None
+        gid = None
+        if actor.get('use_container_uid'):
+            logger.info("actor set to use_container_uid. Returning None for user")
+            return None
+        # if the run_as_executor attribute is turned on then we need to change the uid and gid of the worker before execution          
+        if actor.get('run_as_executor'):
+            exec = executions_store[site()][f'{actor_id}_{execution_id}']
+            uid = exec['executor_uid']
+            gid = exec['executor_gid']
+            logger.debug(f"The uid: {uid} and gid: {gid} from the executor.")
+        # if there is no executor_uid or gid and get_container_uid is false than we have to use the actor uid and gid
+        if not uid:    
+            uid = actor.get('uid')
+            gid = actor.get('gid')
+            logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
+        if not uid:
+            user = None
+        elif not gid:
+            user = uid
+        else:
+            user = f'{uid}:{gid}'
+        return user
+    except Exception as e:
+        logger.critical(f"get_container_user failed. e: {e}")
+        raise
 
 def main():
     """
@@ -600,8 +606,7 @@ if __name__ == '__main__':
             worker_id = os.environ.get('worker_id')
         except:
             logger.error(f"worker main thread got exception trying to get worker id from environment."
-                         f"not able to send stop-no-delete message to itself."
-                         f"worker_id: {worker_id}.")
+                         f"not able to send stop-no-delete message to itself. worker_id is unknown.")
             worker_id = ''
         if worker_id:
             try:
@@ -614,8 +619,8 @@ if __name__ == '__main__':
                 msg = f"worker caught exception from main loop. worker exiting. e" \
                       f"Exception: {e} worker_id: {worker_id}"
                 logger.info(msg)
-            except Exception as e:
+            except Exception as e2:
                 logger.error(f"worker main thread got exception trying to send stop-no-delete message to itself;"
-                             f"worker_id: {worker_id}.")
+                             f"worker_id: {worker_id}. e1: {e} e2: {e2}")
     keep_running = False
     sys.exit()
