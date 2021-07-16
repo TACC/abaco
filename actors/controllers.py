@@ -13,7 +13,7 @@ from werkzeug.exceptions import BadRequest
 from common.utils import RequestParser, ok
 from parse import parse
 
-from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default
+from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
 from common.config import conf
@@ -1118,7 +1118,7 @@ class ActorResource(Resource):
         use_container_uid = args.get('use_container_uid')
         if conf.web_case == 'camel':
             use_container_uid = args.get('useContainerUid')
-        if actor['use_container_uid'] and actor['run_as_executor']:
+        if actor.get('use_container_uid') and actor.get('run_as_executor'):
             if conf.web_case == 'camel':
                 raise DAOError("Cannot set both useContainerUid and runAsExecutor as true")
             else:
