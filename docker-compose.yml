@@ -13,7 +13,8 @@ services:
     # own config (through entrypoint), though, you can provide "command" to give command line arguments.
     # Also, these init scripts and variables are only set on database creation. Restarts will not set them off.
     mongo:
-        image: mongo:4.2.6
+        image: mongo:4.4.7
+        #command: --replSet rs0 --bind_ip_all # --keyFile /keyfiles/metakeyfile
         #command: --tlsMode requireTLS --tlsCertificateKeyFile "/data/ssl/server.pem" --tlsCAFile "/data/ssl/ca.pem"
         environment:
             MONGO_INITDB_ROOT_USERNAME: admin
@@ -22,6 +23,7 @@ services:
             - "27017:27017"
         volumes:
             - ./runtime_files/certs:/data/ssl
+            - ./runtime_files/certs/mongo-replica-set-keyfile:/keyfiles/metakeyfile
         networks:
             - abaco
         ulimits:

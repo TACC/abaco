@@ -34,7 +34,7 @@
         "special"
     ],
     "spawner_host_ip": "172.17.0.1",
-    "spawner_max_cmd_length": 100,
+    "spawner_max_cmd_length": 10,
     "spawner_max_workers_per_host": 75,
     "spawner_max_workers_per_actor": 6,
     "spawner_docker_network": "abaco_abaco",
@@ -53,19 +53,19 @@
     "worker_leave_containers": false,
     "worker_socket_paths": "$env{abaco_host_path}/runtime_files/_abaco_results_sockets:/home/tapis/runtime_files/_abaco_results_sockets",
     "worker_fifo_paths": "$env{abaco_host_path}/runtime_files/_abaco_fifos:/home/tapis/runtime_files/_abaco_fifos",
+    "web_encryption_key": "djq6ghD6YMWU43TyxGy58pmw_I2hfroAvcbqz9kV23o=",
     "web_access_control": "jwt",
     "web_user_role": "Internal/everyone",
     "web_accept_nonce": true,
     "web_apim_public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCUp/oV1vWc8/TkQSiAvTousMzOM4asB2iltr2QKozni5aVFu818MpOLZIr8LMnTzWllJvvaA5RAAdpbECb+48FjbBe0hseUdN5HpwvnH/DW8ZccGvk53I6Orq7hLCv1ZHtuOCokghz/ATrhyPq+QktMfXnRS4HrKGJTzxaCcU7OQIDAQAB",
     "web_show_traceback": false,
     "web_max_log_length": 1000000,
-    "web_case": "snake",
+    "web_case": "camel",
     "web_max_content_length": 500000000,
     "web_all_queues": [
         "default",
         "special"
     ],
-    "web_encryption_key": "djq6ghD6YMWU43TyxGy58pmw_I2hfroAvcbqz9kV23o=",
     "site_id": "tacc",
     "global_site_object": {
         "site_mongo_pass": "defaultpass",

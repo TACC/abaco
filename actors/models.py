@@ -1009,7 +1009,7 @@ class Actor(AbacoDAO):
         logger.debug(f"Worker.ensure_one_worker returned worker_id: {worker_id}")
         if worker_id:
             logger.info("Actor.ensure_one_worker() putting message on command "
-                        "channel for worker_id: {}".format(worker_id))
+                        f"channel for worker_id: {worker_id}")
             ch = CommandChannel(name=self.queue)
             ch.put_cmd(actor_id=self.db_id,
                        worker_id=worker_id,
