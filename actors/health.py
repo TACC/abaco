@@ -20,7 +20,7 @@ from auth import get_tenants, get_tenant_verify
 import codes
 from common.config import conf
 from common.logs import get_logger
-from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
+from docker_utils import rm_container, get_current_worker_containers, container_running, run_container_with_docker
 from models import Actor, Worker, is_hashid, get_current_utc_time, site
 from channels import CommandChannel, WorkerChannel
 from stores import actors_store, executions_store, workers_store
@@ -95,7 +95,6 @@ def clean_up_ipc_dirs():
     """Remove all directories created for worker sockets and fifos"""
     clean_up_socket_dirs()
     clean_up_fifo_dirs()
-
 
 def check_worker_health(actor_id, worker, ttl):
     """Check the specific health of a worker object."""
@@ -177,6 +176,8 @@ def check_workers(actor_id, ttl):
     logger.debug(f"workers: {workers}")
     host_id = os.environ.get('SPAWNER_HOST_ID', conf.spawner_host_id)
     logger.debug(f"host_id: {host_id}")
+    worker_containers = get_current_worker_containers()
+    logger.info(f"Health: worker_containers for host_id {conf.spawner_host_id}: {worker_containers}")
     for worker in workers:
         worker_id = worker['id']
         worker_status = worker.get('status')
@@ -222,11 +223,11 @@ def check_workers(actor_id, ttl):
         logger.info(f"sending worker {worker_id} a health check")
         ch = WorkerChannel(worker_id=worker_id)
         try:
-            logger.debug("Issuing status check to channel: {}".format(worker['ch_name']))
+            logger.debug(f"Issuing status check to channel: {worker['ch_name']}")
             ch.put('status')
         except (channelpy.exceptions.ChannelTimeoutException, Exception) as e:
             logger.error(f"Got exception of type {type(e)} trying to send worker {worker_id} a "
-                        f"health check. e: {e}")
+                         f"health check. e: {e}")
         finally:
             try:
                 ch.close()
@@ -253,15 +254,29 @@ def check_workers(actor_id, ttl):
             if last_execution + datetime.timedelta(seconds=ttl) < datetime.datetime.utcnow():
                 # shutdown worker
                 logger.info("Shutting down worker beyond ttl.")
-                shutdown_worker(actor_id, worker['id'])
+                shutdown_worker(actor_id, worker_id)
             else:
                 logger.info("Still time left for this worker.")
 
         if worker['status'] == codes.ERROR:
             # shutdown worker
             logger.info("Shutting down worker in error status.")
-            shutdown_worker(actor_id, worker['id'])
+            shutdown_worker(actor_id, worker_id)
 
+        # Ensure the worker container still exists on the correct host_id. Workers can be deleted after restarts or crashes.
+        worker_container_found = False
+        if worker['host_id'] == conf.spawner_host_id and worker['status'] == 'READY':
+            try:
+                for container in worker_containers:
+                    if worker_id in container['worker_id']:
+                        worker_container_found = True
+                        break
+                if not worker_container_found:
+                    logger.warning(f"Worker container {worker_id} not found on host {conf.spawner_host_id} as expected. Deleting record.")
+                    hard_delete_worker(actor_id, worker_id, reason_str='Worker container not found on proper host.')
+            except Exception as e:
+                logger.critical(f'Error when checking worker container existence. e: {e}')
+            
 def get_host_queues():
     """
     Read host_queues string from config and parse to return a Python list.

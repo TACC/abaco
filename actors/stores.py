@@ -20,8 +20,7 @@ SITE_LIST = []
 tenant_object = t.tenant_cache.get_tenant_config(tenant_id=t.tenant_id)
 if tenant_object.site.primary:
     for site_object in t.tenants.list_sites():
-        if 'actors' in site_object.services:
-            SITE_LIST.append(site_object.site_id)
+        SITE_LIST.append(site_object.site_id)
 else:
     SITE_LIST = tenant_object.site_id
 
@@ -30,6 +29,7 @@ def get_site_rabbitmq_uri(site):
     Takes site and gets site specific rabbit uri using correct
     site vhost and site's authentication from config.
     """
+    logger.debug(f'get_site_rabbitmq_uri is using site: {site}')
     # Get rabbit_uri and check if it's the proper format. "amqp://rabbit:5672"
     # There shouldn't be any auth on it anymore.
     rabbit_uri = conf.rabbit_uri
