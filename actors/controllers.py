@@ -865,7 +865,7 @@ class ActorsResource(Resource):
                 raise DAOError("Cannot set both use_container_uid and run_as_executor as true")
         if run_as_executor:
             if not tenant_can_use_tas(g.tenant_id):
-                raise DAOError("Run_as_executor isn't supported for your tenant")
+                raise DAOError("run_as_executor isn't supported for your tenant")
         if not use_container_uid:
             logger.debug("use_container_uid was false. looking up uid and gid...")
             uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.request_tenant_id)
@@ -1066,10 +1066,10 @@ class ActorResource(Resource):
                 actor['cron_on'] = args.get('cron_on')
             if 'run_as_executor' in args and args.get('run_as_executor') is not None:
                 actor['run_as_executor'] = args.get('run_as_executor')
-        #Run_as_executor only works for TAS tenants so we need to check if the tenant uses TAS
+        #run_as_executor only works for TAS tenants so we need to check if the tenant uses TAS
         if actor['run_as_executor']:
             if not tenant_can_use_tas(g.tenant_id):
-                raise DAOError("Run_as_executor isn't supported for your tenant")
+                raise DAOError("run_as_executor isn't supported for your tenant")
         if cron is not None:
             # set_cron checks for the 'now' alias 
             # It also checks that the cron schedule is greater than or equal to the current UTC time
