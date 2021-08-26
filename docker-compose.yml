@@ -1,5 +1,5 @@
 # docker-compose scale spawner=8
-version: "3.3"
+version: "3.4"
 
 networks:
     abaco:
@@ -11,14 +11,14 @@ services:
     # This default sets MONGO_INITDB_ROOT_USERNAME/PASS, sets net.bindIp="*", and runs init scripts
     # located inside of /docker-entrypoint-initdb.d. None of this stuff happens if you give your
     # own config (through entrypoint), though, you can provide "command" to give command line arguments.
-    # Also, these init scripts and variables are only set on database creation. Restarts will not set them off.
+    # Also, these init scripts and variables are only set on database creation. Restarts will not set
+    #them off. Just FYI. This is all stuff the official Mongo image does.
     mongo:
         image: mongo:4.4.7
-        #command: --replSet rs0 --bind_ip_all # --keyFile /keyfiles/metakeyfile
-        #command: --tlsMode requireTLS --tlsCertificateKeyFile "/data/ssl/server.pem" --tlsCAFile "/data/ssl/ca.pem"
         environment:
             MONGO_INITDB_ROOT_USERNAME: admin
             MONGO_INITDB_ROOT_PASSWORD: admin
+            MONGO_REPLICA_SET_NAME: rs0
         ports:
             - "27017:27017"
         volumes:
@@ -31,6 +31,26 @@ services:
             nofile:
                 soft: 65535
                 hard: 65535
+        # An explanation of this compose file. Mongo backups require replica sets. To do that, you have to
+        # create some keys, pass in the keys, ensure key security is 600/700, and then initialize the replica
+        # set with `rs.initiate()`. This does all of that, without needing to fork the Mongo image.
+        entrypoint:
+            - bash
+            - -c
+            - |
+                printf "rs.initiate();\nrs.status()\n" > /docker-entrypoint-initdb.d/mongo-init.js
+                cp /keyfiles/metakeyfile /keyfiles/keyfile-to-use
+                chmod 400 /keyfiles/keyfile-to-use
+                chown 999:999 /keyfiles/keyfile-to-use
+                exec docker-entrypoint.sh $$@
+        healthcheck:
+            test: test $$(echo "rs.initiate().ok || rs.status().ok" | mongo -u $${MONGO_INITDB_ROOT_USERNAME} -p $${MONGO_INITDB_ROOT_PASSWORD} --quiet) -eq 1
+            interval: 10s
+            start_period: 30s
+        command: "mongod --bind_ip_all --replSet $${MONGO_REPLICA_SET_NAME} --keyFile /keyfiles/keyfile-to-use"
+        # To enable TLS, uncomment the `command` line below.
+        #command: "mongod --bind_ip_all --replSet $${MONGO_REPLICA_SET_NAME} --keyFile /keyfiles/keyfile-to-use --tlsMode requireTLS --tlsCertificateKeyFile "/data/ssl/server.pem" --tlsCAFile "/data/ssl/ca.pem"
+
 
     rabbit:
         image: rabbitmq:3.6.12-management
