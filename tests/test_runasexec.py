@@ -91,5 +91,8 @@ def test_run_as_not_tas(headers):
    assert data['message'] == "run_as_executor isn't supported for your tenant"
 
 # Clean up
-def test_delete_actors(headers):
+def test_delete_actors(headers, nshresth_header, jstubbs_header, privileged_headers):
     delete_actors(headers)
+    delete_actors(privileged_headers)
+    delete_actors(nshresth_header)
+    delete_actors(jstubbs_header)
