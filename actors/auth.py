@@ -647,8 +647,8 @@ def get_token_default():
     Returns the default token attribute based on the tenant and instance configs.
     """
 
-    tenant_tenant_object = conf.get(f"{g.request_tenant_id}_tenant_object") or {}
-    default_token = tenant_tenant_object.get("default_token") or conf.global_tenant_object.get("default_token")
+    users_tenant_object = conf.get(f"{g.request_tenant_id}_tenant_object") or {}
+    default_token = users_tenant_object.get("default_token") or conf.global_tenant_object.get("default_token")
     logger.debug(f"got default_token: {default_token}. Either for {g.request_tenant_id} or global.")
     ## We have to stringify the boolean as it's listed with results and it would require a database change.
     if default_token:
@@ -665,17 +665,19 @@ def get_uid_gid_homedir(actor, user, tenant):
     :param tenant:
     :return:
     """
-    tenant_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
+    logger.debug(f"Top of get_uid_gid_homedir for user: {user} and tenant: {tenant}")
+    users_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
+
     # first, check for tas usage for tenant or globally:
-    use_tas = tenant_tenant_object or False
+    use_tas = users_tenant_object.get("use_tas_uid") or False
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # next, look for a tenant-specific uid and gid:
-    uid = tenant_tenant_object.get("actor_uid") or None
-    gid = tenant_tenant_object.get("actor_gid") or None
+    uid = users_tenant_object.get("actor_uid") or None
+    gid = users_tenant_object.get("actor_gid") or None
     if uid and gid:
-        home_dir = tenant_tenant_object.get("actor_homedir") or None
+        home_dir = users_tenant_object.get("actor_homedir") or None
         return uid, gid, home_dir
 
     # next, look for a global use_tas config

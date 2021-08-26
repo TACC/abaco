@@ -76,7 +76,7 @@ def test_create_two_workers_for_search_privileged_actor_1(headers, privileged_he
     print(f'{rsp.status_code}: {rsp.content}')
     # workers collection returns the tenant_id since it is an admin api
     assert rsp.status_code in [200, 201]
-    time.sleep(8)
+    time.sleep(4)
     rsp = requests.get(url, headers=privileged_headers)
     result = basic_response_checks(rsp, check_tenant=False)
     assert len(result) == 2
