@@ -16,6 +16,7 @@ from util import headers, base_url, case, \
     execute_actor, get_tenant, privileged_headers, regular_headers, \
     get_tapis_token_headers, alternative_tenant_headers, delete_actors, nshresth_header, jstubbs_header
 
+@pytest.mark.xfail
 def test_run_as_executor_actor(nshresth_header, jstubbs_header):
     # Registering the actor
     url = f'{base_url}/actors'
@@ -69,6 +70,8 @@ def test_run_as_executor_actor(nshresth_header, jstubbs_header):
     result5 = basic_response_checks(rsp5)
     # The uid and gid is spelled out on the end of the logs
     k = result5["logs"].split("***")
+    print("I fail if use_tas_uid in config is set to False for global/dev tenant. "
+          "I also fail when TAS user and pass information is missing from the docker-compose env variables.")
     assert k[-1] == '\nuid=811324 gid=811324\n'
 
 # Check if useContaineruid and runAsexecutor can both simultaneously be turned on.

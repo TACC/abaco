@@ -377,7 +377,7 @@ def subscribe(tenant,
 
         # construct the user field from the actor's uid and gid:
         user = get_container_user(actor, execution_id, actor_id)
-        logger.debug(f"Final user valiue: {user}")
+        logger.debug(f"Final user value: {user}")
         # overlay the default_environment registered for the actor with the msg
         # dictionary
         environment.update(msg)

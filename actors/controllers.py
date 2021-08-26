@@ -1794,7 +1794,7 @@ class MessagesResource(Resource):
                         synchronous = True
                     else:
                         logger.debug("found synchronous and value was false")
-                except Execution as e:
+                except Exception as e:
                     logger.info(f"Got exception trying to parse the _abaco_synchronous; e: {e}")
             if k == 'message':
                 continue
