@@ -110,7 +110,12 @@ class MongoStore(AbstractStore):
 
         :return:
         """
-        mongo_uri = f'mongodb://{host}:{port}&replicaSet={conf.mongo_replica_set_name}&w=majority'
+        replica_set_name = conf.mongo_replica_set_name
+        if replica_set_name:
+            mongo_uri = f'mongodb://{host}:{port}&replicaSet={replica_set_name}&w=majority'
+        else:
+            mongo_uri = f'mongodb://{host}:{port}'
+
         if user and password:
             logger.info(f"Using mongo user {user} and password: ***")
             u = urllib.parse.quote_plus(user)
@@ -130,8 +135,7 @@ class MongoStore(AbstractStore):
                 self._mongo_client = MongoClient(mongo_uri,
                                                  tls=True,
                                                  tlsCertificateKeyFile=client_cert_path,
-                                                 tlsCAFile=ca_cert_path,
-                                                 replicaset=conf.mongo_replica_set_name)
+                                                 tlsCAFile=ca_cert_path)
             except Exception as e:
                 msg = f"Error creating MongoStore object with TLS. e: {e}"
                 logger.critical(msg)

@@ -47,7 +47,7 @@ services:
             test: test $$(echo "rs.initiate().ok || rs.status().ok" | mongo -u $${MONGO_INITDB_ROOT_USERNAME} -p $${MONGO_INITDB_ROOT_PASSWORD} --quiet) -eq 1
             interval: 10s
             start_period: 30s
-        command: "mongod --bind_ip_all --replSet $${MONGO_REPLICA_SET_NAME} --keyFile /keyfiles/keyfile-to-use"
+        command: "mongod --bind_ip_all --replSet rs0 --keyFile /keyfiles/keyfile-to-use"
         # To enable TLS, uncomment the `command` line below.
         #command: "mongod --bind_ip_all --replSet $${MONGO_REPLICA_SET_NAME} --keyFile /keyfiles/keyfile-to-use --tlsMode requireTLS --tlsCertificateKeyFile "/data/ssl/server.pem" --tlsCAFile "/data/ssl/ca.pem"
 

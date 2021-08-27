@@ -199,6 +199,30 @@ def mongo_initialization():
                            password=admin_mongo_pass)
     mongo_client = mongo_obj._mongo_client
 
+    # We have to wait for the replica set stuff to initialize
+    # If command returns without error, it's done.
+    if conf.mongo_replica_set_name:
+        i = 15
+        while i:
+            try:
+                mongo_client.admin.command("replSetGetStatus")
+                msg = "Mongo client attached to server."
+                print(msg)
+                logger.debug(msg)
+                break
+            except errors.OperationFailure as e:
+                msg = "Mongo still initializing."
+                logger.debug(msg)
+                print(msg)
+                time.sleep(2)
+                i -= 1
+                if i == 0:
+                    msg = "Mongo has failed to initialized after 15 attempts."
+                    logger.critical(msg)
+                    print(msg)
+                    raise RuntimeError(msg)
+                continue
+
     try:    
         for site in SITE_LIST:
             # Getting site object with parameters for specific site.
@@ -266,8 +290,8 @@ def mongo_index_initialization():
 
 if __name__ == "__main__":
     # Rabbit and Mongo only go through init on primary site.
-    rabbit_initialization()
     mongo_initialization()
+    rabbit_initialization()
 
 # We do this outside of a function because the 'store' objects need to be imported
 # by other scripts. Functionalizing it would create more code and make it harder
