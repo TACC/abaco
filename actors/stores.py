@@ -210,7 +210,7 @@ def mongo_initialization():
                 print(msg)
                 logger.debug(msg)
                 break
-            except errors.OperationFailure as e:
+            except (errors.ServerSelectionTimeoutError, errors.OperationFailure) as e:
                 msg = "Mongo still initializing."
                 logger.debug(msg)
                 print(msg)
