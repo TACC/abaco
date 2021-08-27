@@ -202,22 +202,22 @@ def mongo_initialization():
     # We have to wait for the replica set stuff to initialize
     # If command returns without error, it's done.
     if conf.mongo_replica_set:
-        i = 15
+        i = 20
         while i:
             try:
-                mongo_client.admin.command("replSetGetStatus")
+                list(mongo_client.list_databases())
                 msg = "Mongo client attached to server."
                 print(msg)
                 logger.debug(msg)
                 break
-            except (errors.ServerSelectionTimeoutError, errors.OperationFailure) as e:
+            except Exception as e:
                 msg = "Mongo still initializing."
                 logger.debug(msg)
                 print(msg)
                 time.sleep(2)
                 i -= 1
                 if i == 0:
-                    msg = "Mongo has failed to initialized after 15 attempts."
+                    msg = f"Mongo has failed to initialized after 15 attempts. e: {e}"
                     logger.critical(msg)
                     print(msg)
                     raise RuntimeError(msg)
