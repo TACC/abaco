@@ -10,6 +10,7 @@ import time
 import requests
 import json
 import cloudpickle
+import pytest
 
 from util import headers, base_url, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \

@@ -17,7 +17,7 @@
     "common.log_log_file": "/home/tapis/runtime_files/logs/common.log",
     "mongo_host": "mongo",
     "mongo_port": 27017,
-    "mongo_replica_set_name": "$env{MONGO_REPLICA_SET_NAME}",
+    "mongo_replica_set_name": "rs0",
     "mongo_tls": false,
     "mongo_tls_ca_cert_name": "ca.pem",
     "mongo_tls_client_cert_name": "client.pem",
