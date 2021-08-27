@@ -110,11 +110,7 @@ class MongoStore(AbstractStore):
 
         :return:
         """
-        replica_set_name = conf.mongo_replica_set_name
-        if replica_set_name:
-            mongo_uri = f'mongodb://{host}:{port}&replicaSet={replica_set_name}&w=majority'
-        else:
-            mongo_uri = f'mongodb://{host}:{port}'
+        mongo_uri = f'mongodb://{host}:{port}'
 
         if user and password:
             logger.info(f"Using mongo user {user} and password: ***")

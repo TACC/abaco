@@ -201,7 +201,7 @@ def mongo_initialization():
 
     # We have to wait for the replica set stuff to initialize
     # If command returns without error, it's done.
-    if conf.mongo_replica_set_name:
+    if conf.mongo_replica_set:
         i = 15
         while i:
             try:
@@ -290,8 +290,8 @@ def mongo_index_initialization():
 
 if __name__ == "__main__":
     # Rabbit and Mongo only go through init on primary site.
-    mongo_initialization()
     rabbit_initialization()
+    mongo_initialization()
 
 # We do this outside of a function because the 'store' objects need to be imported
 # by other scripts. Functionalizing it would create more code and make it harder
