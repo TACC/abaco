@@ -105,7 +105,6 @@ def rabbit_initialization():
                 if "Errno 111" in rabbit_error:
                     msg = "Rabbit still initializing."
                     logger.debug(msg)
-                    continue
                 elif "Access refused" in rabbit_error:
                     msg = "Rabbit admin user or pass misconfigured."
                     logger.critical(msg)
@@ -115,7 +114,9 @@ def rabbit_initialization():
                     logger.critical(msg)
                     raise RuntimeError(msg)
             else:
-                time.sleep(2)
+                msg = "Rabbit still initializing."
+                logger.debug(msg)
+            time.sleep(2)
             i -= 1
         if not result.returncode == 0:
             msg = "Timeout waiting for RabbitMQ to start."
@@ -199,14 +200,18 @@ def mongo_initialization():
                            password=admin_mongo_pass)
     mongo_client = mongo_obj._mongo_client
 
-    # We have to wait for the replica set stuff to initialize
-    # If command returns without error, it's done.
+    # Initialize the replica set
     if conf.mongo_replica_set:
-        i = 20
+        i = 15
         while i:
             try:
-                list(mongo_client.list_databases())
-                msg = "Mongo client attached to server."
+                mongo_client.admin.command("replSetInitiate")
+                msg = "Mongo replica set initialized. Client attached to server."
+                print(msg)
+                logger.debug(msg)
+                break
+            except errors.OperationFailure:
+                msg = "Mongo replica set already initialized. Client attached to server."
                 print(msg)
                 logger.debug(msg)
                 break
@@ -222,6 +227,9 @@ def mongo_initialization():
                     print(msg)
                     raise RuntimeError(msg)
                 continue
+
+    # Have to give some time so mongo does it's replicaset stuff
+    time.sleep(3)
 
     try:    
         for site in SITE_LIST:
