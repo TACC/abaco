@@ -183,7 +183,7 @@ def allow_autoscaling(max_workers, num_workers, cmd_length):
         logger.debug(f'Will NOT scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
         return False
 
-    logger.debug(f'Will scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
+    logger.debug(f'Will scale up: num_workers ({num_workers}) was <= max_workers ({max_workers})')
     return True
 
 def scale_up(actor_id):
