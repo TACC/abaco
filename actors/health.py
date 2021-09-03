@@ -57,7 +57,7 @@ def get_worker(wid):
     """
     worker = workers_store.items({'id': wid})
     if worker:
-        return worker
+        return worker[0]
     return None
 
 def clean_up_socket_dirs():
@@ -140,7 +140,10 @@ def clean_up_apim_clients(tenant):
             continue
         # we know this client came from a worker, so we need to check to see if the worker is still active;
         # first check if the worker even exists; if it does, the id will be the client name:
-        worker = get_worker(name)
+        try:
+            worker = get_worker(name)[0]
+        except:
+            worker = None
         if not worker:
             logger.info("no worker associated with id: {}; deleting client.".format(name))
             delete_client(ag, name)
@@ -310,6 +313,7 @@ def check_workers(actor_id, ttl):
             if worker_create_t <  get_current_utc_time() - datetime.timedelta(minutes=5):
                 hard_delete_worker(actor_id, worker_id, reason_str='Worker did not have a host_id and had '
                                                                    'old create_time field.')
+            continue
 
         # ignore workers on different hosts because this health agent cannot interact with the
         # docker daemon responsible for the worker container..
