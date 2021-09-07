@@ -228,6 +228,22 @@ def mongo_initialization():
                     raise RuntimeError(msg)
                 continue
 
+    try:
+        # Get the pod hostname (full) for Mongo K8. We have to set the replica set primary host with
+        # this, as there's a chance the conf is still pointing at a dead node if you burned down/up
+        # This also works for Docker, but it's neccessary for K8.
+        primary_hostname = mongo_client.admin.command("hostInfo")['system']['hostname']
+
+        # Set hostname in replica config to ensure we're the primary of the replica set
+        repl_config = mongo_client.admin.command("replSetGetConfig")  
+        repl_config['config']['members'][0]['host'] = primary_hostname
+        mongo_client.admin.command("replSetReconfig", repl_config['config'], force=True)
+        msg = f"Mongo replica set config successfully changed to hostname: {primary_hostname}"
+    except Exception as e:
+        msg = f"Error while ensuring replica set host was correct. e: {e}"
+        logger.critical(msg)
+        raise Exception(msg)
+
     # Have to give some time so mongo does it's replicaset stuff
     time.sleep(3)
 
