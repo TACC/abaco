@@ -241,13 +241,11 @@ def run_container_with_docker(image,
     cli = docker.APIClient(base_url=dd, version="auto")
 
     # bind the docker socket as r/w since this container gets docker.
-    volumes = ['/var/run/docker.sock']
     binds = {'/var/run/docker.sock': {'bind': '/var/run/docker.sock', 'ro': False}}
     # add a bind key and dictionary as well as a volume for each mount
     for m in mounts:
         binds[m.get('host_path')] = {'bind': m.get('container_path'),
                                      'ro': m.get('format') == 'ro'}
-        volumes.append(m.get('host_path'))
 
     # mount the abaco conf file. first we look for the environment variable, falling back to the value in Config.
     try:
@@ -256,7 +254,6 @@ def run_container_with_docker(image,
             abaco_conf_host_path = Config.get('spawner', 'abaco_conf_host_path')
         logger.debug("docker_utils using abaco_conf_host_path={}".format(abaco_conf_host_path))
         # mount config file at the root of the container as r/o
-        volumes.append('/service.conf')
         binds[abaco_conf_host_path] = {'bind': '/service.conf', 'ro': True}
     except configparser.NoOptionError as e:
         # if we're here, it's bad. we don't have a config file. better to cut and run,
@@ -295,8 +292,6 @@ def run_container_with_docker(image,
         else:
             log_file = 'abaco.log'
 
-    # mount the logs file.
-    volumes.append('/var/log/service.log')
     # first check to see if the logs directory config was set:
     try:
         logs_host_dir = Config.get('logs', 'host_dir')
@@ -321,7 +316,6 @@ def run_container_with_docker(image,
     try:
         container = cli.create_container(image=image,
                                          environment=environment,
-                                         volumes=volumes,
                                          host_config=host_config,
                                          command=command,
                                          name=name,
@@ -547,7 +541,6 @@ def execute_actor(actor_id,
     if not fifo_host_path:
         d['MSG'] = msg
     binds = {}
-    volumes = []
 
     # if container is privileged, mount the docker daemon so that additional
     # containers can be started.
@@ -556,13 +549,11 @@ def execute_actor(actor_id,
         binds = {'/var/run/docker.sock':{
                     'bind': '/var/run/docker.sock',
                     'ro': False }}
-        volumes = ['/var/run/docker.sock']
 
     # add a bind key and dictionary as well as a volume for each mount
     for m in mounts:
         binds[m.get('host_path')] = {'bind': m.get('container_path'),
                                      'ro': m.get('format') == 'ro'}
-        volumes.append(m.get('host_path'))
 
     # mem_limit
     # -1 => unlimited memory
@@ -663,7 +654,6 @@ def execute_actor(actor_id,
     container = cli.create_container(image=image,
                                      environment=d,
                                      user=user,
-                                     volumes=volumes,
                                      host_config=host_config)
     # get the UTC time stamp
     start_time = get_current_utc_time()
