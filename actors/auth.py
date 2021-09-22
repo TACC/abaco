@@ -221,7 +221,7 @@ def authorization():
     g.db_id = db_id
     logger.debug(f"db_id: {db_id}")
 
-    g.api_server = conf.primary_site_admin_tenant_base_url
+    g.api_server = request.url
 
     g.admin = False
     if request.method == 'OPTIONS':
