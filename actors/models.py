@@ -1477,7 +1477,7 @@ class Execution(AbacoDAO):
         
         executions_store[site()][f'{actor_id}_{execution.id}'] = execution
         abaco_metrics_store[site()].full_update(
-            {'_id': 'stats'},
+            {'_id': f'{datetime.date.today()}-stats'},
             {'$inc': {'execution_total': 1},
              '$addToSet': {'execution_dbids': f'{actor_id}_{execution.id}'}},
              upsert=True)
@@ -1873,7 +1873,7 @@ class Worker(AbacoDAO):
         else:
             val = workers_store[site_id][f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store[site_id].full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
@@ -1900,7 +1900,7 @@ class Worker(AbacoDAO):
             # method.
             workers_store[site()][f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store[site()].full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
@@ -1908,7 +1908,7 @@ class Worker(AbacoDAO):
         except KeyError:
             workers_store[site()].add_if_empty([f'{actor_id}_{worker_id}'], worker)
             abaco_metrics_store[site()].full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
