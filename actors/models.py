@@ -1101,6 +1101,48 @@ class Actor(AbacoDAO):
         if status_message:
             actors_store[site_id][actor_id, 'status_message'] = status_message
 
+    @classmethod
+    def is_sync_actor(cls, actor_id):
+        """
+        Determine whether an actor is a "sync" actor based on the official hint.
+        :param actor_id:
+        :return:
+        """
+        actor = actors_store.get(actor_id)
+        is_sync_actor = False
+        try:
+            hints = list(actor.get("hints"))
+        except:
+            hints = []
+        for hint in hints:
+            if hint == Actor.SYNC_HINT:
+                is_sync_actor = True
+                break
+        return is_sync_actor
+
+    @classmethod
+    def get_max_workers_for_actor(cls, actor_id):
+        """
+        Get the max number of workers for an actor
+        :param actor_id:
+        :return:
+        """
+        max_workers = 0
+        actor = actors_store.get(actor_id)
+        if actor.get('max_workers'):
+            try:
+                max_workers = int(actor['max_workers'])
+            except Exception as e:
+                logger.error("max_workers defined for actor_id {} but could not cast to int. "
+                             "Exception: {}".format(actor_id, e))
+        if not max_workers:
+            try:
+                max_workers = int(conf.spawner_max_workers_per_actor)
+            except Exception as e:
+                logger.error(f"Unable to get/cast max_workers_per_actor config to int. Exception: {e}")
+                max_workers = 1
+        return max_workers
+
 
 class Alias(AbacoDAO):
     """Data access object for working with Actor aliases."""
