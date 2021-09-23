@@ -34,7 +34,9 @@ HASH_SALT = 'eJa5wZlEX4eWU'
 # default max length for an actor execution log - 1MB
 DEFAULT_MAX_LOG_LENGTH = 1000000
 
-def site():
+def site(site_override=None):
+    if site_override:
+        g.site_id = site_override
     try:
         return g.site_id
     except:
@@ -1128,7 +1130,7 @@ class Actor(AbacoDAO):
         :return:
         """
         max_workers = 0
-        actor = actors_store.get(actor_id)
+        actor = actors_store[site()].get(actor_id)
         if actor.get('max_workers'):
             try:
                 max_workers = int(actor['max_workers'])

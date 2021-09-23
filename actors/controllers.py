@@ -149,17 +149,18 @@ class CronResource(Resource):
 class MetricsResource(Resource):
     def get(self):
         logger.debug("AUTOSCALER initiating new run --------")
-        enable_autoscaling = conf.get("workers_autoscaling")
+        enable_autoscaling = conf.get("worker_autoscaling")
         if not enable_autoscaling:
             logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
             return Response("Autoscaler disabled in Abaco.")
 
         # autoscaler does not manage stateful actors or actors in ERROR or SHUTTING_DOWN status:
-        actors = actors_store.items({"stateless": "True", "status": {"$nin": [ERROR, SHUTTING_DOWN]}})
+        actors = actors_store[site()].items({"stateless": True, "status": {"$nin": [ERROR, SHUTTING_DOWN]}})
+
         # iterate over each actor and check how many pending message it has:
         for actor in actors:
             try:
-                ch = ActorMsgChannel(actor_id=actor["id"])
+                ch = ActorMsgChannel(actor_id=actor["db_id"])
                 inbox_length = len(ch._queue._queue)
             except Exception as e:
                 logger.error(f"Exception connecting to ActorMsgChannel: {e}")
@@ -173,13 +174,14 @@ class MetricsResource(Resource):
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
     def check_for_scale_down(self, actor):
-        actor_id = actor["id"]
+        actor_id = actor["db_id"]
         logger.debug(f"top of check_for_scale_down for actor_id: {actor_id}")
         # if the actor is a sync actor, we need to look for the existence of 1 worker that is not
         is_sync_actor = Actor.is_sync_actor(actor_id)
-        viable_workers = workers_store.items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
-                                                                                         SHUTTING_DOWN,
-                                                                                         SHUTDOWN_REQUESTED]}})
+        viable_workers = workers_store[site()].items({'actor_id': actor_id,
+                                                      'status' : {'$nin': [ERROR,
+                                                                           SHUTTING_DOWN,
+                                                                           SHUTDOWN_REQUESTED]}})
         ready_workers = [w for w in viable_workers if w['status'] == 'READY']
         if is_sync_actor:
             sync_max_idle_time = conf.workers_sync_max_idle_time or DEFAULT_SYNC_MAX_IDLE_TIME
@@ -205,12 +207,13 @@ class MetricsResource(Resource):
             shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
 
     def check_for_scale_up(self, actor, inbox_length):
-        actor_id = actor["id"]
+        actor_id = actor["db_id"]
         logger.debug(f"top of check_for_scale_up; actor_id: {actor_id}; inbox_length: {inbox_length}")
-        actor = actors_store.get(actor_id)
+
         channel_name = actor.get('queue') or 'default'
         ch = CommandChannel(name=channel_name)
         cmd_length = len(ch._queue._queue)
+
         try:
             max_cmd_length = int(conf.spawner_max_cmd_length)
         except Exception as e:
@@ -221,20 +224,26 @@ class MetricsResource(Resource):
             logger.warning(f"Will NOT scale up actor {actor_id}: Current cmd_length ({cmd_length}) is greater "
                            f"than ({max_cmd_length}) for the {channel_name} command channel.")
             return False
+
         # if the actor has more pending messages than it has pending workers, and the total number of workers the actor
         # has is less than the max number of workers per actor, then we scale up.
-        workers = workers_store.items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
-                                                                                  SHUTTING_DOWN,
-                                                                                  SHUTDOWN_REQUESTED]}})
+        workers = workers_store[site()].items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
+                                                                                          SHUTTING_DOWN,
+                                                                                          SHUTDOWN_REQUESTED]}})
         pending_workers = [w for w in workers if w['status'] in [REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
                                                                  CREATING_CONTAINER, UPDATING_STORE]]
-        max_workers = Actor.get_max_workers_for_actor(actor_id)
+
+        try:
+            max_workers = actor["max_workers"] or conf.spawner_max_workers_per_actor
+        except:
+            max_workers = conf.spawner_max_workers_per_actor
+
         if inbox_length - len(pending_workers) > 0 and len(workers) < max_workers:
-            tenant, aid = actor_id.split('_')
+            tenant = actor["tenant"]
             worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
             logger.info("New worker id: {}".format(worker_id))
             ch = CommandChannel(name=channel_name)
-            ch.put_cmd(actor_id=actor.db_id,
+            ch.put_cmd(actor_id=actor_id,
                        worker_id=worker_id,
                        image=actor.image,
                        revision=actor.revision,
