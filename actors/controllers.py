@@ -15,7 +15,9 @@ from parse import parse
 
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
+from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
+    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
+    UPDATING_STORE, SHUTDOWN_REQUESTED
 from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
@@ -34,6 +36,7 @@ from common.logs import get_logger
 logger = get_logger(__name__)
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
+DEFAULT_SYNC_MAX_IDLE_TIME = 600 # defaults to 10*60 = 600 s = 10 min
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
@@ -63,7 +66,7 @@ class SearchResource(Resource):
 
 class CronResource(Resource):
     def get(self):
-        logger.debug("HERE I AM IN GET /cron")
+        logger.debug("top of GET /cron")
         actor_ids = [actor['db_id'] for actor in actors_store[site()].items()]
         logger.debug(f"actor ids are {actor_ids}")
         # Loop through all actor ids to check for cron schedules
@@ -123,10 +126,10 @@ class CronResource(Resource):
             # Execute actor
             before_exc_time = timeit.default_timer()
             exc = Execution.add_execution(actor_id, {'cpu': 0,
-                                    'io': 0,
-                                    'runtime': 0,
-                                    'status': codes.SUBMITTED,
-                                    'executor': 'cron'})
+                                                     'io': 0,
+                                                     'runtime': 0,
+                                                     'status': codes.SUBMITTED,
+                                                     'executor': 'cron'})
             logger.debug("execution has been added, now making message")
             # Create & add message to the queue 
             d['Time_msg_queued'] = before_exc_time
@@ -147,123 +150,101 @@ class CronResource(Resource):
 class MetricsResource(Resource):
     def get(self):
         logger.debug("AUTOSCALER initiating new run --------")
-        do_autoscaling = True
-        enable_autoscaling = conf.get('worker_autoscaling')
+        enable_autoscaling = conf.get("workers_autoscaling")
         if not enable_autoscaling:
             logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
-            do_autoscaling = False
-            return
-        try:
-            actor_ids, inbox_lengths, cmd_length = self.get_metrics()
-        except Exception as e:
-            logger.error(f"MetricsResource got exception from get_metrics(); e: {e}."
-                         f"Responding without running check_metrics."
-                         f"Autoscaling is broken!!!!!!")
-            return Response("Unhandled exception in get_metrics of MetricsResource!")
-        if len(actor_ids) == 0:
-            do_autoscaling = False
-        if not do_autoscaling:
-            logger.debug("AUTOSCALER run complete --------")
-            return
-        try:
-            self.check_metrics(actor_ids, inbox_lengths, cmd_length)
-        except Exception as e:
-            logger.error(f"MetricsResource got exception from check_metrics(); e: {e}."
-                         f"Responding with an error."
-                         f"Autoscaling is likely broken!!!")
-            return Response("Unhandled exception in check_metrics MetricsResource!")
+            return Response("Autoscaler disabled in Abaco.")
 
-        # self.add_workers(actor_ids)
+        # autoscaler does not manage stateful actors or actors in ERROR or SHUTTING_DOWN status:
+        actors = actors_store.items({"stateless": "True", "status": {"$nin": [ERROR, SHUTTING_DOWN]}})
+        # iterate over each actor and check how many pending message it has:
+        for actor in actors:
+            try:
+                ch = ActorMsgChannel(actor_id=actor["id"])
+                inbox_length = len(ch._queue._queue)
+            except Exception as e:
+                logger.error(f"Exception connecting to ActorMsgChannel: {e}")
+                # if we get an exception, move on to the next actor
+                continue
+            if inbox_length == 0:
+                self.check_for_scale_down(actor)
+            else:
+                self.check_for_scale_up(actor, inbox_length)
         logger.debug("AUTOSCALER run complete --------")
-        return #Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
-    def get_metrics(self):
-        logger.debug("top of get_metrics")
-        actor_ids = [actor['db_id'] for actor in actors_store[site()].items()
-            if actor.get('stateless')
-            and not actor.get('status') == 'ERROR'
-            and not actor.get('status') == SHUTTING_DOWN]
-        logger.debug(f"autoscaler found {len(actor_ids)} actors.")
-        if len(actor_ids) == 0:
-            return [], {}, None
+    def check_for_scale_down(self, actor):
+        actor_id = actor["id"]
+        logger.debug(f"top of check_for_scale_down for actor_id: {actor_id}")
+        # if the actor is a sync actor, we need to look for the existence of 1 worker that is not
+        is_sync_actor = Actor.is_sync_actor(actor_id)
+        viable_workers = workers_store.items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
+                                                                                         SHUTTING_DOWN,
+                                                                                         SHUTDOWN_REQUESTED]}})
+        ready_workers = [w for w in viable_workers if w['status'] == 'READY']
+        if is_sync_actor:
+            sync_max_idle_time = conf.workers_sync_max_idle_time or DEFAULT_SYNC_MAX_IDLE_TIME
+            # if all the viable workers are ready workers, we need to save one ready worker because it is a sync
+            # actor. however, if some viable worker is not ready, we can save that one and therefore shutdown all
+            # ready workers.
+            if len(ready_workers) == len(viable_workers):
+                # iterate through the ready workers and see if any of them are within the sync ttl
+                worker_idx_to_save = -1
+                best_worker_ttl = sync_max_idle_time
+                for idx, worker in enumerate(ready_workers):
+                    last_worker_activity_time = worker.get('last_execution_time') or worker.get('create_time') or 0
+                    # this worker is a candidate to be saved
+                    if datetime.datetime.now() - last_worker_activity_time < sync_max_idle_time:
+                        if datetime.datetime.now() - last_worker_activity_time < best_worker_ttl:
+                            # we just found a worker with a more recent activity, so update:
+                            worker_idx_to_save = idx
+                            best_worker_ttl = datetime.datetime.now() - last_worker_activity_time
+                if worker_idx_to_save >= 0:
+                    ready_workers.pop(worker_idx_to_save)
+        for worker in ready_workers:
+            logger.info(f"autoscaler stopping worker {worker['id']} for actor {actor_id}")
+            shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
+
+    def check_for_scale_up(self, actor, inbox_length):
+        actor_id = actor["id"]
+        logger.debug(f"top of check_for_scale_up; actor_id: {actor_id}; inbox_length: {inbox_length}")
+        actor = actors_store.get(actor_id)
+        channel_name = actor.get('queue') or 'default'
+        ch = CommandChannel(name=channel_name)
+        cmd_length = len(ch._queue._queue)
         try:
-            # Create a gauge for each actor id
-            actor_ids, inbox_lengths, cmd_length = metrics_utils.create_gauges(actor_ids)
-            # return the actor_ids so we can use them again for check_metrics
-            return actor_ids, inbox_lengths, cmd_length
+            max_cmd_length = int(conf.spawner_max_cmd_length)
         except Exception as e:
-            logger.info(f"Got exception in call to create_gauges; skipping autoscaler; e: {e}")
-            return [], {}, None
+            logger.info(f"Autoscaler got exception trying to compute the max_cmd_length; using 10. e: {e}")
+            max_cmd_length = 10
 
-    def check_metrics(self, actor_ids, inbox_lengths, cmd_length):
-        logger.debug("top of check_metrics")
-        for actor_id in actor_ids:
-            current_message_count = 0
-            try:
-                current_message_count = inbox_lengths[actor_id]
-            except KeyError as e:
-                logger.error(f"Got KeyError trying to get current_message_count. Exception: {e}")
-                # don't try to process the actor any further
-                continue
-            except Exception as e:
-                logger.error(f"Uncaught exception in check_metrics; e: {e}")
-                # don't try to process the actor any further
-                continue
-            workers = Worker.get_workers(actor_id)
-            current_workers = len(workers)
-            logger.debug(f"actor {actor_id}; Current message count: {current_message_count}; "
-                         f"Current workers: {current_workers}")
-
-            # If this actor has a custom max_workers, use that. Otherwise use default.
-            actor = actors_store[site()][actor_id]
-            max_workers = None
-            if actor.get('max_workers'):
-                try:
-                    max_workers = int(actor['max_workers'])
-                except Exception as e:
-                    logger.error(f"max_workers defined for actor_id {actor_id} but could not cast to int. Exception: {e}")
-            if not max_workers:
-                try:
-                    max_workers_conf = conf.spawner_max_workers_per_actor
-                    max_workers = int(max_workers_conf)
-                except Exception as e:
-                    logger.error(f"Unable to get/cast max_workers_per_actor config ({max_workers_conf}) to int. "
-                                 f"Exception: {e}")
-                    max_workers = 1
-            logger.debug(f"actor: {actor_id}; Max workers: {max_workers}")
-            # Add an additional worker if message count reaches a given number
-            try:
-                if metrics_utils.allow_autoscaling(max_workers, current_workers, cmd_length):
-                    if current_message_count >= 1:
-                        channel = metrics_utils.scale_up(actor_id)
-                        if channel == 'default':
-                            cmd_length = cmd_length + 1
-                else:
-                    # todo -- this is not necessarily true... the actor's current workers could just be
-                    # at the max workers for this actor.
-                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
-                if current_message_count == 0:
-                    logger.debug("current message count was 0; checking whether to scale down...")
-                    # first check if this is a "sync" actor
-                    is_sync_actor = False
-                    try:
-                        hints = list(actor.get("hints"))
-                    except:
-                        hints = []
-                    for hint in hints:
-                        if hint == Actor.SYNC_HINT:
-                            is_sync_actor = True
-                            break
-                    logger.debug(f"actor {actor_id} was a SYNC actor (T/F): {is_sync_actor}.")
-                    metrics_utils.scale_down(actor_id, is_sync_actor)
-                    logger.debug("autoscaler returned from scale_down() call.")
-                else:
-                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
-            except Exception as e:
-                logger.debug(f"METRICS - ANOTHER ERROR: {type(e)} - {e} - {e.args}")
-
-    def test_metrics(self):
-        logger.debug("METRICS TESTING")
+        if cmd_length > max_cmd_length:
+            logger.warning(f"Will NOT scale up actor {actor_id}: Current cmd_length ({cmd_length}) is greater "
+                           f"than ({max_cmd_length}) for the {channel_name} command channel.")
+            return False
+        # if the actor has more pending messages than it has pending workers, and the total number of workers the actor
+        # has is less than the max number of workers per actor, then we scale up.
+        workers = workers_store.items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
+                                                                                  SHUTTING_DOWN,
+                                                                                  SHUTDOWN_REQUESTED]}})
+        pending_workers = [w for w in workers if w['status'] in [REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
+                                                                 CREATING_CONTAINER, UPDATING_STORE]]
+        max_workers = Actor.get_max_workers_for_actor(actor_id)
+        if inbox_length - len(pending_workers) > 0 and len(workers) < max_workers:
+            tenant, aid = actor_id.split('_')
+            worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
+            logger.info("New worker id: {}".format(worker_id))
+            ch = CommandChannel(name=channel_name)
+            ch.put_cmd(actor_id=actor.db_id,
+                       worker_id=worker_id,
+                       image=actor.image,
+                       revision=actor.revision,
+                       tenant=tenant,
+                       stop_existing=False)
+            ch.close()
+            logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
+        else:
+            logger.debug(f"autoscaler not adding worker for actor {actor_id}")
 
 
 class AdminActorsResource(Resource):
@@ -292,6 +273,7 @@ class AdminActorsResource(Resource):
         except Exception as e:
             logger.critical(f'LOOK AT ME: {e}')
         return ok(result=actors, msg="Actors retrieved successfully.")
+
 
 class AdminWorkersResource(Resource):
     def get(self):
