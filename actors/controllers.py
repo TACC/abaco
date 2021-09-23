@@ -27,7 +27,6 @@ import codes
 from stores import actors_store, alias_store, configs_store, configs_permissions_store, workers_store, \
     executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
 from worker import shutdown_workers, shutdown_worker
-import metrics_utils
 import encrypt_utils
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
