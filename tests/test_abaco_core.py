@@ -240,10 +240,10 @@ def test_update_cron(headers):
         cron_field = 'cronSchedule'
     else:
         cron_field = 'cron_schedule'
-    data = {'image': 'jstubbs/abaco_test', 'stateless': False, cron_field: '2021-09-6 20 + 3 months'}
+    data = {'image': 'jstubbs/abaco_test', 'stateless': False, cron_field: '2078-09-6 20 + 3 months'}
     rsp = requests.put(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
-    assert result[cron_field] == '2021-09-6 20 + 3 months'
+    assert result[cron_field] == '2078-09-6 20 + 3 months'
 
 @pytest.mark.regapi
 def test_update_cron_switch(headers):
@@ -255,7 +255,7 @@ def test_update_cron_switch(headers):
     else:
         cron_field = 'cron_schedule'
         cron_switch = 'cron_on'
-    data = {'image': 'jstubbs/abaco_test', 'stateless': False, cron_field: '2021-09-6 20 + 3 months', cron_switch: False}
+    data = {'image': 'jstubbs/abaco_test', 'stateless': False, cron_field: '2078-09-6 20 + 3 months', cron_switch: False}
     rsp = requests.put(url, data=data, headers=headers)
     result = basic_response_checks(rsp)
     assert result['image'] == 'jstubbs/abaco_test'

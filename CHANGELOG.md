@@ -1,6 +1,20 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+
+## 1.9.1 - 2021-09-23
+### Added
+- No change.
+
+### Changed
+- Fix for an old cron test. Date was in the past.
+- Changed metrics store to store data per day to avoid Mongo doc size limits.
+- Updated utilizations and reports to take advantage of the new metrics store layout.
+
+### Removed
+- No change.
+
+
 ## 1.9.0 - 2021-05-17
 ### Added
 - Added a new Actor Configs feature with API endpoint for managing configuration shared across several actors, including 
