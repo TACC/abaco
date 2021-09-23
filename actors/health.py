@@ -358,21 +358,6 @@ def check_spawners():
         check_spawner(queue)
 
 
-def manage_workers(actor_id):
-    """Scale workers for an actor if based on message queue size and policy."""
-    logger.info(f"Entering manage_workers for {actor_id}")
-    try:
-        actor = Actor.from_db(actors_store[site()][actor_id])
-    except KeyError:
-        logger.info("Did not find actor; returning.")
-        return
-    workers = Worker.get_workers(actor_id)
-    for worker in workers:
-        time_difference = time.time() - worker['create_time']
-        if worker['status'] == 'PROCESSING' and time_difference > 1:
-            logger.info(f"LOOK HERE - worker creation time {worker['create_time']}")
-    #TODO - implement policy
-
 def shutdown_all_workers():
     """
     Utility function for properly shutting down all existing workers.
@@ -401,7 +386,6 @@ def main():
     ids = get_actor_ids()
     logger.info(f"Found {len(ids)} actor(s). Now checking status.")
     for aid in ids:
-        # manage_workers(id)
         check_workers(aid, ttl)
     tenants = get_tenants()
 
