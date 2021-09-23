@@ -406,10 +406,19 @@ class AdminExecutionsResource(Resource):
             result['summary']['total_execution_io_all'] += actor_io
             result['summary']['total_execution_cpu_all'] += actor_cpu
 
-        result['summary']['total_actors_all'] += abaco_metrics_store[site()]['stats', 'actor_total']
+        # Get total actors from abaco_metrics_store (stats are stored on a daily basis)
+        total_actors = 0
+        for stat_doc in abaco_metrics_store[site()].items():
+            try:
+                total_actors += stat_doc['actor_total']
+            except KeyError as e:
+                # Stat docs created daily, so some days there might not be stats in them
+                continue
+
+        result['summary']['total_actors_all'] += total_actors
         result['summary']['total_actors_existing'] += len(actors_store[site()])
 
-        for actor_stat in actor_stats.values():
+        for _, actor_stat in actor_stats.values():
             if case == 'camel':
                 actor_stat = dict_to_camel(actor_stat)
             result['actors'].append(actor_stat)
@@ -777,11 +786,18 @@ class AbacoUtilizationResource(Resource):
     def get(self):
         logger.debug("top of GET /actors/utilization")
         num_current_actors = len(actors_store[site()])
-        num_actors = abaco_metrics_store[site()]['stats', 'actor_total']
         num_workers = len(workers_store[site()])
+        # Get total actors from abaco_metrics_store (stats are stored on a daily basis)
+        total_actors = 0
+        for stat_doc in abaco_metrics_store[site()].items():
+            try:
+                total_actors += stat_doc['actor_total']
+            except KeyError as e:
+                # Stat docs created daily, so some days there might not be stats in them
+                continue
         ch = CommandChannel()
         result = {'currentActors': num_current_actors,
-                  'totalActors': num_actors,
+                  'totalActors': total_actors,
                   'workers': num_workers,
                   'commandQueue': len(ch._queue._queue)
                   }
@@ -933,7 +949,7 @@ class ActorsResource(Resource):
         # Change function
         actors_store[site()].add_if_empty([actor.db_id], actor)
         abaco_metrics_store[site()].full_update(
-            {'_id': 'stats'},
+            {'_id': f'{datetime.date.today()}-stats'},
             {'$inc': {'actor_total': 1},
              '$addToSet': {'actor_dbids': actor.db_id}},
              upsert=True)
