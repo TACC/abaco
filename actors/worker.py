@@ -17,7 +17,7 @@ from docker_utils import DockerError, DockerStartContainerError, DockerStopConta
 from errors import WorkerException
 import globals
 from models import Actor, Execution, Worker, site
-from stores import actors_store, workers_store
+from stores import actors_store, workers_store, executions_store
 
 from common.logs import get_logger
 logger = get_logger(__name__)
@@ -75,25 +75,28 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
     global keep_running
     logger.info(f"Worker subscribing to worker channel...{actor_id}_{worker_id}")
     while keep_running:
-        msg, msg_obj = worker_ch.get_one()
+        try:
+            msg, msg_obj = worker_ch.get_one()
+        except Exception as e:
+            logger.error(f"worker {worker_id} got exception trying to read the worker channel! "
+                         f"sleeping for 10 seconds and then will try again; e: {e}")
+            time.sleep(10)
+            continue
         # receiving the message is enough to ack it - resiliency is currently handled in the calling code.
         msg_obj.ack()
         logger.debug(f"Received message in worker channel; msg: {msg}; {actor_id}_{worker_id}")
         logger.debug(f"Type(msg)={type(msg)}")
-        if type(msg) == dict:
-            value = msg.get('value', '')
-            if value == 'status':
-                # this is a health check, return 'ok' to the reply_to channel.
-                logger.debug("received health check. returning 'ok'.")
-                ch = msg['reply_to']
-                ch.put('ok')
-                # @TODO -
-                # delete the anonymous channel from this thread but sleep first to avoid the race condition.
-                time.sleep(1.5)
-                ch.delete()
-                # NOT doing this for now -- deleting entire anon channel instead (see above)
-                # clean up the event queue on this anonymous channel. this should be fixed in channelpy.
-                # ch._queue._event_queue
+        if msg == 'status':
+            # this is a health check, return 'ok' to the reply_to channel.
+            logger.debug("received health check. updating worker_health_time.")
+            try:
+                Worker.update_worker_health_time(actor_id, worker_id)
+            except Exception as e:
+                logger.error(f"worker {worker_id} got exception trying to update its health time! "
+                             f"sleeping for 10 seconds and then will try again; e: {e}")
+                time.sleep(10)
+                continue
+
         elif msg == 'force_quit':
             logger.info("Worker with worker_id: {} (actor_id: {}) received a force_quit message, "
                         "forcing the execution to halt...".format(worker_id, actor_id))
@@ -373,8 +376,8 @@ def subscribe(tenant,
         logger.debug(f"Actor default environment: {environment}")
 
         # construct the user field from the actor's uid and gid:
-        user = get_container_user(actor)
-        logger.debug(f"Final user valiue: {user}")
+        user = get_container_user(actor, execution_id, actor_id)
+        logger.debug(f"Final user value: {user}")
         # overlay the default_environment registered for the actor with the msg
         # dictionary
         environment.update(msg)
@@ -452,9 +455,9 @@ def subscribe(tenant,
             time.sleep(60)
             break
         except Exception as e:
-            logger.error("Worker {} got an unexpected exception trying to run actor for execution: {}."
+            logger.error(f"Worker {worker_id} got an unexpected exception trying to run actor for execution: {execution_id}."
                          "Putting the actor in error status and shutting down workers. "
-                         "Exception: {}; type: {}".format(worker_id, execution_id, e, type(e)))
+                         f"Exception: {e}; Exception type: {type(e)}")
             # updated 2/2021 -- we no longer set the actor to ERROR state for unrecognized exceptions. Most of the time
             # these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or getting
             # socket timeouts from docker. these are not the fault of the actor, and putting it (but not other actors
@@ -510,23 +513,35 @@ def subscribe(tenant,
         logger.info(f"worker time stamps updated; worker_id: {worker_id}")
     logger.info(f"global.keep_running no longer true. worker is now exited. worker id: {worker_id}")
 
-def get_container_user(actor):
-    logger.debug("top of get_container_user")
-    if actor.get('use_container_uid'):
-        logger.info("actor set to use_container_uid. Returning None for user")
-        return None
-    uid = actor.get('uid')
-    gid = actor.get('gid')
-    logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
-    if not uid:
-        if conf.global_tenant_object.get("use_tas_uid") and not actor.get('use_container_uid'):
-            logger.warn('Warning - legacy actor running as image UID without use_container_uid!')
-        user = None
-    elif not gid:
-        user = uid
-    else:
-        user = f'{uid}:{gid}'
-    return user
+def get_container_user(actor, execution_id, actor_id):
+    try:
+        logger.debug("top of get_container_user")
+        uid = None
+        gid = None
+        if actor.get('use_container_uid'):
+            logger.info("actor set to use_container_uid. Returning None for user")
+            return None
+        # if the run_as_executor attribute is turned on then we need to change the uid and gid of the worker before execution          
+        if actor.get('run_as_executor'):
+            exec = executions_store[site()][f'{actor_id}_{execution_id}']
+            uid = exec['executor_uid']
+            gid = exec['executor_gid']
+            logger.debug(f"The uid: {uid} and gid: {gid} from the executor.")
+        # if there is no executor_uid or gid and get_container_uid is false than we have to use the actor uid and gid
+        if not uid:    
+            uid = actor.get('uid')
+            gid = actor.get('gid')
+            logger.debug(f"The uid: {uid} and gid: {gid} from the actor.")
+        if not uid:
+            user = None
+        elif not gid:
+            user = uid
+        else:
+            user = f'{uid}:{gid}'
+        return user
+    except Exception as e:
+        logger.critical(f"get_container_user failed. e: {e}")
+        raise
 
 def main():
     """
@@ -591,8 +606,7 @@ if __name__ == '__main__':
             worker_id = os.environ.get('worker_id')
         except:
             logger.error(f"worker main thread got exception trying to get worker id from environment."
-                         f"not able to send stop-no-delete message to itself."
-                         f"worker_id: {worker_id}.")
+                         f"not able to send stop-no-delete message to itself. worker_id is unknown.")
             worker_id = ''
         if worker_id:
             try:
@@ -602,11 +616,11 @@ if __name__ == '__main__':
                 ch.put('stop-no-delete')
                 logger.info(f"Worker main loop sent 'stop-no-delete' message to itself; worker_id: {worker_id}.")
                 ch.close()
-                msg = "worker caught exception from main loop. worker exiting. e" \
-                      "Exception: {} worker_id: {}".format(e, worker_id)
+                msg = f"worker caught exception from main loop. worker exiting. e" \
+                      f"Exception: {e} worker_id: {worker_id}"
                 logger.info(msg)
-            except Exception as e:
+            except Exception as e2:
                 logger.error(f"worker main thread got exception trying to send stop-no-delete message to itself;"
-                             f"worker_id: {worker_id}.")
+                             f"worker_id: {worker_id}. e1: {e} e2: {e2}")
     keep_running = False
     sys.exit()

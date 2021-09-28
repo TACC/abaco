@@ -9,6 +9,7 @@ import pprint
 from pymongo.errors import WriteError, DuplicateKeyError
 from pymongo import MongoClient
 
+from common.config import conf
 from common.logs import get_logger
 logger = get_logger(__name__)
 
@@ -110,12 +111,33 @@ class MongoStore(AbstractStore):
         :return:
         """
         mongo_uri = f'mongodb://{host}:{port}'
+
         if user and password:
             logger.info(f"Using mongo user {user} and password: ***")
             u = urllib.parse.quote_plus(user)
             p = urllib.parse.quote_plus(password)
             mongo_uri = f'mongodb://{u}:{p}@{host}:{port}/{auth_db}'
-        self._mongo_client = MongoClient(mongo_uri)
+        if conf.mongo_tls:
+            try:
+                cert_dir = conf.mongo_tls_certs_path.split(':')[1]
+                ca_cert_name = conf.get("mongo_tls_ca_cert_name")
+                client_cert_name = conf.get("mongo_tls_client_cert_name")
+                if not ca_cert_name or not client_cert_name:
+                    msg = "Mongo TLS requires both the 'mongo_tls_cert' and 'mongo_tls_ca_cert' configs to be set."
+                    logger.critical(msg)
+                    raise SystemError(msg)
+                ca_cert_path = os.path.join(cert_dir, ca_cert_name)
+                client_cert_path = os.path.join(cert_dir, client_cert_name)
+                self._mongo_client = MongoClient(mongo_uri,
+                                                 tls=True,
+                                                 tlsCertificateKeyFile=client_cert_path,
+                                                 tlsCAFile=ca_cert_path)
+            except Exception as e:
+                msg = f"Error creating MongoStore object with TLS. e: {e}"
+                logger.critical(msg)
+                raise Exception(msg)
+        else:
+            self._mongo_client = MongoClient(mongo_uri)
         self._mongo_database = self._mongo_client[database]
         self._db = self._mongo_database[db]
 

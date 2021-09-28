@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 from common.config import conf
 import codes
-from models import Actor, Alias, get_permissions, is_hashid, Nonce
+from models import Actor, Alias, ActorConfig, get_permissions, is_hashid, Nonce, get_config_permissions, permission_process
 
 from errors import ClientException, ResourceError, PermissionsException
 
@@ -26,6 +26,8 @@ def get_api_server(tenant_name):
     # todo - lookup tenant in tenants table
     if tenant_name.upper() == '3DEM':
         return 'https://api.3dem.org'
+    if tenant_name.upper() == 'A2CPS':
+        return 'https://api.a2cps.org'
     if tenant_name.upper() == 'AGAVE-PROD':
         return 'https://public.agaveapi.co'
     if tenant_name.upper() == 'ARAPORT-ORG':
@@ -126,9 +128,9 @@ def check_nonce():
         raise PermissionsException("No JWT or nonce provided.")
     logger.debug(f"checking nonce with id: {nonce_id}")
     # the nonce encodes the tenant in its id:
-    g.tenant_id = Nonce.get_tenant_from_nonce_id(nonce_id)
-    g.api_server = get_api_server(g.tenant_id)
-    logger.debug(f"tenant associated with nonce: {g.tenant_id}; api_server assoicated with nonce: {g.api_server}")
+    g.request_tenant_id = Nonce.get_tenant_from_nonce_id(nonce_id)
+    g.api_server = get_api_server(g.request_tenant_id)
+    logger.debug(f"tenant associated with nonce: {g.request_tenant_id}; api_server assoicated with nonce: {g.api_server}")
     # get the actor_id base on the request path
     actor_id, actor_identifier = get_db_id()
     logger.debug(f"db_id: {actor_id}; actor_identifier: {actor_identifier}")
@@ -139,7 +141,7 @@ def check_nonce():
     if is_hashid(actor_identifier):
         Nonce.check_and_redeem_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id, level=level)
     else:
-        alias_id = Alias.generate_alias_id(tenant=g.tenant_id, alias=actor_identifier)
+        alias_id = Alias.generate_alias_id(tenant=g.request_tenant_id, alias=actor_identifier)
         Nonce.check_and_redeem_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id, level=level)
     # if we were able to redeem the nonce, update auth context with the actor owner data:
     logger.debug("nonce valid and redeemed.")
@@ -150,33 +152,33 @@ def check_nonce():
     g.username = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = [nonce.roles]
-    logger.debug(f"setting g.tenant_id: {g.tenant_id}; g.username: {g.username}")
+    logger.debug(f"setting g.request_tenant_id: {g.request_tenant_id}; g.username: {g.username}")
 
 
 def get_user_sk_roles():
     """
     """
-    logger.debug(f"Getting SK roles on tenant {g.tenant_id} and user {g.username}")
+    logger.debug(f"Getting SK roles on tenant {g.request_tenant_id} and user {g.username}")
     start_timer = timeit.default_timer()
     try:
-        roles_obj = t.sk.getUserRoles(tenant=g.tenant_id, user=g.username)
+        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.username)
     except Exception as e:
         end_timer = timeit.default_timer()
         total = (end_timer - start_timer) * 1000
         if total > 4000:
-            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.tenant_id}")
+            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
         raise e
     end_timer = timeit.default_timer()
     total = (end_timer - start_timer) * 1000
     if total > 4000:
-        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.tenant_id}")
+        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
     roles_list = roles_obj.names
     logger.debug(f"Roles received: {roles_list}")
     g.roles = roles_list
 
 
 def get_user_site_id():
-    user_tenant_obj = t.tenant_cache.get_tenant_config(tenant_id=g.tenant_id)
+    user_tenant_obj = t.tenant_cache.get_tenant_config(tenant_id=g.request_tenant_id)
     user_site_obj = user_tenant_obj.site
     g.site_id = user_site_obj.site_id
 
@@ -207,6 +209,7 @@ def authorization():
         or request.url_rule.rule == '/actors/' \
         or '/actors/admin' in request.url_rule.rule \
         or '/actors/aliases' in request.url_rule.rule \
+        or '/actors/configs' in request.url_rule.rule \
         or '/actors/utilization' in request.url_rule.rule \
         or '/actors/search/' in request.url_rule.rule:
         db_id = None
@@ -218,7 +221,7 @@ def authorization():
     g.db_id = db_id
     logger.debug(f"db_id: {db_id}")
 
-    g.api_server = conf.primary_site_admin_tenant_base_url
+    g.api_server = request.url
 
     g.admin = False
     if request.method == 'OPTIONS':
@@ -268,6 +271,24 @@ def authorization():
         # if we are here, it is either a GET or a new actor, so the request is allowed:
         logger.debug("new actor or GET on root connection. allowing request.")
         return True
+
+    # aliases root collection has special rules as well -
+    if '/actors/configs' == request.url_rule.rule or '/actors/configs/' == request.url_rule.rule:
+        # anyone can GET their actor configs and anyone can create an actor config
+        return True
+
+    if '/actors/configs' in request.url_rule.rule:
+        logger.debug('auth.py /actors/configs if statement')
+        config_name = get_config_name()
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
+        if request.method == 'GET':
+            # GET requests require READ access
+            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.READ)
+            # all other requests require UPDATE access
+        elif request.method in ['DELETE', 'POST', 'PUT']:
+            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE)
+        if not has_pem:
+            raise PermissionsException("You do not have sufficient access to this actor config.")
 
     # aliases root collection has special rules as well -
     if '/actors/aliases' == request.url_rule.rule or '/actors/aliases/' == request.url_rule.rule:
@@ -411,6 +432,29 @@ def check_permissions(user, identifier, level, roles=None):
                 return False
     # didn't find the user or world_user, return False
     logger.info(f"user had no permissions for {identifier}. Permissions found: {permissions}")
+    permissions = get_permissions(identifier)
+    if permission_process(permissions, user, level, identifier):
+        return True
+    # didn't find the user or world_user, return False
+    logger.info("user had no permissions for {}. Permissions found: {}".format(identifier, permissions))
+    return False
+
+
+def check_config_permissions(user, config_id, level, roles=None):
+    """
+    Check if a given `user` has permissions at level `level` for config with id `config_id`. The optional `roles`
+    attribute can be passed in to consider roles as well.
+    """
+    logger.debug(f"top of check_config_permissions; user: {user}; config: {config_id}; level: {level}; roles: {roles}")
+    # first, if roles were passed, check for admin role -
+    if roles:
+        if codes.ADMIN_ROLE in roles:
+            return True
+    # get all permissions for this config -
+    permissions = get_config_permissions(config_id)
+    if permission_process(permissions, user, level, config_id):
+        return True
+    # didn't find the user or world_user, return False
     return False
 
 
@@ -433,11 +477,11 @@ def get_db_id():
         actor_identifier = path_split[idx]
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
-    logger.debug(f"actor_identifier: {actor_identifier}; tenant: {g.tenant_id}")
+    logger.debug(f"actor_identifier: {actor_identifier}; tenant: {g.request_tenant_id}")
     if actor_identifier == 'search':
         raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
-        actor_id = Actor.get_actor_id(g.tenant_id, actor_identifier)
+        actor_id = Actor.get_actor_id(g.request_tenant_id, actor_identifier)
     except KeyError:
         logger.info(f"Unrecognized actor_identifier: {actor_identifier}. Actor not found")
         raise ResourceError(f"Actor with identifier '{actor_identifier}' not found", 404)
@@ -447,7 +491,7 @@ def get_db_id():
         logger.error(msg)
         raise ResourceError(msg)
     logger.debug(f"actor_id: {actor_id}")
-    return Actor.get_dbid(g.tenant_id, actor_id), actor_identifier
+    return Actor.get_dbid(g.request_tenant_id, actor_id), actor_identifier
 
 def get_alias_id():
     """Get the alias from the request path."""
@@ -457,7 +501,18 @@ def get_alias_id():
         raise PermissionsException("Not authorized.")
     alias = path_split[3]
     logger.debug(f"alias: {alias}")
-    return Alias.generate_alias_id(g.tenant_id, alias)
+    return Alias.generate_alias_id(g.request_tenant_id, alias)
+
+def get_config_name():
+    """Get the config name from the request path."""
+    logger.debug("top of auth.get_config_id()")
+    path_split = request.path.split("/")
+    if len(path_split) < 4:
+        logger.error(f"Unrecognized request -- could not find the config. path_split: {path_split}")
+        raise PermissionsException("Not authorized.")
+    config_name = path_split[3]
+    logger.debug(f"returning config_name from path: {config_name}")
+    return config_name
 
 def get_tenant_verify(tenant):
     """Return whether to turn on SSL verification."""
@@ -479,6 +534,8 @@ def get_tenant_userstore_prefix(tenant):
         return 'SD2E'
     if tenant == 'TACC':
         return 'TACC'
+    if tenant == 'A2CPS':
+        return 'A2CPS'
     if tenant == 'DESIGNSAFE':
         return 'TACC'
     if tenant == 'IPLANTC-ORG':
@@ -498,6 +555,7 @@ def get_tenant_userstore_prefix(tenant):
 def get_tenants():
     """Return a list of tenants"""
     return ['3DEM',
+            'A2CPS',
             'AGAVE-PROD',
             'ARAPORT-ORG',
             'DESIGNSAFE',
@@ -515,7 +573,7 @@ def get_tenants():
 def tenant_can_use_tas(tenant):
     """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
     the TACC IdP"""
-    if tenant in ['DESIGNSAFE', 'SD2E', 'TACC', 'tacc']:
+    if tenant in ['DESIGNSAFE', 'SD2E', 'TACC', 'tacc', 'A2CPS']:
         return True
     # all other tenants use some other IdP so username will not be a TAS account:
     return False
@@ -589,9 +647,9 @@ def get_token_default():
     Returns the default token attribute based on the tenant and instance configs.
     """
 
-    tenant_tenant_object = conf.get(f"{g.tenant_id}_tenant_object") or {}
-    default_token = tenant_tenant_object.get("default_token") or conf.global_tenant_object.get("default_token")
-    logger.debug(f"got default_token: {default_token}. Either for {g.tenant_id} or global.")
+    users_tenant_object = conf.get(f"{g.request_tenant_id}_tenant_object") or {}
+    default_token = users_tenant_object.get("default_token") or conf.global_tenant_object.get("default_token")
+    logger.debug(f"got default_token: {default_token}. Either for {g.request_tenant_id} or global.")
     ## We have to stringify the boolean as it's listed with results and it would require a database change.
     if default_token:
         default_token = 'true'
@@ -607,17 +665,19 @@ def get_uid_gid_homedir(actor, user, tenant):
     :param tenant:
     :return:
     """
-    tenant_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
+    logger.debug(f"Top of get_uid_gid_homedir for user: {user} and tenant: {tenant}")
+    users_tenant_object = conf.get(f"{tenant}_tenant_object") or {}
+
     # first, check for tas usage for tenant or globally:
-    use_tas = tenant_tenant_object or False
+    use_tas = users_tenant_object.get("use_tas_uid") or False
     if use_tas and tenant_can_use_tas(tenant):
         return get_tas_data(user, tenant)
 
     # next, look for a tenant-specific uid and gid:
-    uid = tenant_tenant_object.get("actor_uid") or None
-    gid = tenant_tenant_object.get("actor_gid") or None
+    uid = users_tenant_object.get("actor_uid") or None
+    gid = users_tenant_object.get("actor_gid") or None
     if uid and gid:
-        home_dir = tenant_tenant_object.get("actor_homedir") or None
+        home_dir = users_tenant_object.get("actor_homedir") or None
         return uid, gid, home_dir
 
     # next, look for a global use_tas config

@@ -4,31 +4,6 @@ Abaco - Developer Documentation
 
 This section goes into more technical details about the configuration and implementation of Abaco.
 
-
-Configurations
---------------
-The Abaco system has several configuration options. Configurations are placed in the abaco.conf file and
-mounted into the initial containers for the web applications, spawners, health supervisors, and client generators.
-For containers started dynamically, such as the worker containers, the conf file must be present on the host
-and the path to the file must be known by the agents starting the containers (such as the spawners in the case of
-workers). Abaco agents look for the environment variable "abaco_conf_host_path" to know where to mount the conf
-file from on the host. In the local development docker-compose file, we set the abaco_conf_host_path based on the
-variable "abaco_path", which should be a directory containing a config file (for example, the github project
-root). For example, to get started locally, once can put `export abaco_path=$(pwd)` from within the project
-root and the compose file will use the local-dev.conf file there (see the Abaco README.md in the project root).
-
-The abaco.conf file in the project root should be self documenting and contain all possible options. Here we want
-to highlight some of the bigger, more important config options
-
-1) Logging: Abaco has two kinds of logging configuration. First is the log strategy to use, which can be either 'combined' so that all logs go into one file or 'split' so that each process logs to a separate file. Second, logging can be configured by level ('CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'). Log level can be set for the entire Abaco instance all at once (e.g. level = WARN) or for specific modules (e.g level.spawner = DEBUG).
-
-2) Whether to generate clients: The Abaco system can be configured to dynamically generate an OAuth client as well as
-a set of access tokens whenever it starts a worker. In this situation, the worker will maintain a valid access token
-(using a refresh token, as needed) representing the owner of the actor, and inject that access token into the actor
-container. (Note that the actor currently has no way of refreshing the token herself, so such executions should be
-restricted to the life of the token, typically 4 hours). It is possible to turn off client generation by setting
-`generate_clients: False` within the workers stanza of the config file. See "Client Generation" below.
-
 Quick V3 Development Info
 ----------------------
 
@@ -38,9 +13,9 @@ testing variables.
 
 In order to run v3 you need to ensure that you set the "service_password" variable inside of the config-local.json file.
 This service password is used to authenticate with the Tapis v3 components in develop. It is required to start
-everything up, else you'll run into many errors. So set that.
+everything up, else you'll run into many errors.
 
-Along with this, in order to talk to these components you'll need VPN access to get access to these components.
+Along with this, in order to talk to these components you'll need to be connected to the TACC VPN.
 
 
 To build and deploy locally:
@@ -63,6 +38,40 @@ To take down all Abaco containers:
 ```
 make down
 ```
+
+Again. This Makefile supercedes need for any other type of setup (sans setting the service password).
+
+
+Configurations
+--------------
+The Abaco system has several configuration options. Configurations are placed in the config-local.json file and
+mounted into the initial containers for the web applications, spawners, health supervisors, and client generators.
+For containers started dynamically, such as the worker containers, the conf file must be present on the host
+and the path to the file must be known by the agents starting the containers (such as the spawners in the case of
+workers). Abaco agents look for the config variable "spawner_abaco_conf_host_path". This variable is in turn derived
+from the environment variable "abaco_host_path". This variable is set by default in the Makefile to the github project's
+root, it can be overwritten with `export abaco_path=NEW_PATH`. It should be a path string to the directory containing
+the "config-local.json" file.
+
+The "config-local.json" field is purely config, explanations of the variables lie in the "configschema.json" file in the
+github project root however. We validate the "config-local.json" used by Abaco to this schema.
+
+Here we want to highlight some of the key config options:	
+
+* Logging
+	* log_filing_strategy: Abaco can either have 'combined' or 'split' logging strategies. Meaning log files can be kept in one file, or distributed.
+	* log_file: Default log file. 'combined' strategy writes here. In 'split', if where to split isn't specified, logs default to being written here.
+	* *_log_file: In 'split' strategy, specify where to write a module's logs with this wildcard config. For example, to route the logs from 'models.py', use 'models_log_file: PATH'.
+	* log_level: Default log_level for all logs. Can be configured by level to 'CRITICAL', 'ERROR', 'WARNING', 'INFO', or 'DEBUG'.
+	* *_log_level: Exactly like *_log_file, but for log_level. You can specify a module to change the default 'log_level' to. For example, to route the logs from 'models.py', use 'models_log_level: WARNING'.
+
+* generate_clients: Whether to generate clients: The Abaco system can be configured to dynamically generate an OAuth client as well as
+a set of access tokens whenever it starts a worker. In this situation, the worker will maintain a valid access token
+(using a refresh token, as needed) representing the owner of the actor, and inject that access token into the actor
+container. (Note that the actor currently has no way of refreshing the token herself, so such executions should be
+restricted to the life of the token, typically 4 hours). It is possible to turn off client generation by setting
+`generate_clients: False` within the workers stanza of the config file. See "Client Generation" below.
+
 
 
 Development
@@ -91,6 +100,8 @@ Building the Images, Launching the Stack, and Running the Tests (Linux)
 -----------------------------------------------------------------------
 Note: These instructions work for Linux. OS X and Windows will require different approaches.
 
+**Use the Makefile instead of using these if you can.**
+
 **Building the Images**
 
 All core Abaco processes run out of the same abaco/core image. It should be build using the Dockerfile at the root
@@ -100,19 +111,18 @@ preceded by a colon (:) character in it.
 For example,
 
 ```shell
-$ export TAG=I-12
-$ docker build -t abaco/core:$TAG .
+$ make build-core # which build the core with docker build
 ```
 
 Auxiliary images can be built from the Dockerfiles within the images folder. In particular, the abaco/nginx image required
 to start up the stack can built from within the images/nginx directory. For example
 
 ```shell
-$ cd images/nginx
-$ docker build -t abaco/nginx$TAG .
+$ make build-nginx # which builds the nginx image in images/nginx/
 ```
 
 **Starting the Development Stack**
+(This section is entirely deprecated or done with the Makefile. Use 'make local-deploy')
 
 Once the images are built, start the development stack by first changing into the project root and
 exporting the abaco_path and TAG variables. You also need to create an abaco.log file in the root:
@@ -694,3 +704,23 @@ dockerhub_username_2
 dockerhub_password_2
 etc.
 See stache entry "CIC (Abaco) DockerHub credentials" for credentials.
+
+Christian's Notes on Mongo TLS
+------------------------------
+On the server side in the case of sites, we're looking for [Mongo TLS with Client Certificate Validation](https://docs.mongodb.com/manual/tutorial/configure-ssl/#set-up-mongod-and-mongos-with-client-certificate-validation).
+On the client side we're looking for [client connections where Mongo requires client certificates](https://docs.mongodb.com/manual/tutorial/configure-ssl-clients/#connect-to-mongodb-instance-that-requires-client-certificates--tls-options-)
+
+Configuring Mongo is easy. We add a mongo_config folder to run using docker-compose. In said config we requireTLS and give Mongo's certificateKeyFile and CAFile.
+## Note: Mongo expects the certificateKeyFile to actually be the concatanation of mongoCert.key and mongoCert.pem (cat mongoCert.key mongoCert.pem > file_to_feed_mongo.pem).
+This is important and oftentimes missed as most services require two seperate files.
+
+Large Edit: Mongo config is not easy. Mongo dockerfile has a "default" config with some automatic scripts and ip address binds. You cannot just set your own custom config without losing some environment variable functionaliy. Thing to do then is use the "command" feature of docker-compose and place the TLS flags in the command.
+
+Creating an Encryption Key with Fernet for Configs
+--------------------------------------------------
+Used to encrypt secrets
+Generate q key with the following:
+ >>> from cryptography.fernet import Fernet
+ >>> key = Fernet.generate_key()
+Place key in config-local.json under `web_encryption_key`
+The key in local-config.json is just an example used for local development (it is NOT used in any hosted Abaco deployments)

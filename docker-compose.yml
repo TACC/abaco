@@ -1,27 +1,51 @@
 # docker-compose scale spawner=8
-version: "3.3"
+version: "3.4"
 
 networks:
     abaco:
         driver: bridge
 
 services:
-
+    # A note on Mongo config. You cannot declare one in this image unless you want to stop using
+    # all Docker default config settings. Default script is in /usr/local/bin/docker-entrypoint.sh.
+    # This default sets MONGO_INITDB_ROOT_USERNAME/PASS, sets net.bindIp="*", and runs init scripts
+    # located inside of /docker-entrypoint-initdb.d. None of this stuff happens if you give your
+    # own config (through entrypoint), though, you can provide "command" to give command line arguments.
+    # Also, these init scripts and variables are only set on database creation. Restarts will not set
+    #them off. Just FYI. This is all stuff the official Mongo image does.
     mongo:
-        image: mongo:4.2.6
+        image: mongo:4.4.7
+        environment:
+            MONGO_INITDB_ROOT_USERNAME: admin
+            MONGO_INITDB_ROOT_PASSWORD: admin
+            MONGO_REPLICA_SET_NAME: rs0
         ports:
             - "27017:27017"
-        #environment:
-            # You can now initialize abaco db with user/pass below
-            #MONGO_INITDB_ROOT_USERNAME: userhere
-            #MONGO_INITDB_ROOT_PASSWORD: passhere
+        volumes:
+            - ./runtime_files/certs:/data/ssl
+            - ./runtime_files/certs/mongo-replica-set-keyfile:/keyfiles/metakeyfile
         networks:
             - abaco
         ulimits:
-          nproc: 65535
-          nofile:
-            soft: 65535
-            hard: 65535
+            nproc: 65535
+            nofile:
+                soft: 65535
+                hard: 65535
+        # An explanation of this compose file. Mongo backups require replica sets. To do that, you have to
+        # create some keys, pass in the keys, and ensure key security is 600/700.
+        # This does all of that, without needing to fork the Mongo image.
+        entrypoint:
+            - bash
+            - -c
+            - |
+                cp /keyfiles/metakeyfile /keyfiles/keyfile-to-use
+                chmod 400 /keyfiles/keyfile-to-use
+                chown 999:999 /keyfiles/keyfile-to-use
+                exec docker-entrypoint.sh $$@
+        command: "mongod --bind_ip_all --replSet rs0 --keyFile /keyfiles/keyfile-to-use"
+        # To enable TLS, uncomment the `command` line below.
+        #command: "mongod --bind_ip_all --replSet rs0 --keyFile /keyfiles/keyfile-to-use --tlsMode requireTLS --tlsCertificateKeyFile "/data/ssl/server.pem" --tlsCAFile "/data/ssl/ca.pem"
+
 
     rabbit:
         image: rabbitmq:3.6.12-management
@@ -32,13 +56,13 @@ services:
             RABBITMQ_NODENAME: abaco-rabbit
             RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+A 128"
             RABBITMQ_DEFAULT_VHOST: abaco_tacc
-            #RABBITMQ_DEFAULT_USER: userhere
-            #RABBITMQ_DEFAULT_PASS: passhere
+            RABBITMQ_DEFAULT_USER: admin
+            RABBITMQ_DEFAULT_PASS: admin
         ulimits:
-          nproc: 65535
-          nofile:
-            soft: 65535
-            hard: 65535
+            nproc: 65535
+            nofile:
+                soft: 65535
+                hard: 65535
         networks:
             - abaco
         depends_on:
@@ -65,11 +89,14 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             api: reg
             server: gunicorn
-            mongo_password:
+            threads: 1
+            processes: 1
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
@@ -82,15 +109,16 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         ports:
             - "5001:5000"
         environment:
             abaco_host_path: ${abaco_path}
             server: gunicorn
             api: mes
-            threads: 12
-            processes: 12
-            mongo_password:
+            threads: 3
+            processes: 3
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
@@ -104,13 +132,16 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         ports:
             - "5003:5000"
         environment:
             abaco_host_path: ${abaco_path}
             server: gunicorn
             api: admin
-            mongo_password:
+            threads: 1
+            processes: 1
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:
@@ -126,6 +157,7 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             _abaco_secret: 123
@@ -147,6 +179,7 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             mongo_password:
@@ -170,6 +203,7 @@ services:
             - ./config-local.json:/home/tapis/config.json
             - /var/run/docker.sock:/var/run/docker.sock
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
             abaco_host_path: ${abaco_path}
             _abaco_secret: 123
@@ -229,13 +263,16 @@ services:
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
         ports:
             - "5004:5000"
         environment:
             abaco_host_path: ${abaco_path}
             server: dev
             api: metrics
-            mongo_password:
+            threads: 1
+            processes: 1
+            timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
         depends_on:

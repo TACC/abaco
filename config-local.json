@@ -15,14 +15,19 @@
     "log_filing_strategy": "split",
     "common.auth_log_file": "/home/tapis/runtime_files/logs/common.log",
     "common.log_log_file": "/home/tapis/runtime_files/logs/common.log",
-    "admin_mongo_user": "",
-    "admin_mongo_pass": "",
     "mongo_host": "mongo",
     "mongo_port": 27017,
-    "admin_rabbitmq_user": "",
-    "admin_rabbitmq_pass": "",
+    "mongo_replica_set": true,
+    "mongo_tls": false,
+    "mongo_tls_ca_cert_name": "ca.pem",
+    "mongo_tls_client_cert_name": "client.pem",
+    "mongo_tls_certs_path": "$env{abaco_host_path}/runtime_files/certs:/home/tapis/runtime_files/certs",
+    "admin_mongo_user": "admin",
+    "admin_mongo_pass": "admin",
     "rabbit_uri": "amqp://rabbit:5672",
     "rabbit_dash_host": "rabbit",
+    "admin_rabbitmq_user": "admin",
+    "admin_rabbitmq_pass": "admin",
     "spawner_abaco_conf_host_path": "$env{abaco_host_path}/config-local.json",
     "spawner_host_id": 0,
     "spawner_host_queues": [
@@ -30,7 +35,7 @@
         "special"
     ],
     "spawner_host_ip": "172.17.0.1",
-    "spawner_max_cmd_length": 12,
+    "spawner_max_cmd_length": 10,
     "spawner_max_workers_per_host": 75,
     "spawner_max_workers_per_actor": 6,
     "spawner_docker_network": "abaco_abaco",
@@ -46,9 +51,10 @@
         "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
         "$env{abaco_host_path}/runtime_files/data2:/home/tapis/runtime_files/_abaco_data2:rw"
     ],
-    "worker_leave_containers": true,
+    "worker_leave_containers": false,
     "worker_socket_paths": "$env{abaco_host_path}/runtime_files/_abaco_results_sockets:/home/tapis/runtime_files/_abaco_results_sockets",
     "worker_fifo_paths": "$env{abaco_host_path}/runtime_files/_abaco_fifos:/home/tapis/runtime_files/_abaco_fifos",
+    "web_encryption_key": "djq6ghD6YMWU43TyxGy58pmw_I2hfroAvcbqz9kV23o=",
     "web_access_control": "jwt",
     "web_user_role": "Internal/everyone",
     "web_accept_nonce": true,
@@ -63,14 +69,10 @@
     ],
     "site_id": "tacc",
     "global_site_object": {
+        "site_mongo_pass": "defaultpass",
+        "site_rabbitmq_pass": "defaultpass"
     },
     "tacc_site_object": {
-        "site_mongo_pass": "pass1here",
-        "site_rabbitmq_pass": "pass2here"
-    }, 
-    "examp_site_object": {
-        "site_mongo_pass": "pass1here",
-        "site_rabbitmq_pass": "pass2here"
     },
     "global_tenant_object": {
         "log_ex_limit": 86400,

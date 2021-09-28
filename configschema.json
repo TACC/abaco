@@ -3,6 +3,22 @@
   "$id": "http://github.com/tapis-project/tapisflask/schemas/configschema.json",
   "type": "object",
   "additionalProperties": false,
+  "required":[
+    "service_name",
+    "version",
+    "log_level",
+    "mongo_host",
+    "mongo_port",
+    "rabbit_uri",
+    "global_tenant_object",
+    "worker_socket_paths",
+    "spawner_host_id",
+    "worker_fifo_paths",
+    "web_encryption_key",
+    "spawner_max_cmd_length",
+    "spawner_max_workers_per_host",
+    "spawner_max_workers_per_actor"
+  ],
   "properties": {
     "mongo_host": {
       "type": "string",
@@ -39,7 +55,7 @@
     "spawner_max_cmd_length": {
       "type": "integer",
       "description": "Maximum number of messages that the autoscaler should put on the default command channel.",
-      "default":12
+      "default": 10
     },
     "spawner_max_workers_per_host": {
       "type": "integer",
@@ -119,6 +135,10 @@
       "type": "string",
       "description": "Where to mount worker fifos on host and in container for binary messages. Formatted as host_path:container_path.",
       "default": null
+    },
+    "web_encryption_key": {
+      "type": "string",
+      "description": "Encryption key for encrypted configs. View dev docs for example on how to create the key."
     },
     "web_access_control": {
       "type": "string",
@@ -371,17 +391,5 @@
         }
       ]
     }
-  },
-  "required":[
-    "service_name",
-    "version",
-    "log_level",
-    "mongo_host",
-    "mongo_port",
-    "rabbit_uri",
-    "global_tenant_object",
-    "worker_socket_paths",
-    "spawner_host_id",
-    "worker_fifo_paths"
- ]
+  }
 }

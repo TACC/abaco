@@ -6,6 +6,8 @@ import time
 
 from flask import g
 from common.config import conf
+from common.logs import get_logger
+logger = get_logger(__name__)
 from stores import get_site_rabbitmq_uri
 
 
@@ -32,6 +34,9 @@ class RabbitConnection(object):
                 connected = True
             except RuntimeError:
                 time.sleep(0.1)
+            except Exception as e:
+                logger.debug(f"SERIOUS ISSUE IN CHANNELS. e: {e} ")
+                raise
         if not connected:
             raise RuntimeError("Could not connect to RabbitMQ.")
         self._ch = self._conn.channel()
