@@ -25,7 +25,7 @@ from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, A
 from mounts import get_all_mounts
 import codes
 from stores import actors_store, alias_store, configs_store, configs_permissions_store, workers_store, \
-    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
+    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, SITE_LIST
 from worker import shutdown_workers, shutdown_worker
 import encrypt_utils
 
@@ -154,6 +154,17 @@ class MetricsResource(Resource):
             logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
             return Response("Autoscaler disabled in Abaco.")
 
+        for site in SITE_LIST:
+            self.autoscaler(site)
+
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+    def autoscaler(self, site_id):
+        # Autoscaler that goes through all actors in a site and tries to auto scale
+        # up or down depending on worker and message criteria.
+        g.site_id = site_id
+        logger.debug(f"AUTOSCALER starting run for site: {site()} --------")
+
         # autoscaler does not manage stateful actors or actors in ERROR or SHUTTING_DOWN status:
         actors = actors_store[site()].items({"stateless": True, "status": {"$nin": [ERROR, SHUTTING_DOWN]}})
 
@@ -170,10 +181,9 @@ class MetricsResource(Resource):
                 self.check_for_scale_down(actor)
             else:
                 self.check_for_scale_up(actor, inbox_length)
-        logger.debug("AUTOSCALER run complete --------")
-        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
     def check_for_scale_down(self, actor):
+        # Check each actor and see if we need to scale down
         actor_id = actor["db_id"]
         logger.debug(f"top of check_for_scale_down for actor_id: {actor_id}")
         # if the actor is a sync actor, we need to look for the existence of 1 worker that is not
@@ -207,6 +217,7 @@ class MetricsResource(Resource):
             shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
 
     def check_for_scale_up(self, actor, inbox_length):
+        # Check each actor and see if we need to scale up
         actor_id = actor["db_id"]
         logger.debug(f"top of check_for_scale_up; actor_id: {actor_id}; inbox_length: {inbox_length}")
 
