@@ -13,19 +13,21 @@ from werkzeug.exceptions import BadRequest
 from common.utils import RequestParser, ok
 from parse import parse
 
-from auth import check_permissions, tenant_can_use_tas, get_uid_gid_homedir, get_token_default
+from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
+from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
+    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
+    UPDATING_STORE, SHUTDOWN_REQUESTED
 from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
-from models import dict_to_camel, display_time, is_hashid, Actor, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
-    set_permission, get_current_utc_time, site
-
+from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
+    get_config_permissions, set_permission, get_current_utc_time, set_config_permission, site
 from mounts import get_all_mounts
 import codes
-from stores import actors_store, alias_store, workers_store, executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store
+from stores import actors_store, alias_store, configs_store, configs_permissions_store, workers_store, \
+    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, SITE_LIST
 from worker import shutdown_workers, shutdown_worker
-import metrics_utils
+import encrypt_utils
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
@@ -33,10 +35,18 @@ from common.logs import get_logger
 logger = get_logger(__name__)
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
+DEFAULT_SYNC_MAX_IDLE_TIME = 600 # defaults to 10*60 = 600 s = 10 min
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
 
+
+try:
+    ACTOR_MAX_WORKERS = conf.get("spawner_max_workers_per_actor")
+except:
+    ACTOR_MAX_WORKERS = os.environ.get('MAX_WORKERS_PER_ACTOR', 20)
+ACTOR_MAX_WORKERS = int(ACTOR_MAX_WORKERS)
+logger.info(f"METRICS - running with ACTOR_MAX_WORKERS = {ACTOR_MAX_WORKERS}")
 
 ACTOR_MAX_WORKERS = conf.spawner_max_workers_per_actor or int(os.environ.get('MAX_WORKERS_PER_ACTOR', 20))
 logger.info(f"METRICS - running with ACTOR_MAX_WORKERS = {ACTOR_MAX_WORKERS}")
@@ -49,49 +59,35 @@ class SearchResource(Resource):
         Does a broad search with args and search_type passed to this resource.
         """
         args = request.args
-        result = Search(args, search_type, g.tenant_id, g.username).search()
+        result = Search(args, search_type, g.request_tenant_id, g.username).search()
         return ok(result=result, msg="Search completed successfully.")
 
 
 class CronResource(Resource):
     def get(self):
-        logger.debug("HERE I AM IN GET /cron")
-        actor_ids = [actor['db_id'] for actor in actors_store.items()]
+        logger.debug("top of GET /cron")
+        actor_ids = [actor['db_id'] for actor in actors_store[site()].items()]
         logger.debug(f"actor ids are {actor_ids}")
         # Loop through all actor ids to check for cron schedules
         for actor_id in actor_ids:
             # Create actor based on the actor_id
-            actor = actors_store[actor_id]
+            actor = actors_store[site()][actor_id]
             logger.debug(f"cron_on equals {actor.get('cron_on')} for actor {actor_id}")
             try:
                 # Check if next execution == UTC current time
-                if self.cron_execution_datetime(actor):
-                    # Check if cron switch is on
-                    if actor.get('cron_on'):
-                        d = {}
-                        logger.debug("the current time is the same as the next cron scheduled, adding execution")
-                        # Execute actor
-                        before_exc_time = timeit.default_timer()
-                        exc = Execution.add_execution(actor_id, {'cpu': 0,
-                                                'io': 0,
-                                                'runtime': 0,
-                                                'status': codes.SUBMITTED,
-                                                'executor': 'cron'})
-                        logger.debug("execution has been added, now making message")
-                        # Create & add message to the queue 
-                        d['Time_msg_queued'] = before_exc_time
-                        d['_abaco_execution_id'] = exc
-                        d['_abaco_Content_Type'] = 'str'
-                        d['_abaco_actor_revision'] = actor.get('revision')
-                        ch = ActorMsgChannel(actor_id=actor_id)
-                        ch.put_msg(message="This is your cron execution", d=d)
-                        ch.close()
-                        logger.debug(f"Message added to actor inbox. id: {actor_id}.")
-                        # Update the actor's next execution
-                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                if self.cron_execution_datetime(actor) == "now":
+                    #executes the actor and cron is updated
+                    self.actor_exec(actor,actor_id)
+                elif self.cron_execution_datetime(actor) == "past":
+                    logger.debug("Cron_next_ex was in the past")
+                    #increments the cron_next_ex so the actor is executed when it is next expected
+                    actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex_past(actor, actor_id)
+                    logger.debug("Now Cron_next_ex is in the present or future")
+                    #if cron_next_ex is in the present than the actor is executed and cron is updated
+                    if self.cron_execution_datetime(actor) == "now":
+                        self.actor_exec(actor,actor_id)
                     else:
-                        logger.debug("Actor's cron is not activated, but next execution will be incremented")
-                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                        logger.debug("now is not the time")
                 else:
                     logger.debug("now is not the time")
             except:
@@ -113,129 +109,161 @@ class CronResource(Resource):
         logger.debug(f"cron execution is {cron_execution}")
         # Return true/false comparing now with the next cron execution
         logger.debug(f"does cron == now? {cron_execution == now}")
-        return cron_execution == now
+        if cron_execution == now:
+            return "now"
+        elif cron_execution < now:
+            return "past"
+        else:
+            return "future"
+    
+    def actor_exec(self, actor, actor_id):
+        # Check if cron switch is on
+        logger.debug("inside actor_exec method")
+        if actor.get('cron_on'):
+            d = {}
+            logger.debug("the current time is the same as the next cron scheduled, adding execution")
+            # Execute actor
+            before_exc_time = timeit.default_timer()
+            exc = Execution.add_execution(actor_id, {'cpu': 0,
+                                                     'io': 0,
+                                                     'runtime': 0,
+                                                     'status': codes.SUBMITTED,
+                                                     'executor': 'cron'})
+            logger.debug("execution has been added, now making message")
+            # Create & add message to the queue 
+            d['Time_msg_queued'] = before_exc_time
+            d['_abaco_execution_id'] = exc
+            d['_abaco_Content_Type'] = 'str'
+            d['_abaco_actor_revision'] = actor.get('revision')
+            ch = ActorMsgChannel(actor_id=actor_id)
+            ch.put_msg(message="This is your cron execution", d=d)
+            ch.close()
+            logger.debug(f"Message added to actor inbox. id: {actor_id}.")
+            # Update the actor's next execution
+            actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+        else:
+            logger.debug("Actor's cron is not activated, but next execution will be incremented")
+            actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
 
 
 class MetricsResource(Resource):
     def get(self):
         logger.debug("AUTOSCALER initiating new run --------")
-        do_autoscaling = True
-        enable_autoscaling = conf.get('worker_autoscaling')
-        if hasattr(enable_autoscaling, 'lower'):
-            if not enable_autoscaling.lower() == 'true':
-                logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
-                do_autoscaling = False
-        else:
-            logger.debug("No autoscaler configuration found; exiting.")
-            do_autoscaling = False
-        try:
-            actor_ids, inbox_lengths, cmd_length = self.get_metrics()
-        except Exception as e:
-            logger.error(f"MetricsResouce got exception from get_metrics(); e: {e}."
-                         f"Responding without running check_metrics."
-                         f"Autoscaling is broken!!!!!!")
-            return Response("Unhandled exception in get_metrics of MetricsResource!")
-        if len(actor_ids) == 0:
-            do_autoscaling = False
-        if not do_autoscaling:
-            logger.debug("AUTOSCALER run complete --------")
-            return
-        try:
-            self.check_metrics(actor_ids, inbox_lengths, cmd_length)
-        except Exception as e:
-            logger.error(f"MetricsResouce got exception from check_metrics(); e: {e}."
-                         f"Responding with an error."
-                         f"Autoscaling is likely broken!!!")
-            return Response("Unhandled exception in check_metrics MetricsResource!")
+        enable_autoscaling = conf.get("worker_autoscaling")
+        if not enable_autoscaling:
+            logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
+            return Response("Autoscaler disabled in Abaco.")
 
-        # self.add_workers(actor_ids)
-        logger.debug("AUTOSCALER run complete --------")
+        for site in SITE_LIST:
+            self.autoscaler(site)
+
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
-    def get_metrics(self):
-        logger.debug("top of get_metrics")
-        actor_ids = [actor['db_id'] for actor in actors_store[site()].items()
-            if actor.get('stateless')
-            and not actor.get('status') == 'ERROR'
-            and not actor.get('status') == SHUTTING_DOWN]
-        logger.debug(f"autoscaler found {len(actor_ids)} actors.")
-        if len(actor_ids) == 0:
-            return [], {}, None
+    def autoscaler(self, site_id):
+        # Autoscaler that goes through all actors in a site and tries to auto scale
+        # up or down depending on worker and message criteria.
+        g.site_id = site_id
+        logger.debug(f"AUTOSCALER starting run for site: {site()} --------")
+
+        # autoscaler does not manage stateful actors or actors in ERROR or SHUTTING_DOWN status:
+        actors = actors_store[site()].items({"stateless": True, "status": {"$nin": [ERROR, SHUTTING_DOWN]}})
+
+        # iterate over each actor and check how many pending message it has:
+        for actor in actors:
+            try:
+                ch = ActorMsgChannel(actor_id=actor["db_id"])
+                inbox_length = len(ch._queue._queue)
+            except Exception as e:
+                logger.error(f"Exception connecting to ActorMsgChannel: {e}")
+                # if we get an exception, move on to the next actor
+                continue
+            if inbox_length == 0:
+                self.check_for_scale_down(actor)
+            else:
+                self.check_for_scale_up(actor, inbox_length)
+
+    def check_for_scale_down(self, actor):
+        # Check each actor and see if we need to scale down
+        actor_id = actor["db_id"]
+        logger.debug(f"top of check_for_scale_down for actor_id: {actor_id}")
+        # if the actor is a sync actor, we need to look for the existence of 1 worker that is not
+        is_sync_actor = Actor.is_sync_actor(actor_id)
+        viable_workers = workers_store[site()].items({'actor_id': actor_id,
+                                                      'status' : {'$nin': [ERROR,
+                                                                           SHUTTING_DOWN,
+                                                                           SHUTDOWN_REQUESTED]}})
+        ready_workers = [w for w in viable_workers if w['status'] == 'READY']
+        if is_sync_actor:
+            sync_max_idle_time = conf.workers_sync_max_idle_time or DEFAULT_SYNC_MAX_IDLE_TIME
+            # if all the viable workers are ready workers, we need to save one ready worker because it is a sync
+            # actor. however, if some viable worker is not ready, we can save that one and therefore shutdown all
+            # ready workers.
+            if len(ready_workers) == len(viable_workers):
+                # iterate through the ready workers and see if any of them are within the sync ttl
+                worker_idx_to_save = -1
+                best_worker_ttl = sync_max_idle_time
+                for idx, worker in enumerate(ready_workers):
+                    last_worker_activity_time = worker.get('last_execution_time') or worker.get('create_time') or 0
+                    # this worker is a candidate to be saved
+                    if datetime.datetime.now() - last_worker_activity_time < sync_max_idle_time:
+                        if datetime.datetime.now() - last_worker_activity_time < best_worker_ttl:
+                            # we just found a worker with a more recent activity, so update:
+                            worker_idx_to_save = idx
+                            best_worker_ttl = datetime.datetime.now() - last_worker_activity_time
+                if worker_idx_to_save >= 0:
+                    ready_workers.pop(worker_idx_to_save)
+        for worker in ready_workers:
+            logger.info(f"autoscaler stopping worker {worker['id']} for actor {actor_id}")
+            shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
+
+    def check_for_scale_up(self, actor, inbox_length):
+        # Check each actor and see if we need to scale up
+        actor_id = actor["db_id"]
+        logger.debug(f"top of check_for_scale_up; actor_id: {actor_id}; inbox_length: {inbox_length}")
+
+        channel_name = actor.get('queue') or 'default'
+        ch = CommandChannel(name=channel_name)
+        cmd_length = len(ch._queue._queue)
+
         try:
-            # Create a gauge for each actor id
-            actor_ids, inbox_lengths, cmd_length = metrics_utils.create_gauges(actor_ids)
-            # return the actor_ids so we can use them again for check_metrics
-            return actor_ids, inbox_lengths, cmd_length
+            max_cmd_length = int(conf.spawner_max_cmd_length)
         except Exception as e:
-            logger.info(f"Got exception in call to create_gauges; skipping autoscaler; e: {e}")
-            return [], {}, None
+            logger.info(f"Autoscaler got exception trying to compute the max_cmd_length; using 10. e: {e}")
+            max_cmd_length = 10
 
-    def check_metrics(self, actor_ids, inbox_lengths, cmd_length):
-        logger.debug("top of check_metrics")
-        for actor_id in actor_ids:
-            current_message_count = 0
-            try:
-                current_message_count = inbox_lengths[actor_id]
-            except KeyError as e:
-                logger.error(f"Got KeyError trying to get current_message_count. Exception: {e}")
-            except Exception as e:
-                logger.error(f"Uncaught exception in check_metrics; e: {e}")
-            workers = Worker.get_workers(actor_id)
-            current_workers = len(workers)
-            logger.debug(f"actor {actor_id}; Current message count: {current_message_count}; "
-                         f"Current workers: {current_workers}")
+        if cmd_length > max_cmd_length:
+            logger.warning(f"Will NOT scale up actor {actor_id}: Current cmd_length ({cmd_length}) is greater "
+                           f"than ({max_cmd_length}) for the {channel_name} command channel.")
+            return False
 
-            # If this actor has a custom max_workers, use that. Otherwise use default.
-            actor = actors_store[site()][actor_id]
-            max_workers = None
-            if actor.get('max_workers'):
-                try:
-                    max_workers = int(actor['max_workers'])
-                except Exception as e:
-                    logger.error("max_workers defined for actor_id {} but could not cast to int. "
-                                 "Exception: {}".format(actor_id, e))
-            if not max_workers:
-                try:
-                    conf = conf.spawner_max_workers_per_actor
-                    max_workers = int(conf)
-                except Exception as e:
-                    logger.error(f"Unable to get/cast max_workers_per_actor config ({conf}) to int. "
-                                 f"Exception: {e}")
-                    max_workers = 1
-            logger.debug(f"actor: {actor_id}; Max workers: {max_workers}")
-            # Add an additional worker if message count reaches a given number
-            try:
-                if metrics_utils.allow_autoscaling(max_workers, current_workers, cmd_length):
-                    if current_message_count >= 1:
-                        channel = metrics_utils.scale_up(actor_id)
-                        if channel == 'default':
-                            cmd_length = cmd_length + 1
-                else:
-                    # todo -- this is not necessarily true... the actor's current workers could just be
-                    # at the max workers for this actor.
-                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
-                if current_message_count == 0:
-                    logger.debug("current message count was 0; checking whether to scale down...")
-                    # first check if this is a "sync" actor
-                    is_sync_actor = False
-                    try:
-                        hints = list(actor.get("hints"))
-                    except:
-                        hints = []
-                    for hint in hints:
-                        if hint == Actor.SYNC_HINT:
-                            is_sync_actor = True
-                            break
-                    logger.debug(f"actor {actor_id} was a SYNC actor (T/F): {is_sync_actor}.")
-                    metrics_utils.scale_down(actor_id, is_sync_actor)
-                    logger.debug("autoscaler returned from scale_down() call.")
-                else:
-                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
-            except Exception as e:
-                logger.debug(f"METRICS - ANOTHER ERROR: {type(e)} - {e} - {e.args}")
+        # if the actor has more pending messages than it has pending workers, and the total number of workers the actor
+        # has is less than the max number of workers per actor, then we scale up.
+        workers = workers_store[site()].items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
+                                                                                          SHUTTING_DOWN,
+                                                                                          SHUTDOWN_REQUESTED]}})
+        pending_workers = [w for w in workers if w['status'] in [REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
+                                                                 CREATING_CONTAINER, UPDATING_STORE]]
 
-    def test_metrics(self):
-        logger.debug("METRICS TESTING")
+        try:
+            max_workers = actor["max_workers"] or conf.spawner_max_workers_per_actor
+        except:
+            max_workers = conf.spawner_max_workers_per_actor
+
+        if inbox_length - len(pending_workers) > 0 and len(workers) < max_workers:
+            tenant = actor["tenant"]
+            worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
+            logger.info("New worker id: {}".format(worker_id))
+            ch = CommandChannel(name=channel_name)
+            ch.put_cmd(actor_id=actor_id,
+                       worker_id=worker_id,
+                       image=actor.image,
+                       revision=actor.revision,
+                       tenant=tenant,
+                       stop_existing=False)
+            ch.close()
+            logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
+        else:
+            logger.debug(f"autoscaler not adding worker for actor {actor_id}")
 
 
 class AdminActorsResource(Resource):
@@ -264,6 +292,7 @@ class AdminActorsResource(Resource):
         except Exception as e:
             logger.critical(f'LOOK AT ME: {e}')
         return ok(result=actors, msg="Actors retrieved successfully.")
+
 
 class AdminWorkersResource(Resource):
     def get(self):
@@ -378,10 +407,19 @@ class AdminExecutionsResource(Resource):
             result['summary']['total_execution_io_all'] += actor_io
             result['summary']['total_execution_cpu_all'] += actor_cpu
 
-        result['summary']['total_actors_all'] += abaco_metrics_store[site()]['stats', 'actor_total']
+        # Get total actors from abaco_metrics_store (stats are stored on a daily basis)
+        total_actors = 0
+        for stat_doc in abaco_metrics_store[site()].items():
+            try:
+                total_actors += stat_doc['actor_total']
+            except KeyError as e:
+                # Stat docs created daily, so some days there might not be stats in them
+                continue
+
+        result['summary']['total_actors_all'] += total_actors
         result['summary']['total_actors_existing'] += len(actors_store[site()])
 
-        for actor_stat in actor_stats.values():
+        for _, actor_stat in actor_stats.values():
             if case == 'camel':
                 actor_stat = dict_to_camel(actor_stat)
             result['actors'].append(actor_stat)
@@ -397,7 +435,7 @@ class AliasesResource(Resource):
 
         aliases = []
         for alias in alias_store[site()].items():
-            if alias['tenant'] == g.tenant_id:
+            if alias['tenant'] == g.request_tenant_id:
                 aliases.append(Alias.from_db(alias).display())
         logger.info("aliases retrieved.")
         return ok(result=aliases, msg="Aliases retrieved successfully.")
@@ -422,7 +460,7 @@ class AliasesResource(Resource):
         if conf.web_case == 'camel':
             actor_id = args.get('actorId')
         logger.debug(f"alias post args validated: {actor_id}.")
-        dbid = Actor.get_dbid(g.tenant_id, actor_id)
+        dbid = Actor.get_dbid(g.request_tenant_id, actor_id)
         try:
             Actor.from_db(actors_store[site()][dbid])
         except KeyError:
@@ -434,15 +472,14 @@ class AliasesResource(Resource):
             raise PermissionsException(f"Not authorized -- you do not have access to {actor_id}.")
 
         # supply "provided" fields:
-        args['tenant'] = g.tenant_id
+        args['tenant'] = g.request_tenant_id
         args['db_id'] = dbid
         args['owner'] = g.username
-        args['alias_id'] = Alias.generate_alias_id(g.tenant_id, args['alias'])
+        args['alias_id'] = Alias.generate_alias_id(g.request_tenant_id, args['alias'])
         args['api_server'] = g.api_server
         logger.debug(f"Instantiating alias object. args: {args}")
         alias = Alias(**args)
-        logger.debug("Alias object instantiated; checking for uniqueness and creating alias. "
-                     "alias: {}".format(alias))
+        logger.debug(f"Alias object instantiated; checking for uniqueness and creating alias. alias: {alias}")
         alias.check_and_create_alias()
         logger.info(f"alias added for actor: {dbid}.")
         set_permission(g.username, alias.alias_id, UPDATE)
@@ -451,7 +488,7 @@ class AliasesResource(Resource):
 class AliasResource(Resource):
     def get(self, alias):
         logger.debug(f"top of GET /actors/aliases/{alias}")
-        alias_id = Alias.generate_alias_id(g.tenant_id, alias)
+        alias_id = Alias.generate_alias_id(g.request_tenant_id, alias)
         try:
             alias = Alias.from_db(alias_store[site()][alias_id])
         except KeyError:
@@ -485,7 +522,7 @@ class AliasResource(Resource):
 
     def put(self, alias):
         logger.debug(f"top of PUT /actors/aliases/{alias}")
-        alias_id = Alias.generate_alias_id(g.tenant_id, alias)
+        alias_id = Alias.generate_alias_id(g.request_tenant_id, alias)
         try:
             alias_obj = Alias.from_db(alias_store[site()][alias_id])
         except KeyError:
@@ -496,7 +533,7 @@ class AliasResource(Resource):
         actor_id = args.get('actor_id')
         if conf.web_case == 'camel':
             actor_id = args.get('actorId')
-        dbid = Actor.get_dbid(g.tenant_id, actor_id)
+        dbid = Actor.get_dbid(g.request_tenant_id, actor_id)
         # update 10/2019: check that use has UPDATE permission on the actor -
         if not check_permissions(user=g.username, identifier=dbid, level=codes.UPDATE, roles=g.roles):
             raise PermissionsException(f"Not authorized -- you do not have UPDATE "
@@ -511,8 +548,7 @@ class AliasResource(Resource):
         args['api_server'] = alias_obj.api_server
         logger.debug(f"Instantiating alias object. args: {args}")
         new_alias_obj = Alias(**args)
-        logger.debug("Alias object instantiated; updating alias in alias_store. "
-                     "alias: {}".format(new_alias_obj))
+        logger.debug(f"Alias object instantiated; updating alias in alias_store. alias: {new_alias_obj}")
         alias_store[site()][alias_id] = new_alias_obj
         logger.info(f"alias updated for actor: {dbid}.")
         set_permission(g.username, new_alias_obj.alias_id, UPDATE)
@@ -520,7 +556,7 @@ class AliasResource(Resource):
 
     def delete(self, alias):
         logger.debug(f"top of DELETE /actors/aliases/{alias}")
-        alias_id = Alias.generate_alias_id(g.tenant_id, alias)
+        alias_id = Alias.generate_alias_id(g.request_tenant_id, alias)
         try:
             alias = Alias.from_db(alias_store[site()][alias_id])
         except KeyError:
@@ -551,7 +587,7 @@ class AliasNoncesResource(Resource):
     def get(self, alias):
         logger.debug(f"top of GET /actors/aliases/{alias}/nonces")
         dbid = g.db_id
-        alias_id = Alias.generate_alias_id(g.tenant_id, alias)
+        alias_id = Alias.generate_alias_id(g.request_tenant_id, alias)
         try:
             alias = Alias.from_db(alias_store[site()][alias_id])
         except KeyError:
@@ -565,7 +601,7 @@ class AliasNoncesResource(Resource):
         """Create a new nonce for an alias."""
         logger.debug(f"top of POST /actors/aliases/{alias}/nonces")
         dbid = g.db_id
-        alias_id = Alias.generate_alias_id(g.tenant_id, alias)
+        alias_id = Alias.generate_alias_id(g.request_tenant_id, alias)
         try:
             alias = Alias.from_db(alias_store[site()][alias_id])
         except KeyError:
@@ -576,7 +612,7 @@ class AliasNoncesResource(Resource):
         logger.debug(f"nonce post args validated: {alias}.")
 
         # supply "provided" fields:
-        args['tenant'] = g.tenant_id
+        args['tenant'] = g.request_tenant_id
         args['api_server'] = g.api_server
         args['alias'] = alias_id
         args['owner'] = g.username
@@ -603,7 +639,7 @@ class AliasNoncesResource(Resource):
         if 'level' in args:
             if not args['level'] in ALIAS_NONCE_PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
-                               "The level attribute must be one of: {}".format(ALIAS_NONCE_PERMISSION_LEVELS))
+                               f"The level attribute must be one of: {ALIAS_NONCE_PERMISSION_LEVELS}")
         if conf.web_case == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
@@ -629,7 +665,7 @@ class AliasNonceResource(Resource):
         """Lookup details about a nonce."""
         logger.debug(f"top of GET /actors/aliases/{alias}/nonces/{nonce_id}")
         # check that alias exists -
-        alias_id = Alias.generate_alias_id(g.tenant_id, alias)
+        alias_id = Alias.generate_alias_id(g.request_tenant_id, alias)
         try:
             alias = Alias.from_db(alias_store[site()][alias_id])
         except KeyError:
@@ -645,7 +681,7 @@ class AliasNonceResource(Resource):
         logger.debug(f"top of DELETE /actors/aliases/{alias}/nonces/{nonce_id}")
         dbid = g.db_id
         # check that alias exists -
-        alias_id = Alias.generate_alias_id(g.tenant_id, alias)
+        alias_id = Alias.generate_alias_id(g.request_tenant_id, alias)
         try:
             alias = Alias.from_db(alias_store[site()][alias_id])
         except KeyError:
@@ -671,10 +707,10 @@ def check_for_link_cycles(db_id, link_dbid):
         if actor.get('link'):
             try:
                 link_id = Actor.get_actor_id(actor.get('tenant'), actor.get('link'))
-                link_dbid = Actor.get_dbid(g.tenant_id, link_id)
+                link_dbid = Actor.get_dbid(g.request_tenant_id, link_id)
             except Exception as e:
                 logger.error("corrupt link data; could not resolve link attribute in "
-                             "actor: {}; exception: {}".format(actor, e))
+                             f"actor: {actor}; exception: {e}")
                 continue
             # we do not want to override the proposed link passed in, as this actor could already have
             # a link (that was valid) and we need to check that the proposed link still works
@@ -720,8 +756,8 @@ def validate_link(args):
     # check permissions - creating a link to an actor requires EXECUTE permissions
     # on the linked actor.
     try:
-        link_id = Actor.get_actor_id(g.tenant_id, args['link'])
-        link_dbid = Actor.get_dbid(g.tenant_id, link_id)
+        link_id = Actor.get_actor_id(g.request_tenant_id, args['link'])
+        link_dbid = Actor.get_dbid(g.request_tenant_id, link_id)
     except Exception as e:
         msg = "Invalid link parameter; unable to retrieve linked actor data. The link " \
               "must be a valid actor id or alias for which you have EXECUTE permission. "
@@ -731,10 +767,10 @@ def validate_link(args):
         check_permissions(g.username, link_dbid, EXECUTE)
     except Exception as e:
         logger.info("Got exception trying to check permissions for actor link. "
-                    "Exception: {}; link: {}".format(e, link_dbid))
+                    f"Exception: {e}; link: {link_dbid}")
         raise DAOError("Invalid link parameter. The link must be a valid "
                        "actor id or alias for which you have EXECUTE permission. "
-                       "Additional info: {}".format(e))
+                       f"Additional info: {e}")
     logger.debug("check_permissions passed.")
     # POSTs to create new actors do not have db_id's assigned and cannot result in
     # cycles
@@ -751,11 +787,18 @@ class AbacoUtilizationResource(Resource):
     def get(self):
         logger.debug("top of GET /actors/utilization")
         num_current_actors = len(actors_store[site()])
-        num_actors = abaco_metrics_store[site()]['stats', 'actor_total']
         num_workers = len(workers_store[site()])
+        # Get total actors from abaco_metrics_store (stats are stored on a daily basis)
+        total_actors = 0
+        for stat_doc in abaco_metrics_store[site()].items():
+            try:
+                total_actors += stat_doc['actor_total']
+            except KeyError as e:
+                # Stat docs created daily, so some days there might not be stats in them
+                continue
         ch = CommandChannel()
         result = {'currentActors': num_current_actors,
-                  'totalActors': num_actors,
+                  'totalActors': total_actors,
                   'workers': num_workers,
                   'commandQueue': len(ch._queue._queue)
                   }
@@ -769,12 +812,12 @@ class ActorsResource(Resource):
             args_given = request.args
             args_full = {}
             args_full.update(args_given)
-            result = Search(args_full, 'actors', g.tenant_id, g.username).search()
+            result = Search(args_full, 'actors', g.request_tenant_id, g.username).search()
             return ok(result=result, msg="Actors search completed successfully.")
         else:
             actors = []
             for actor_info in actors_store[site()].items():
-                if actor_info['tenant'] == g.tenant_id:
+                if actor_info['tenant'] == g.request_tenant_id:
                     actor = Actor.from_db(actor_info)
                     if check_permissions(g.username, actor.db_id, READ):
                         actors.append(actor.display())
@@ -817,7 +860,7 @@ class ActorsResource(Resource):
         args = self.validate_post()
 
         logger.debug("validate_post() successful")
-        args['tenant'] = g.tenant_id
+        args['tenant'] = g.request_tenant_id
         args['api_server'] = g.api_server
         args['revision'] = 1
         args['owner'] = g.username
@@ -827,12 +870,22 @@ class ActorsResource(Resource):
         # whether to use TAS, use a fixed UID, etc.) and 2) use the uid and gid created in the container.
         # Case 2) allows containers to be run as root and requires admin role in Abaco.
         use_container_uid = args.get('use_container_uid')
+        run_as_executor = args.get('run_as_executor')
         if conf.web_case == 'camel':
             use_container_uid = args.get('useContainerUid')
+            run_as_executor = args.get('runAsExecutor')
         logger.debug(f"request set use_container_uid: {use_container_uid}; type: {type(use_container_uid)}")
+        if use_container_uid and run_as_executor:
+            if conf.web_case == 'camel':
+                raise DAOError("Cannot set both useContainerUid and runAsExecutor as true")
+            else:
+                raise DAOError("Cannot set both use_container_uid and run_as_executor as true")
+        if run_as_executor:
+            if not tenant_can_use_tas(g.tenant_id):
+                raise DAOError("run_as_executor isn't supported for your tenant")
         if not use_container_uid:
             logger.debug("use_container_uid was false. looking up uid and gid...")
-            uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.tenant_id)
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.request_tenant_id)
             logger.debug(f"got uid: {uid}, gid: {gid}, home_dir: {home_dir} from get_().")
             if uid:
                 args['uid'] = uid
@@ -897,14 +950,12 @@ class ActorsResource(Resource):
         # Change function
         actors_store[site()].add_if_empty([actor.db_id], actor)
         abaco_metrics_store[site()].full_update(
-            {'_id': 'stats'},
+            {'_id': f'{datetime.date.today()}-stats'},
             {'$inc': {'actor_total': 1},
              '$addToSet': {'actor_dbids': actor.db_id}},
              upsert=True)
 
-        logger.debug("new actor saved in db. id: {}. image: {}. tenant: {}".format(actor.db_id,
-                                                                                   actor.image,
-                                                                                   actor.tenant))
+        logger.debug(f"new actor saved in db. id: {actor.db_id}. image: {actor.image}. tenant: {actor.tenant}")
         if num_init_workers > 0:
             actor.ensure_one_worker()
         logger.debug("ensure_one_worker() called")
@@ -942,8 +993,7 @@ class ActorResource(Resource):
                 for execution in executions_by_actor:
                     del logs_store[site()][execution['id']]
             except KeyError as e:
-                logger.info("got KeyError {} trying to retrieve actor or executions with id {}".format(
-                    e, id))
+                logger.info(f"got KeyError {e} trying to retrieve actor or executions with id {id}")
         # shutdown workers ----
         logger.info(f"calling shutdown_workers() for actor: {id}")
         shutdown_workers(id)
@@ -1005,7 +1055,7 @@ class ActorResource(Resource):
         previous_revision = actor.revision
         args = self.validate_put(actor)
         logger.debug("PUT args validated successfully.")
-        args['tenant'] = g.tenant_id
+        args['tenant'] = g.request_tenant_id
          # Checking for 'log_ex' input arg.
         if conf.web_case == 'camel':
             if 'logEx' in args and args.get('logEx') is not None:
@@ -1024,11 +1074,19 @@ class ActorResource(Resource):
                 cron = args.get('cronSchedule')
             if 'cronOn' in args and args.get('cronOn') is not None:
                 actor['cron_on'] = args.get('cronOn')
+            if 'runAsExecutor' in args and args.get('runAsExecutor') is not None:
+                actor['run_as_executor'] = args.get('runAsExecutor')
         else:
             if 'cron_schedule' in args and args.get('cron_schedule') is not None:
                 cron = args.get('cron_schedule')
             if 'cron_on' in args and args.get('cron_on') is not None:
                 actor['cron_on'] = args.get('cron_on')
+            if 'run_as_executor' in args and args.get('run_as_executor') is not None:
+                actor['run_as_executor'] = args.get('run_as_executor')
+        #run_as_executor only works for TAS tenants so we need to check if the tenant uses TAS
+        if actor['run_as_executor']:
+            if not tenant_can_use_tas(g.tenant_id):
+                raise DAOError("run_as_executor isn't supported for your tenant")
         if cron is not None:
             # set_cron checks for the 'now' alias 
             # It also checks that the cron schedule is greater than or equal to the current UTC time
@@ -1077,8 +1135,14 @@ class ActorResource(Resource):
         use_container_uid = args.get('use_container_uid')
         if conf.web_case == 'camel':
             use_container_uid = args.get('useContainerUid')
+        if actor.get('use_container_uid') and actor.get('run_as_executor'):
+            if conf.web_case == 'camel':
+                raise DAOError("Cannot set both useContainerUid and runAsExecutor as true")
+            else:
+                raise DAOError("Cannot set both use_container_uid and run_as_executor as true")
+                 
         if not use_container_uid:
-            uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.tenant_id)
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.request_tenant_id)
             if uid:
                 args['uid'] = uid
             if gid:
@@ -1095,7 +1159,7 @@ class ActorResource(Resource):
 
         logger.info(f"updated actor {actor_id} stored in db.")
         if update_image:
-            worker_id = Worker.request_worker(tenant=g.tenant_id, actor_id=actor.db_id)
+            worker_id = Worker.request_worker(tenant=g.request_tenant_id, actor_id=actor.db_id)
             # get actor queue name
             ch = CommandChannel(name=actor.queue)
             # stop_existing defaults to True, so this command will also stop existing workers:
@@ -1190,14 +1254,206 @@ class ActorStateResource(Resource):
         return json_data
 
 
+class ActorConfigsResource(Resource):
+    def get(self):
+        logger.debug("top of GET /configs")
+        # who can see and modify this config?
+        # permission model
+        # permissions endpoint
+        configs = []
+        logger.debug(f"CONFIGS: {configs_store[site()].items()}")
+        for v in configs_store[site()].items():
+            logger.debug(f"item is {v}")
+            if v['tenant'] == g.request_tenant_id:
+                configs.append(ActorConfig.from_db(v).display())
+        logger.info("actor configs retrieved.")
+        return ok(result=configs, msg="Actor Configs retrieved successfully.")
+
+    def validate_post(self):
+        parser = ActorConfig.request_parser()
+        try:
+            args = parser.parse_args()
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            raise DAOError(f"Invalid config description. Missing required field: {msg}")
+        return args
+
+    def post(self):
+        logger.info("top of POST to register a new config.")
+        args = self.validate_post()
+
+        # Check that the actor ids correspond to real actors or aliases and that the user
+        # has UPDATE access to each of them ---
+        # first, split the string by comma
+        actors = args.get('actors')
+        try:
+            actors_list = actors.replace(" ", "").split(',')
+            for count, wrd in enumerate(actors_list):
+                actors_list[count] = wrd.strip()
+        except Exception as e:
+            logger.info(f"Got exception trying to parse actor parameter. e: {e}")
+            raise DAOError(f"Could not parse the actors parameter ({actors}). It should be a comma-separated list of "
+                           f"actors ids or alias ids. Details: {e}")
+        logger.debug(f"actors are {actors_list}")
+        # Loop through ids and check existence
+        for a in actors_list:
+            try:
+                # need to check if this identifier is an actor id or an alias
+                db_id = f"{g.request_tenant_id}_{a}"
+                actors_store[site()][db_id]
+            except KeyError:
+                logger.debug(f"did not find actor: {db_id}. now checking alias")
+                try:
+                    alias_store[site()][db_id]
+                except KeyError:
+                    raise ResourceError(f"No actor or alias found with id: {a}.", 404)
+            # also check that user has update access to actor --
+            check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
+
+        args['tenant'] = g.request_tenant_id
+        if args.get('isSecret') or args.get('is_secret'):
+            args['value'] = encrypt_utils.encrypt(args.get('value'))
+        logger.debug("config post args validated")
+        # create the ActorConfig object with the args --
+        actor_config = ActorConfig(**args)
+        # additional checks for reserved words, forbidden characters and uniqueness
+        actor_config.check_and_create_config()
+        # save the config to the db
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=actor_config.name)
+        configs_store[site()][config_id] = actor_config.to_db()
+        # set permissions for this config
+        set_config_permission(g.username, config_id, UPDATE)
+        return ok(result=actor_config.display(), msg="Actor config created successfully.")
+
+
+class ActorConfigResource(Resource):
+    def get(self, config_name):
+        logger.debug(f"top of GET /actors/configs/{config_name}")
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
+        try:
+            config = ActorConfig.from_db(configs_store[site()][config_id])
+        except KeyError:
+            logger.debug(f"did not find config with id: {config_id}")
+            raise ResourceError(f"No config found: {config_name}.", 404)
+        logger.debug(f"found config {config}")
+        return ok(result=config.display(), msg="Config retrieved successfully.")
+
+
+    def validate_put(self):
+        logger.debug("top of validate_put")
+        try:
+            data = request.get_json()
+        except:
+            data = None
+        # if data and 'alias' in data or 'alias' in request.form:
+        #     logger.debug("found alias in the PUT.")
+        #     raise DAOError("Invalid alias update description. The alias itself cannot be updated in a PUT request.")
+        parser = ActorConfig.request_parser()
+        logger.debug("got the actor config parser")
+        # # remove since alias is only required for POST, not PUT
+        # parser.remove_argument('config')
+        try:
+            args = parser.parse_args()
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            raise DAOError(f"Invalid alias description. Could not determine if required fields are present. "
+                           f"Is the body valid JSON? Details: {msg}")
+        return args
+
+    def put(self, config_name):
+        logger.debug(f"top of PUT /actors/configs/{config_name}")
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
+        try:
+            config_obj = ActorConfig.from_db(configs_store[site()][config_id])
+        except KeyError:
+            logger.debug(f"did not find config with name: {config_name}")
+            raise ResourceError(f"No config found: {config_name}.", 404)
+        logger.debug(f"found config {config_obj}")
+        args = self.validate_put()
+        if not check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+            raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
+
+        # Check that the actor ids correspond to real actors or aliases and that the user
+        # has UPDATE access to each of them ---
+        # first, split the string by comma
+        actors = args.get('actors')
+        try:
+            actors_list = actors.replace(" ", "").split(',')
+            for count, wrd in enumerate(actors_list):
+                actors_list[count] = wrd.strip()
+        except Exception as e:
+            logger.info(f"Got exception trying to parse actor parameter. e: {e}")
+            raise DAOError(f"Could not parse the actors parameter ({actors}). It should be a comma-separated list of "
+                           f"actors ids. Details: {e}")
+        logger.debug(f"actors are {actors_list}")
+        # Loop through ids and check existence
+        for a in actors_list:
+            try:
+                # need to check if this identifier is an actor id or an alias
+                db_id = f"{g.request_tenant_id}_{a}"
+                actors_store[site()][db_id]
+            except KeyError:
+                logger.debug(f"did not find actor: {db_id}. now checking alias")
+                try:
+                    alias_store[site()][db_id]
+                except KeyError:
+                    raise ResourceError(f"No actor or alias found with id: {a}.", 404)
+            # also check that user has update access to actor --
+            check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
+
+        # supply "provided" fields:
+        args['tenant'] = config_obj.tenant
+        args['name'] = config_obj.name
+        if args.get('isSecret') or args.get('is_secret'):
+            args['value'] = encrypt_utils.encrypt(args.get('value'))
+        logger.debug(f"Instantiating actor config object. args: {args}")
+        new_config_obj = ActorConfig(**args)
+        logger.debug("Check that the config is not a reserved word")
+        new_config_obj.check_reserved_words()
+        logger.debug("Check that the config has no forbidden characters")
+        new_config_obj.check_forbidden_char()
+        logger.debug(f"Actor Config object instantiated; updating actor config in configs_store. config: {new_config_obj}")
+        configs_store[site()][config_id] = new_config_obj
+        logger.debug(f"NEW CONFIG OBJ {new_config_obj}")
+        logger.info(f"actor config updated for config: {config_id}.")
+        return ok(result=new_config_obj.display(), msg="Actor config updated successfully.")
+
+    def delete(self, config_name):
+        logger.debug(f"top of DELETE /actors/configs/{config_name}")
+        config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
+        try:
+            ActorConfig.from_db(configs_store[site()][config_id])
+        except KeyError:
+            raise ResourceError(f"No config found with name: {config_name}.", 404)
+
+        # check that the user has update access to the config
+        if not check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+            raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
+
+        # delete the config and associated permissions
+        try:
+            del configs_store[site()][config_id]
+            # also remove all permissions - there should be at least one permissions associated
+            # with the owner
+            del configs_permissions_store[site()][config_id]
+            logger.info(f"Actor config {config_id} deleted from actor config store.")
+        except Exception as e:
+            logger.info(f"got Exception {e} trying to delete alias {config_id}")
+        return ok(result=None, msg=f'Actor config {config_name} deleted successfully.')
+
+
 class ActorExecutionsResource(Resource):
     def get(self, actor_id):
         logger.debug(f"top of GET /actors/{actor_id}/executions")
         if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
             args_given = request.args
-            args_full = {'actor_id': f'{g.tenant_id}_{actor_id}'}
+            args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}'}
             args_full.update(args_given)
-            result = Search(args_full, 'executions', g.tenant_id, g.username).search()
+            result = Search(args_full, 'executions', g.request_tenant_id, g.username).search()
             return ok(result=result, msg="Executions search completed successfully.")
         else:
             dbid = g.db_id
@@ -1211,8 +1467,7 @@ class ActorExecutionsResource(Resource):
                 summary = ExecutionsSummary(db_id=dbid)
             except DAOError as e:
                 logger.debug(f"did not find executions summary: {actor_id}")
-                raise ResourceError("Could not retrieve executions summary for actor: {}. "
-                                    "Details: {}".format(actor_id, e), 404)
+                raise ResourceError(f"Could not retrieve executions summary for actor: {actor_id}. Details: {e}", 404)
             return ok(result=summary.display(), msg="Actor executions retrieved successfully.")
 
     def post(self, actor_id):
@@ -1271,7 +1526,7 @@ class ActorNoncesResource(Resource):
         logger.debug(f"nonce post args validated; dbid: {dbid}; actor_id: {actor_id}.")
 
         # supply "provided" fields:
-        args['tenant'] = g.tenant_id
+        args['tenant'] = g.request_tenant_id
         args['api_server'] = g.api_server
         args['db_id'] = dbid
         args['owner'] = g.username
@@ -1300,7 +1555,7 @@ class ActorNoncesResource(Resource):
         if 'level' in args:
             if not args['level'] in PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
-                               "The level attribute must be one of: {}".format(PERMISSION_LEVELS))
+                               f"The level attribute must be one of: {PERMISSION_LEVELS}")
         if conf.web_case == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
@@ -1359,12 +1614,12 @@ class ActorExecutionResource(Resource):
         # check status of execution:
         if not exc.status == codes.RUNNING:
             logger.debug(f"execution not in {codes.RUNNING} status: {exc.status}")
-            raise ResourceError("Cannot force quit an execution not in {} status. "
-                                "Execution was found in status: {}".format(codes.RUNNING, exc.status))
+            raise ResourceError(f"Cannot force quit an execution not in {codes.RUNNING} status. "
+                                f"Execution was found in status: {exc.status}")
         # send force_quit message to worker:
         # TODO - should we set the execution status to FORCE_QUIT_REQUESTED?
-        logger.debug("issuing force quit to worker: {} "
-                     "for actor_id: {} execution_id: {}".format(exc.worker_id, actor_id, execution_id))
+        logger.debug(f"issuing force quit to worker: {exc.worker_id} "
+                     f"for actor_id: {actor_id} execution_id: {execution_id}")
         ch = WorkerChannel(worker_id=exc.worker_id)
         ch.put('force_quit')
         msg = f'Issued force quit command for execution {execution_id}.'
@@ -1389,14 +1644,14 @@ class ActorExecutionResultsResource(Resource):
         # result = []
         # num = 0
         # limit = request.args.get('limit', 1)
-        # logger.debug("limit: {}".format(limit))
+        # logger.debug(f"limit: {limit}")
         # while num < limit:
         #     try:
         #         result.append(ch.get(timeout=0.1))
         #         num += 1
         #     except Exception:
         #         break
-        # logger.debug("collected {} results".format(num))
+        # logger.debug(f"collected {num} results")
         # ch.close()
         # return Response(result)
 
@@ -1411,9 +1666,9 @@ class ActorExecutionLogsResource(Resource):
         logger.debug(f"top of GET /actors/{actor_id}/executions/{execution_id}/logs.")
         if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
             args_given = request.args
-            args_full = {'actor_id': f'{g.tenant_id}_{actor_id}', '_id': execution_id}
+            args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}', '_id': execution_id}
             args_full.update(args_given)
-            result = Search(args_full, 'logs', g.tenant_id, g.username).search()
+            result = Search(args_full, 'logs', g.request_tenant_id, g.username).search()
             return ok(result=result, msg="Log search completed successfully.")
         else:
             dbid = g.db_id
@@ -1556,7 +1811,7 @@ class MessagesResource(Resource):
                         synchronous = True
                     else:
                         logger.debug("found synchronous and value was false")
-                except Execution as e:
+                except Exception as e:
                     logger.info(f"Got exception trying to parse the _abaco_synchronous; e: {e}")
             if k == 'message':
                 continue
@@ -1578,17 +1833,29 @@ class MessagesResource(Resource):
             logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
         # create an execution
         before_exc_timer = timeit.default_timer()
-        exc = Execution.add_execution(dbid, {'cpu': 0,
-                                             'io': 0,
-                                             'runtime': 0,
-                                             'status': SUBMITTED,
-                                             'executor': g.username})
+        if actors_store[site()][dbid]["run_as_executor"]:
+            #get the uid and gid from the executor
+            uid, gid, homedir = get_uid_gid_homedir(actor_id, g.username, g.tenant_id)
+            exc = Execution.add_execution(dbid, {'cpu': 0,
+                                                'io': 0,
+                                                'runtime': 0,
+                                                'status': SUBMITTED,
+                                                'executor': g.username,
+                                                'executor_uid': uid,               #this is the uid and gid of the executor not the owner which is needed if the actor is ran as an executor
+                                                'executor_gid': gid})
+        else:
+            exc = Execution.add_execution(dbid, {'cpu': 0,
+                                                'io': 0,
+                                                'runtime': 0,
+                                                'status': SUBMITTED,
+                                                'executor': g.username})
         after_exc_timer = timeit.default_timer()
         logger.info(f"Execution {exc} added for actor {actor_id}")
         d['_abaco_execution_id'] = exc
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         d['_abaco_actor_revision'] = actor.revision
         logger.debug(f"Final message dictionary: {d}")
+        
         before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
         after_ch_timer = timeit.default_timer()
@@ -1703,12 +1970,12 @@ class MessagesResource(Resource):
 
 class WorkersResource(Resource):
     def get(self, actor_id):
-        logger.debug(f"top of GET /actors/{actor_id}/workers for tenant {g.tenant_id}.")
+        logger.debug(f"top of GET /actors/{actor_id}/workers for tenant {g.request_tenant_id}.")
         if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
             args_given = request.args
-            args_full = {'actor_id': f'{g.tenant_id}_{actor_id}'}
+            args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}'}
             args_full.update(args_given)
-            result = Search(args_full, 'workers', g.tenant_id, g.username).search()
+            result = Search(args_full, 'workers', g.request_tenant_id, g.username).search()
             return ok(result=result, msg="Workers search completed successfully.")
         else:
             dbid = g.db_id
@@ -1761,22 +2028,21 @@ class WorkersResource(Resource):
             raise ResourceError(e.msg, 404)
         current_number_workers = len(workers)
         if current_number_workers < num:
-            logger.debug("There were only {} workers for actor: {} so we're adding more.".format(current_number_workers,
-                                                                                                 actor_id))
+            logger.debug(f"There were only {current_number_workers} workers for actor: {actor_id} so we're adding more.")
             num_to_add = int(num) - len(workers)
             logger.info(f"adding {num_to_add} more workers for actor {actor_id}")
             for idx in range(num_to_add):
                 # send num_to_add messages to add 1 worker so that messages are spread across multiple
                 # spawners.
-                worker_id = Worker.request_worker(tenant=g.tenant_id,
+                worker_id = Worker.request_worker(tenant=g.request_tenant_id,
                                                   actor_id=dbid)
-                logger.info("New worker id: {}".format(worker_id[0]))
+                logger.info(f"New worker id: {worker_id[0]}")
                 ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,
                            worker_id=worker_id,
                            image=actor.image,
                            revision=actor.revision,
-                           tenant=g.tenant_id,
+                           tenant=g.request_tenant_id,
                            site_id=site(),
                            stop_existing=False)
             ch.close()
@@ -1824,17 +2090,30 @@ class PermissionsResource(Resource):
     The code uses the request rule to determine which object is being referenced.
     """
     def get(self, identifier):
+        is_config = False
         if 'actors/aliases/' in request.url_rule.rule:
             logger.debug(f"top of GET /actors/aliases/{identifier}/permissions.")
-            id = Alias.generate_alias_id(g.tenant_id, identifier)
+            id = Alias.generate_alias_id(g.request_tenant_id, identifier)
+        elif 'actors/configs' in request.url_rule.rule:
+            logger.debug(f"top of GET /actors/configs/{identifier}/permissions.")
+            id = ActorConfig.get_config_db_key(g.request_tenant_id, identifier)
+            is_config = True
         else:
             logger.debug(f"top of GET /actors/{identifier}/permissions.")
             id = g.db_id
-        try:
-            permissions = get_permissions(id)
-        except PermissionsException as e:
-            logger.debug(f"Did not find permissions. actor: {actor_id}.")
-            raise ResourceError(e.msg, 404)
+        # config permissions are stored in a separate store --
+        if is_config:
+            try:
+                permissions = get_config_permissions(id)
+            except PermissionsException as e:
+                logger.debug(f"Did not find config permissions for config: {identifier}.")
+                raise ResourceError(e.msg, 404)
+        else:
+            try:
+                permissions = get_permissions(id)
+            except PermissionsException as e:
+                logger.debug(f"Did not find actor permissions for config: {identifier}.")
+                raise ResourceError(e.msg, 404)
         return ok(result=permissions, msg="Permissions retrieved successfully.")
 
     def validate_post(self):
@@ -1851,27 +2130,42 @@ class PermissionsResource(Resource):
             raise DAOError(f"Invalid permissions description: {msg}")
 
         if not args['level'] in PERMISSION_LEVELS:
-            raise ResourceError("Invalid permission level: {}. \
-            The valid values are {}".format(args['level'], PERMISSION_LEVELS))
+            raise ResourceError(f"Invalid permission level: {args['level']}. The valid values are {PERMISSION_LEVELS}")
         return args
 
     def post(self, identifier):
         """Add new permissions for an object `identifier`."""
+        is_confg = False
         if 'actors/aliases/' in request.url_rule.rule:
             logger.debug(f"top of POST /actors/aliases/{identifier}/permissions.")
-            id = Alias.generate_alias_id(g.tenant_id, identifier)
+            dbid = Alias.generate_alias_id(g.request_tenant_id, identifier)
+        elif 'actors/configs/' in request.url_rule.rule:
+            logger.debug(f"top of POST /actors/configs/{identifier}/permissions.")
+            is_confg = True
+            dbid = ActorConfig.get_config_db_key(g.request_tenant_id, identifier)
         else:
             logger.debug(f"top of POST /actors/{identifier}/permissions.")
-            id = g.db_id
+            dbid = g.db_id
         args = self.validate_post()
-        logger.debug(f"POST permissions body validated for identifier: {id}.")
-        set_permission(args['user'], id, PermissionLevel(args['level']))
-        logger.info(f"Permission added for user: {args['user']} actor: {id} level: {args['level']}")
-        permissions = get_permissions(id)
+        logger.debug(f"POST permissions body validated for identifier: {dbid}.")
+        if is_confg:
+            set_config_permission(args['user'], config_id=dbid, level=PermissionLevel(args['level']))
+            permissions = get_config_permissions(config_id=dbid)
+        else:
+            set_permission(args['user'], dbid, PermissionLevel(args['level']))
+            permissions = get_permissions(actor_id=dbid)
+        logger.info(f"Permission added for user: {args['user']}; identifier: {dbid}; level: {args['level']}")
+
         return ok(result=permissions, msg="Permission added successfully.")
+
 
 class ActorPermissionsResource(PermissionsResource):
     pass
 
+
 class AliasPermissionsResource(PermissionsResource):
+    pass
+
+
+class ActorConfigsPermissionsResource(PermissionsResource):
     pass

@@ -19,10 +19,11 @@ from channels import CommandChannel, EventsChannel
 from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
     SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
 from common.config import conf
+import errors
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
 from stores import actors_store, alias_store, executions_store, logs_store, nonce_store, \
-    permissions_store, workers_store, abaco_metrics_store
+    permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store
 
 from common.logs import get_logger
 logger = get_logger(__name__)
@@ -33,7 +34,9 @@ HASH_SALT = 'eJa5wZlEX4eWU'
 # default max length for an actor execution log - 1MB
 DEFAULT_MAX_LOG_LENGTH = 1000000
 
-def site():
+def site(site_override=None):
+    if site_override:
+        g.site_id = site_override
     try:
         return g.site_id
     except:
@@ -98,11 +101,11 @@ def display_time(t):
         dt = t.isoformat().replace('000', 'Z')
     except AttributeError as e:
         logger.error(f"Did not receive datetime object. Received object of type {type(t)}. Object: {t}. Exception: {e}")
-        raise DAOError("Error retrieving time data.")
+        raise errors.DAOError("Error retrieving time data.")
     except Exception as e:
         logger.error(f"Error in formatting display time. Exception: {e}")
 
-        raise DAOError("Error retrieving time data.")
+        raise errors.DAOError("Error retrieving time data.")
     return dt
 
 
@@ -528,7 +531,7 @@ class Event(object):
             actor = Actor.from_db(actors_store[site()][self.db_id])
         except KeyError:
             logger.debug(f"did not find actor with id: {self.actor_id}")
-            raise ResourceError(f"No actor found with identifier: {self.actor_id}.", 404)
+            raise errors.ResourceError(f"No actor found with identifier: {self.actor_id}.", 404)
         # the link and webhook attributes were added in 1.2.0; actors registered before 1.2.0 will not have
         # have these attributed defined so we use the .get() method below --
         # if the webhook exists, we always try it.
@@ -579,7 +582,7 @@ class ActorEvent(Event):
         if not event_type.upper() in ActorEvent.event_types:
             logger.error("Invalid actor event type passed to the ActorEvent constructor. "
                          "event type: {}".format(event_type))
-            raise DAOError(f"Invalid actor event type {event_type}.")
+            raise errors.DAOError(f"Invalid actor event type {event_type}.")
 
 
 class ActorExecutionEvent(Event):
@@ -598,7 +601,7 @@ class ActorExecutionEvent(Event):
         if not event_type.upper() in ActorExecutionEvent.event_types:
             logger.error("Invalid actor event type passed to the ActorExecutionEvent constructor. "
                          "event type: {}".format(event_type))
-            raise DAOError(f"Invalid actor execution event type {event_type}.")
+            raise errors.DAOError(f"Invalid actor execution event type {event_type}.")
 
         self.execution_id = execution_id
         self.data['execution_id'] = execution_id
@@ -687,7 +690,7 @@ class AbacoDAO(DbDict):
                     value = kwargs[pname]
                 except KeyError:
                     logger.debug(f"required missing field: {pname}. ")
-                    raise DAOError(f"Required field {pname} missing.")
+                    raise errors.DAOError(f"Required field {pname} missing.")
             elif source == 'optional':
                 try:
                     value = kwargs[pname]
@@ -698,7 +701,7 @@ class AbacoDAO(DbDict):
                     value = kwargs[pname]
                 except KeyError:
                     logger.debug(f"provided field missing: {pname}.")
-                    raise DAOError(f"Required field {pname} missing.")
+                    raise errors.DAOError(f"Required field {pname} missing.")
             else:
                 # derived value - check to see if already computed
                 if hasattr(self, pname):
@@ -776,7 +779,8 @@ class Actor(AbacoDAO):
         ('log_ex', 'optional', 'log_ex', int, 'Amount of time, in seconds, after which logs will expire', None),
         ('cron_on', 'optional', 'cron_on', inputs.boolean, 'Whether cron is on or off', False),
         ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
-        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None)
+        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
+        ('run_as_executor', 'optional', 'run_as_executor', inputs.boolean, 'Whether UID and GID is of the executer', False)
         ]
 
     SYNC_HINT = 'sync'
@@ -796,7 +800,7 @@ class Actor(AbacoDAO):
             actor_id, db_id = self.generate_id(d['name'], d['tenant'])
         except KeyError:
             logger.debug(f"name or tenant missing from actor dict: {d}.")
-            raise DAOError("Required field name or tenant missing")
+            raise errors.DAOError("Required field name or tenant missing")
         # id fields:
         self.id = actor_id
         self.db_id = db_id
@@ -841,7 +845,62 @@ class Actor(AbacoDAO):
             actors_store[actor_id, 'cron_on'] = False
         time = f"{end.year}-{end.month}-{end.day} {end.hour}"
         logger.debug(f"returning {time}")
-        return time  
+        return time
+    
+    #this function assumes that cron_next_ex is in the past, due to some failure
+    # this function updates cron_next_ex, so the actor starts getting executed at the same times that it
+    # would execute if the cron never failed; it also prints all the times the cron failed to execute when it
+    # was suppose to in the logger
+    @classmethod
+    def set_next_ex_past(cls, actor, actor_id):
+            logger.debug("In set_next_ex_past")
+            # Parse cron into [datetime, increment, unit of time]
+            cron = actor['cron_schedule']
+            cron_parsed = parse("{} + {} {}", cron)
+            time_increment = int(cron_parsed.fixed[1])
+            unit_time = cron_parsed.fixed[2]
+            logger.debug(f"cron_parsed[1] is {time_increment}")
+            # Parse the cron_next_ex into another list of the form [year, month, day, hour]
+            cron_next_ex = actor['cron_next_ex']
+            cron_nextex_parsed = parse("{}-{}-{} {}", cron_next_ex)
+            # Create a datetime object from the cron_next_ex_parsed list
+            cron_datetime = datetime.datetime(int(cron_nextex_parsed[0]), int(cron_nextex_parsed[1]), \
+                int(cron_nextex_parsed[2]), int(cron_nextex_parsed[3]))
+            # Create a datetime object for current time
+            now = datetime.datetime.utcnow()
+            now = datetime.datetime(now.year, now.month, now.day, now.hour)
+            #initialize certain variables to report when Cron failed
+            timeswherecronfailed=[]
+            # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
+            # we use a while loop
+            if unit_time == "month" or unit_time == "months":
+                while cron_datetime<now:                                                        #while cron_next_ex is less than now
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)                                       #recording when cron failed
+                    cron_datetime = cron_datetime + relativedelta(months=+time_increment)       #increment the cron_next_ex value by time increment
+            elif unit_time == "week" or unit_time == "weeks":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(weeks=time_increment)
+            elif unit_time == "day" or unit_time == "days":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(days=time_increment)
+            elif unit_time == "hour" or unit_time == "hours":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(hours=time_increment)
+            else:
+                # The unit of time is not supported, turn off cron or else it will continue to execute
+                logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
+                actors_store[actor_id, 'cron_on'] = False
+            new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+            logger.debug("The cron failed to execute the actor at")
+            logger.debug(timeswherecronfailed)
+            return new_cron  
 
     @classmethod
     def set_cron(cls, cron):
@@ -854,7 +913,7 @@ class Actor(AbacoDAO):
         r = parse("{} + {} {}", cron)
         logger.debug(f"r is {r}")
         if r is None:
-            raise DAOError(f"The cron is not in the correct format")
+            raise errors.DAOError(f"The cron is not in the correct format")
         # Check that the cron schedule hasn't already passed
         # Check for the 'now' alias and change the cron to now if 'now' is sent in
         cron_time = r.fixed[0]
@@ -872,13 +931,13 @@ class Actor(AbacoDAO):
             cron_time_parsed = parse("{}-{}-{} {}", cron_time)
             if cron_time_parsed is None:
                 logger.debug(f'{r} is not in the correct format')
-                raise DAOError(f"The starting date {r.fixed[0]} is not in the correct format")
+                raise errors.DAOError(f"The starting date {r.fixed[0]} is not in the correct format")
             else:
                 # Create a datetime object out of cron_datetime
                 schedule_execution = datetime.datetime(int(cron_time_parsed[0]), int(cron_time_parsed[1]), int(cron_time_parsed[2]), int(cron_time_parsed[3]))
                 if schedule_execution < now_datetime:
                     logger.debug("User sent in old time, raise exception")
-                    raise DAOError(f'The starting datetime is old. The current UTC time is {now_datetime}')
+                    raise errors.DAOError(f'The starting datetime is old. The current UTC time is {now_datetime}')
         return r
 
     @classmethod
@@ -952,7 +1011,7 @@ class Actor(AbacoDAO):
         logger.debug(f"Worker.ensure_one_worker returned worker_id: {worker_id}")
         if worker_id:
             logger.info("Actor.ensure_one_worker() putting message on command "
-                        "channel for worker_id: {}".format(worker_id))
+                        f"channel for worker_id: {worker_id}")
             ch = CommandChannel(name=self.queue)
             ch.put_cmd(actor_id=self.db_id,
                        worker_id=worker_id,
@@ -1044,6 +1103,48 @@ class Actor(AbacoDAO):
         if status_message:
             actors_store[site_id][actor_id, 'status_message'] = status_message
 
+    @classmethod
+    def is_sync_actor(cls, actor_id):
+        """
+        Determine whether an actor is a "sync" actor based on the official hint.
+        :param actor_id:
+        :return:
+        """
+        actor = actors_store.get(actor_id)
+        is_sync_actor = False
+        try:
+            hints = list(actor.get("hints"))
+        except:
+            hints = []
+        for hint in hints:
+            if hint == Actor.SYNC_HINT:
+                is_sync_actor = True
+                break
+        return is_sync_actor
+
+    @classmethod
+    def get_max_workers_for_actor(cls, actor_id):
+        """
+        Get the max number of workers for an actor
+        :param actor_id:
+        :return:
+        """
+        max_workers = 0
+        actor = actors_store[site()].get(actor_id)
+        if actor.get('max_workers'):
+            try:
+                max_workers = int(actor['max_workers'])
+            except Exception as e:
+                logger.error("max_workers defined for actor_id {} but could not cast to int. "
+                             "Exception: {}".format(actor_id, e))
+        if not max_workers:
+            try:
+                max_workers = int(conf.spawner_max_workers_per_actor)
+            except Exception as e:
+                logger.error(f"Unable to get/cast max_workers_per_actor config to int. Exception: {e}")
+                max_workers = 1
+        return max_workers
+
 
 class Alias(AbacoDAO):
     """Data access object for working with Actor aliases."""
@@ -1079,14 +1180,14 @@ class Alias(AbacoDAO):
 
     def check_reserved_words(self):
         if self.alias in Alias.RESERVED_WORDS:
-            raise DAOError("{} is a reserved word. "
+            raise errors.DAOError("{} is a reserved word. "
                                   "The following reserved words cannot be used "
                                   "for an alias: {}.".format(self.alias, Alias.RESERVED_WORDS))
 
     def check_forbidden_char(self):
         for char in Alias.FORBIDDEN_CHAR:
             if char in self.alias:
-                raise DAOError("'{}' is a forbidden character. "
+                raise errors.DAOError("'{}' is a forbidden character. "
                                       "The following characters cannot be used "
                                       "for an alias: ['{}'].".format(char, "', '".join(Alias.FORBIDDEN_CHAR)))
 
@@ -1100,7 +1201,7 @@ class Alias(AbacoDAO):
         # attempt to create the alias within a transaction
         obj = alias_store[site()].add_if_empty([self.alias_id], self)
         if not obj:
-            raise DAOError(f"Alias {self.alias} already exists.")
+            raise errors.DAOError(f"Alias {self.alias} already exists.")
         return obj
 
     @classmethod
@@ -1170,12 +1271,12 @@ class Nonce(AbacoDAO):
             self.tenant = d['tenant']
         except KeyError:
             logger.error("The nonce controller did not pass tenant to the Nonce model.")
-            raise DAOError("Could not instantiate nonce: tenant parameter missing.")
+            raise errors.DAOError("Could not instantiate nonce: tenant parameter missing.")
         try:
             self.api_server = d['api_server']
         except KeyError:
             logger.error("The nonce controller did not pass api_server to the Nonce model.")
-            raise DAOError("Could not instantiate nonce: api_server parameter missing.")
+            raise errors.DAOError("Could not instantiate nonce: api_server parameter missing.")
         # either an alias or a db_id must be passed, but not both -
         try:
             self.db_id = d['db_id']
@@ -1187,26 +1288,26 @@ class Nonce(AbacoDAO):
                 self.actor_id = None
             except KeyError:
                 logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
-                raise DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+                raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
         if not self.db_id:
             try:
                 self.alias = d['alias']
                 self.actor_id = None
             except KeyError:
                 logger.error("The nonce controller did not pass db_id or alias to the Nonce model.")
-                raise DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
+                raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters missing.")
         if self.alias and self.db_id:
-            raise DAOError("Could not instantiate nonce: both db_id and alias parameters present.")
+            raise errors.DAOError("Could not instantiate nonce: both db_id and alias parameters present.")
         try:
             self.owner = d['owner']
         except KeyError:
             logger.error("The nonce controller did not pass owner to the Nonce model.")
-            raise DAOError("Could not instantiate nonce: owner parameter missing.")
+            raise errors.DAOError("Could not instantiate nonce: owner parameter missing.")
         try:
             self.roles = d['roles']
         except KeyError:
             logger.error("The nonce controller did not pass roles to the Nonce model.")
-            raise DAOError("Could not instantiate nonce: roles parameter missing.")
+            raise errors.DAOError("Could not instantiate nonce: roles parameter missing.")
 
         # generate a nonce id:
         if not hasattr(self, 'id') or not self.id:
@@ -1258,9 +1359,9 @@ class Nonce(AbacoDAO):
     @classmethod
     def get_validate_nonce_key(cls, actor_id, alias):
         if not actor_id and not alias:
-            raise DAOError('add_nonce did not receive an alias or an actor_id')
+            raise errors.DAOError('add_nonce did not receive an alias or an actor_id')
         if actor_id and alias:
-            raise DAOError('add_nonce received both an alias and an actor_id')
+            raise errors.DAOError('add_nonce received both an alias and an actor_id')
         if actor_id:
             return actor_id
         return alias
@@ -1291,7 +1392,7 @@ class Nonce(AbacoDAO):
             nonce = nonce_store[site()][nonce_key][nonce_id]
             return Nonce(**nonce)
         except KeyError:
-            raise DAOError("Nonce not found.")
+            raise errors.DAOError("Nonce not found.")
 
     @classmethod
     def add_nonce(cls, actor_id, alias, nonce):
@@ -1325,14 +1426,14 @@ class Nonce(AbacoDAO):
         try:
             nonce = nonce_store[site()][nonce_key][nonce_id]
         except KeyError:
-            raise PermissionsException("Nonce does not exist.")
+            raise errors.PermissionsException("Nonce does not exist.")
 
         # check if the nonce level is sufficient
         try:
             if PermissionLevel(nonce['level']) < level:
-                raise PermissionsException("Nonce does not have sufficient permissions level.")
+                raise errors.PermissionsException("Nonce does not have sufficient permissions level.")
         except KeyError:
-            raise PermissionsException("Nonce did not have an associated level.")
+            raise errors.PermissionsException("Nonce did not have an associated level.")
         
         try:
             # Check for remaining uses equal to -1
@@ -1355,10 +1456,10 @@ class Nonce(AbacoDAO):
                 return
             
             logger.debug("nonce did not have at least 1 use remaining.")
-            raise PermissionsException("No remaining uses left for this nonce.")
+            raise errors.PermissionsException("No remaining uses left for this nonce.")
         except KeyError:
             logger.debug("nonce did not have a remaining_uses attribute.")
-            raise PermissionsException("No remaining uses left for this nonce.")
+            raise errors.PermissionsException("No remaining uses left for this nonce.")
 
       
 class Execution(AbacoDAO):
@@ -1370,6 +1471,8 @@ class Execution(AbacoDAO):
         ('api_server', 'required', 'api_server', str, 'The base URL for the tenant that this actor belongs to.', None),
         ('actor_id', 'required', 'actor_id', str, 'The human readable id for the actor associated with this execution.', None),
         ('executor', 'required', 'executor', str, 'The user who triggered this execution.', None),
+        ('executor_uid','optional', 'executor_uid', str , "The executer UID.", None),
+        ('executor_gid','optional', 'executor_gid', str , "The executer GID.", None),
         ('worker_id', 'optional', 'worker_id', str, 'The worker who supervised this execution.', None),
         ('message_received_time', 'derived', 'message_received_time', str, 'Time (UTC) the message was received.', None),
         ('start_time', 'optional', 'start_time', str, 'Time (UTC) the execution started.', None),
@@ -1418,7 +1521,7 @@ class Execution(AbacoDAO):
         
         executions_store[site()][f'{actor_id}_{execution.id}'] = execution
         abaco_metrics_store[site()].full_update(
-            {'_id': 'stats'},
+            {'_id': f'{datetime.date.today()}-stats'},
             {'$inc': {'execution_total': 1},
              '$addToSet': {'execution_dbids': f'{actor_id}_{execution.id}'}},
              upsert=True)
@@ -1448,7 +1551,7 @@ class Execution(AbacoDAO):
         except KeyError as e:
             logger.error("Could not add an execution. KeyError: {}. actor: {}. ex: {}. worker: {}".format(
                 e, actor_id, execution_id, worker_id))
-            raise ExecutionException(f"Execution {execution_id} not found.")
+            raise errors.ExecutionException(f"Execution {execution_id} not found.")
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1473,7 +1576,7 @@ class Execution(AbacoDAO):
         except KeyError as e:
             logger.error("Could not update status. KeyError: {}. actor: {}. ex: {}. status: {}".format(
                 e, actor_id, execution_id, status))
-            raise ExecutionException(f"Execution {execution_id} not found.")
+            raise errors.ExecutionException(f"Execution {execution_id} not found.")
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1497,13 +1600,13 @@ class Execution(AbacoDAO):
         logger.debug(f"top of finalize_execution. Params: {params_str}")
         if not 'io' in stats:
             logger.error(f"Could not finalize execution. io missing. Params: {params_str}")
-            raise ExecutionException("'io' parameter required to finalize execution.")
+            raise errors.ExecutionException("'io' parameter required to finalize execution.")
         if not 'cpu' in stats:
             logger.error(f"Could not finalize execution. cpu missing. Params: {params_str}")
-            raise ExecutionException("'cpu' parameter required to finalize execution.")
+            raise errors.ExecutionException("'cpu' parameter required to finalize execution.")
         if not 'runtime' in stats:
             logger.error(f"Could not finalize execution. runtime missing. Params: {params_str}")
-            raise ExecutionException("'runtime' parameter required to finalize execution.")
+            raise errors.ExecutionException("'runtime' parameter required to finalize execution.")
         start_timer = timeit.default_timer()
         try:
             executions_store[site()][f'{actor_id}_{execution_id}', 'status'] = status
@@ -1515,7 +1618,7 @@ class Execution(AbacoDAO):
             executions_store[site()][f'{actor_id}_{execution_id}', 'start_time'] = start_time
         except KeyError:
             logger.error(f"Could not finalize execution. execution not found. Params: {params_str}")
-            raise ExecutionException(f"Execution {execution_id} not found.")
+            raise errors.ExecutionException(f"Execution {execution_id} not found.")
 
         try:
             finish_time = final_state.get('FinishedAt')
@@ -1529,7 +1632,7 @@ class Execution(AbacoDAO):
                 executions_store[site()][f'{actor_id}_{execution_id}', 'finish_time'] = finish_time
         except Exception as e:
             logger.error(f"Could not finalize execution. Error: {e}")
-            raise ExecutionException(f"Could not finalize execution. Error: {e}")
+            raise errors.ExecutionException(f"Could not finalize execution. Error: {e}")
 
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
@@ -1641,8 +1744,7 @@ class ExecutionsSummary(AbacoDAO):
         try:
             actor = actors_store[site()][dbid]
         except KeyError:
-            raise DAOError(
-                f"actor not found: {dbid}'", 404)
+            raise errors.DAOError(f"actor not found: {dbid}'", 404)
         tot = {'api_server': actor['api_server'],
                'actor_id': actor['id'],
                'owner': actor['owner'],
@@ -1689,7 +1791,7 @@ class ExecutionsSummary(AbacoDAO):
             dbid = d['db_id']
         except KeyError:
             logger.error(f"db_id missing from call to get_derived_value. d: {d}")
-            raise ExecutionException('db_id is required.')
+            raise errors.ExecutionException('db_id is required.')
         tot = self.compute_summary_stats(dbid)
         d.update(tot)
         return tot[name]
@@ -1723,8 +1825,7 @@ class Worker(AbacoDAO):
         ('host_ip', 'optional', 'host_ip', str, 'ip of the host where worker is running.', None),
         ('create_time', 'derived', 'create_time', str, "Time (UTC) that this actor was created.", {}),
         ('last_execution_time', 'optional', 'last_execution_time', str, 'Last time the worker executed an actor container.', None),
-        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the worker had a health check.',
-         None),
+        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the worker had a health check.', None),
         ]
 
     def get_derived_value(self, name, d):
@@ -1772,7 +1873,7 @@ class Worker(AbacoDAO):
         try:
             result = workers_store[site_id][f'{actor_id}_{worker_id}']
         except KeyError:
-            raise WorkerException("Worker not found.")
+            raise errors.WorkerException("Worker not found.")
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
         if ms > 2500:
@@ -1792,7 +1893,7 @@ class Worker(AbacoDAO):
             logger.info(f"worker deleted. actor: {actor_id}. worker: {worker_id}.")
         except KeyError as e:
             logger.info(f"KeyError deleting worker. actor: {actor_id}. worker: {actor_id}. exception: {e}")
-            raise WorkerException("Worker not found.")
+            raise errors.WorkerException("Worker not found.")
 
     @classmethod
     def ensure_one_worker(cls, actor_id, tenant, site_id=None):
@@ -1804,7 +1905,11 @@ class Worker(AbacoDAO):
         logger.debug("top of ensure_one_worker.")
         site_id = site_id or site()
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'id': worker_id, 'tenant': tenant, 'actor_id': actor_id}
+        worker = {'status': REQUESTED,
+                  'id': worker_id,
+                  'tenant': tenant,
+                  'create_time': get_current_utc_time(),
+                  'actor_id': actor_id}
         workers_for_actor = len(workers_store[site_id].items({'actor_id': actor_id}))
         if workers_for_actor:
             logger.debug(f"workers_for_actor was: {workers_for_actor}; returning None.")
@@ -1812,7 +1917,7 @@ class Worker(AbacoDAO):
         else:
             val = workers_store[site_id][f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store[site_id].full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
@@ -1827,15 +1932,19 @@ class Worker(AbacoDAO):
         """
         logger.debug("top of request_worker().")
         worker_id = Worker.get_uuid()
-        worker = {'status': REQUESTED, 'tenant': tenant, 'id': worker_id, 'actor_id': actor_id}
-        # it's possible the actor_id is not in the workers_store[site()] yet (i.e., new actor with no workers)
+        worker = {'status': REQUESTED,
+                  'tenant': tenant,
+                  'id': worker_id,
+                  'actor_id': actor_id,
+                  'create_time': get_current_utc_time()}
+        # it's possible the actor_id is not in the workers_store yet (i.e., new actor with no workers)
         # In that case we need to catch a KeyError:
         try:
             # we know this worker_id is new since we just generated it, so we don't need to use the update
             # method.
             workers_store[site()][f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store[site()].full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
@@ -1843,7 +1952,7 @@ class Worker(AbacoDAO):
         except KeyError:
             workers_store[site()].add_if_empty([f'{actor_id}_{worker_id}'], worker)
             abaco_metrics_store[site()].full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
@@ -1938,8 +2047,7 @@ class Worker(AbacoDAO):
                     if not (prev_status == "READY" and status == "READY"):
                         raise Exception(f"Invalid State Transition '{prev_status}' -> '{status}'")
         except Exception as e:
-            logger.warning("Got exception trying to update worker {} subfield status to {}; "
-                         "e: {}; type(e): {}".format(worker_id, status, e, type(e)))
+            logger.warning(f"Got exception trying to update worker {worker_id} subfield status to {status}; e: {e}; type(e): {type(e)}")
 
         stop_timer = timeit.default_timer()
         ms = (stop_timer - start_timer) * 1000
@@ -1974,12 +2082,125 @@ def get_permissions(actor_id):
         logger.error(f"Actor {actor_id} does not have entries in the permissions store, returning []")
         return {}
 
+
+def get_config_permissions(config_id):
+    """ Return all permissions for a config_id
+    :param config_id: The unique id of the config (as returned by models.ActorConfig.get_config_db_key()).
+    :return:
+    """
+    logger.debug(f"top of get_config_permissions for config_id: {config_id}")
+    try:
+        return configs_permissions_store[site()][config_id]
+    except KeyError:
+        raise errors.PermissionsException(f"Config {config_id} does not exist")
+
+
+def permission_process(permissions, user, level, item):
+    """
+    Internal routine to check a list of precalculated permission objects
+    :param permissions: list of permission objects for an actor, execution, actor_config, etc.
+    :param user: the user to check the permissions against
+    :param level: the permission level to check the permissions against.
+    :param item: the object being requested (e.g., an actor, execution, config, etc.). This is used to populate
+    messages.
+    :return: bool -- True if user is permitted, false otherqise.
+    """
+    # get all permissions for this actor -
+    logger.debug(f"top of permission_process; permissions: {permissions}; user: {user}; level: {level}; item: {item}")
+    WORLD_USER = 'ABACO_WORLD'
+    for p_user, p_name in permissions.items():
+        # if the item has been shared with the WORLD_USER anyone can use it
+        if p_user == WORLD_USER:
+            logger.info(f"Allowing request - {item} has been shared with the WORLD_USER.")
+            return True
+        # otherwise, check if the permission belongs to this user and has the necessary level
+        if p_user == user:
+            p_pem = codes.PermissionLevel(p_name)
+            if p_pem >= level:
+                logger.info(f"Allowing request - user has appropriate permission with {item}.")
+                return True
+            else:
+                # we found the permission for the user but it was insufficient; return False right away
+                logger.info(f"Found permission {level} for {item}, rejecting request.")
+                return False
+    return False
+
+
 def set_permission(user, actor_id, level):
-    """Set the permission for a user and level to an actor."""
+    """Set the permission for a user and level to an actor. Here, actor_id can be a dbid or an alias dbid."""
     logger.debug("top of set_permission().")
     if not isinstance(level, PermissionLevel):
-        raise DAOError("level must be a PermissionLevel object.")
+        raise errors.DAOError("level must be a PermissionLevel object.")
     new = permissions_store[site()].add_if_empty([actor_id, user], str(level))
     if not new:
         permissions_store[site()][actor_id, user] = str(level)
     logger.info(f"Permission set for actor: {actor_id}; user: {user} at level: {level}")
+
+def set_config_permission(user, config_id, level):
+    """Set the permission for user `user` and level `level` to an actor config with id `config_id`."""
+    logger.debug(f"top of set_config_permission; user: {user}; config_id: {config_id}; level: {level}.")
+    if not isinstance(level, PermissionLevel):
+        raise errors.DAOError("level must be a PermissionLevel object.")
+    new = configs_permissions_store[site()].add_if_empty([config_id, user], str(level))
+    if not new:
+        configs_permissions_store[site()][config_id, user] = str(level)
+    logger.info(f"Permission set for actor: {config_id}; user: {user} at level: {level}")
+
+
+class ActorConfig(AbacoDAO):
+    """Data access object for working with Actor configs."""
+
+    PARAMS = [
+        # param_name, required/optional/provided/derived, attr_name, type, help, default
+        ('tenant', 'provided', 'tenant', str, 'The tenant that this alias belongs to.', None),
+        ('name', 'required', 'name', str, 'Name of the config', None),
+        ('value', 'required', 'value', str, 'The value of the config; JSON Serializable. Set as the ENV VAR value.', None),
+        ('is_secret', 'required', 'is_secret', inputs.boolean, 'Whether the config should be encrypted at rest and not retrievable.', None),
+        # need write access to actor
+        ('actors', 'required', 'actors', str, 'List of actor IDs or aliases that should get this config/secret.', []),
+    ] # take both ids and aliases and figure out which one it is
+     # they need write access on actor or alias
+    # delete of aliases/ids needs to delete from configs
+
+    # the following nouns cannot be used for an alias as they
+    RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization']
+    FORBIDDEN_CHAR = [':', '/', '?', '#', '[', ']', '@', '!', '$', '&', "'", '(', ')', '*', '+', ',', ';', '=', ' ']
+
+    @classmethod
+    def get_config_db_key(cls, tenant_id, name):
+        """
+        Returns the unique key used in the actor_configs store for a give config.
+        :return: (str)
+        """
+        return f"{tenant_id}_{name}"
+
+    def display(self):
+        """Return a representation fit for display."""
+        self.pop('tenant')
+        return self.case()
+
+    def check_reserved_words(self):
+        if self.name in ActorConfig.RESERVED_WORDS:
+            raise errors.DAOError(f"{self.name} is a reserved word. The following reserved words cannot be used for a "
+                                  f"config: {ActorConfig.RESERVED_WORDS}.")
+
+    def check_forbidden_char(self):
+        for char in ActorConfig.FORBIDDEN_CHAR:
+            if char in self.name:
+                forboden_chars_str = "".join(ActorConfig.FORBIDDEN_CHAR)
+                raise errors.DAOError(f"'{char}' is a forbidden character. The following characters cannot be used "
+                                      f"for a config name: [{forboden_chars_str}].")
+
+    def check_and_create_config(self):
+        """Check to see if a config id is unique and create it if so. If not, raises a DAOError."""
+
+        # first, make sure config name is not a reserved word:
+        self.check_reserved_words()
+        # second, make sure config name is not using a forbidden char:
+        self.check_forbidden_char()
+        # attempt to create the config within a transaction
+        config_id = ActorConfig.get_config_db_key(tenant_id=self.tenant, name=self.name)
+        obj = configs_store[site()].add_if_empty([config_id], self)
+        if not obj:
+            raise errors.DAOError(f"Config {self.name} already exists; please choose another name for your config")
+        return obj

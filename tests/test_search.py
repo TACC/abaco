@@ -76,7 +76,7 @@ def test_create_two_workers_for_search_privileged_actor_1(headers, privileged_he
     print(f'{rsp.status_code}: {rsp.content}')
     # workers collection returns the tenant_id since it is an admin api
     assert rsp.status_code in [200, 201]
-    time.sleep(8)
+    time.sleep(4)
     rsp = requests.get(url, headers=privileged_headers)
     result = basic_response_checks(rsp, check_tenant=False)
     assert len(result) == 2
@@ -201,18 +201,7 @@ def test_search_workers_details(headers):
     url = f'{base_url}/actors/search/workers'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
-    if case == 'snake':
-        assert result['_metadata']['count_returned'] == 2
-        assert result['_metadata']['record_limit'] == 100
-        assert result['_metadata']['records_skipped'] == 0
-        assert result['_metadata']['total_count'] == 2
-        assert len(result['search']) == result['_metadata']['count_returned']
-    else:
-        assert result['_metadata']['countReturned'] == 2
-        assert result['_metadata']['recordLimit'] == 100
-        assert result['_metadata']['recordsSkipped'] == 0
-        assert result['_metadata']['totalCount'] == 2
-        assert len(result['search']) == result['_metadata']['countReturned']
+    # We don't check _metadata count because autoscaling could change numbers.
     assert 'status' in result['search'][0]
     assert 'id' in result['search'][0]
     assert not '_id' in result['search'][0]
@@ -274,16 +263,7 @@ def test_search_permissions_priv(privileged_headers):
     rsp = requests.get(url, headers=privileged_headers)
     result = basic_response_checks(rsp)
     print(result['_metadata'])
-    if case == 'snake':
-        assert result['_metadata']['count_returned'] == 2
-        assert result['_metadata']['record_limit'] == 100
-        assert result['_metadata']['records_skipped'] == 0
-        assert result['_metadata']['total_count'] == 2
-    else:
-        assert result['_metadata']['countReturned'] == 2
-        assert result['_metadata']['recordLimit'] == 100
-        assert result['_metadata']['recordsSkipped'] == 0
-        assert result['_metadata']['totalCount'] == 2
+    # We don't check _metadata count because autoscaling could change numbers.
 
 # regular role
 def test_search_permissions_regular(regular_headers):
@@ -340,16 +320,7 @@ def test_search_permissions_regular(regular_headers):
     rsp = requests.get(url, headers=regular_headers)
     result = basic_response_checks(rsp)
     print(result['_metadata'])
-    if case == 'snake':
-        assert result['_metadata']['count_returned'] <= 1
-        assert result['_metadata']['record_limit'] == 100
-        assert result['_metadata']['records_skipped'] == 0
-        assert result['_metadata']['total_count'] <= 1
-    else:
-        assert result['_metadata']['countReturned'] <= 1
-        assert result['_metadata']['recordLimit'] == 100
-        assert result['_metadata']['recordsSkipped'] == 0
-        assert result['_metadata']['totalCount'] <= 1
+    # We don't check _metadata count because autoscaling could change numbers.
 
 def test_search_datetime(headers):
     url = f'{base_url}/actors/search/executions?final_state.StartedAt.gt=2000-05:00'

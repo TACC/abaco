@@ -20,8 +20,7 @@ SITE_LIST = []
 tenant_object = t.tenant_cache.get_tenant_config(tenant_id=t.tenant_id)
 if tenant_object.site.primary:
     for site_object in t.tenants.list_sites():
-        if 'actors' in site_object.services:
-            SITE_LIST.append(site_object.site_id)
+        SITE_LIST.append(site_object.site_id)
 else:
     SITE_LIST = tenant_object.site_id
 
@@ -30,6 +29,7 @@ def get_site_rabbitmq_uri(site):
     Takes site and gets site specific rabbit uri using correct
     site vhost and site's authentication from config.
     """
+    logger.debug(f'get_site_rabbitmq_uri is using site: {site}')
     # Get rabbit_uri and check if it's the proper format. "amqp://rabbit:5672"
     # There shouldn't be any auth on it anymore.
     rabbit_uri = conf.rabbit_uri
@@ -41,7 +41,7 @@ def get_site_rabbitmq_uri(site):
 
     # Checking for RabbitMQ credentials for each site.
     site_rabbitmq_user = f"abaco_{site}_user"
-    site_rabbitmq_pass = site_object.get('site_rabbitmq_pass') or ""
+    site_rabbitmq_pass = site_object.get('site_rabbitmq_pass') or conf.get("global_site_object").get("site_rabbitmq_pass")
 
     # Setting up auth string.
     if site_rabbitmq_user and site_rabbitmq_pass:
@@ -58,65 +58,110 @@ def get_site_rabbitmq_uri(site):
 
 def rabbit_initialization():
     """
-    Initial site initialization for rabbitmq using the rabbitmqadmin utility.
+    Initial site initialization for RabbitMQ using the RabbitMQ utility.
     Consists of creating a user/pass and vhost for each site. Each site's user
     gets permissions to it's vhosts. Primary site gets control to each vhost.
     One-time/deployment
     """
-    rabbit_dash_host = conf.rabbit_dash_host
+    try:
+        rabbit_dash_host = conf.rabbit_dash_host
 
-    # Creating the subprocess call (Has to be str, list not working due to docker
-    # aliasing of rabbit with it's IP address (Could work? But this works too.).).
-    fn_call = f'/home/tapis/rabbitmqadmin -H {rabbit_dash_host} '
+        # Creating the subprocess call (Has to be str, list not working due to docker
+        # aliasing of rabbit with it's IP address (Could work? But this works too.).).
+        fn_call = f'/home/tapis/rabbitmqadmin -H {rabbit_dash_host} '
 
-    # Get admin credentials from rabbit_uri. Add auth to fn_call if it exists.
-    admin_user = conf.admin_rabbitmq_user or None
-    admin_pass = conf.admin_rabbitmq_pass or None
+        # Get admin credentials from rabbit_uri. Add auth to fn_call.
+        # Note: If admin password not set in rabbit env with compose the user and pass
+        # or just the pass (if only user is set) will default to "guest".
+        admin_rabbitmq_user = conf.get("admin_rabbitmq_user", "guest")
+        admin_rabbitmq_pass = conf.get("admin_rabbitmq_pass", "guest")
 
-    if admin_user and admin_pass:
-        fn_call += (f'-u {admin_user} ')
-        fn_call += (f'-p {admin_pass} ')
-        logger.debug(f"Administrating rabbitmq with user: {admin_user} with pass.")
-    elif admin_user:
-        fn_call += (f'-u {admin_user} ')
-        logger.warning(f"Administrating rabbitmq with user: {admin_user} without pass.")
-    else:
-        logger.warning(f"Administrating rabbitmq with no auth.")
+        if not isinstance(admin_rabbitmq_user, str) or not isinstance(admin_rabbitmq_pass, str):
+            msg = f"RabbitMQ creds must be of type 'str'. user: {type(admin_rabbitmq_user)}, pass: {type(admin_rabbitmq_pass)}."
+            logger.critical(msg)
+            raise RuntimeError(msg)
 
-    # We poll to check rabbitmq is operational. Done by trying to list vhosts, arbitrary command.
-    # Exit code 0 means rabbitmq is running. Need access to rabbitmq dash/management panel.
-    while True:
-        result = subprocess.run(fn_call + f'list vhosts', shell=True)
-        if result.returncode == 0:
-            break
-        else:
-            time.sleep(3)
+        if not admin_rabbitmq_user or not admin_rabbitmq_pass:
+            msg = f"RabbitMQ creds were given, but were None or empty. user: {admin_rabbitmq_user}, pass: {admin_rabbitmq_pass}" 
+            logger.critical(msg)
+            raise RuntimeError(msg)
 
+        if admin_rabbitmq_user == "guest" or admin_rabbitmq_pass == "guest":
+            logger.warning(f"RabbitMQ using default admin information. Not secure.")
+        logger.debug(f"Administrating RabbitMQ with user: {admin_rabbitmq_user} with pass.")
+
+        fn_call += (f'-u {admin_rabbitmq_user} ')
+        fn_call += (f'-p {admin_rabbitmq_pass} ')
+
+        # We poll to check rabbitmq is operational. Done by trying to list vhosts, arbitrary command.
+        # Exit code 0 means rabbitmq is running. Need access to rabbitmq dash/management panel.
+        i = 15
+        while i:
+            result = subprocess.run(fn_call + f'list vhosts', shell=True, capture_output=True)
+            if result.returncode == 0:
+                break
+            elif result.stderr:
+                rabbit_error = result.stderr.decode('UTF-8')
+                if "Errno 111" in rabbit_error:
+                    msg = "Rabbit still initializing."
+                    logger.debug(msg)
+                elif "Access refused" in rabbit_error:
+                    msg = "Rabbit admin user or pass misconfigured."
+                    logger.critical(msg)
+                    raise RuntimeError(msg)
+                else:
+                    msg = f"RabbitMQ has thrown an error. e: {rabbit_error}"
+                    logger.critical(msg)
+                    raise RuntimeError(msg)
+            else:
+                msg = "Rabbit still initializing."
+                logger.debug(msg)
+            time.sleep(2)
+            i -= 1
+        if not result.returncode == 0:
+            msg = "Timeout waiting for RabbitMQ to start."
+            logger.critical(msg)
+            raise RuntimeError(msg)
+    except Exception as e:
+        msg = f"Error during RabbitMQ start process. e: {e}"
+        logger.critical(msg)
+        raise Exception(msg)
+    
     # Creating user/pass, vhost, and assigning permissions for rabbitmq.
-    for site in SITE_LIST:
-        # Getting site object with parameters for specific site.
-        site_object = conf.get(f'{site}_site_object') or {}
+    try:
+        for site in SITE_LIST:
+            # Getting site object with parameters for specific site.
+            site_object = conf.get(f'{site}_site_object') or {}
 
-        # Checking for RabbitMQ credentials for each site.
-        site_rabbitmq_user = f"abaco_{site}_user"
-        site_rabbitmq_pass = site_object.get('site_rabbitmq_pass') or ""
+            # Checking for RabbitMQ credentials for each site.
+            site_rabbitmq_user = f"abaco_{site}_user"
+            site_rabbitmq_pass = site_object.get('site_rabbitmq_pass') or ""
+            if not site_rabbitmq_pass:
+                msg = f'No site_rabbitmq_pass found for site: {site}. Using Global.'
+                logger.warning(msg)
+                site_rabbitmq_pass = conf.global_site_object.get("site_rabbitmq_pass")
+                if not site_rabbitmq_pass:
+                    msg = f'No global "site_rabbitmq_pass" to act as default password. Cannot initialize.'
+                    logger.critical(msg)
+                    raise KeyError(msg)
 
-        # Site DB Name
-        site_db_name = f"abaco_{site}"
+            # Site DB Name
+            site_db_name = f"abaco_{site}"
 
-        # Initializing site user account.
-        if not site_rabbitmq_pass:
-            logger.warning(f"RabbitMQ site user lacks pass in config. No password being set for site: {site}")
-            subprocess.run(fn_call + f'declare user name={site_rabbitmq_user} tags=None', shell=True) # create user w/ no pass
-        else:
-            subprocess.run(fn_call + f'declare user name={site_rabbitmq_user} password={site_rabbitmq_pass} tags=None', shell=True, capture_output=True) # create user/pass
+            # Initializing site user account.
+            subprocess.run(fn_call + f'declare user name={site_rabbitmq_user} password={site_rabbitmq_pass} tags=None', shell=True) # create user/pass
 
-        # Creating site vhost. Granting permissions to site user and admin.
-        logger.debug(f"Creating vhost named '{site_db_name}' for site - {site}. {site_rabbitmq_user} and {admin_user} users are being granted read/write.")
-        subprocess.run(fn_call + f'declare vhost name={site_db_name}', shell=True, capture_output=True) # create vhost
-        subprocess.run(fn_call + f'declare permission vhost={site_db_name} user={site_rabbitmq_user} configure=.* write=.* read=.*', shell=True) # site user perm
-        subprocess.run(fn_call + f'declare permission vhost={site_db_name} user={admin_user} configure=.* write=.* read=.*', shell=True) # admin perm
-        logger.debug(f"RabbitMQ init complete for site: {site}.")
+            # Creating site vhost. Granting permissions to site user and admin.
+            logger.debug(f"Creating vhost named '{site_db_name}' for site - {site}. {site_rabbitmq_user} and {admin_rabbitmq_user} users are being granted read/write.")
+            subprocess.run(fn_call + f'declare vhost name={site_db_name}', shell=True) # create vhost
+            subprocess.run(fn_call + f'declare permission vhost={site_db_name} user={site_rabbitmq_user} configure=.* write=.* read=.*', shell=True) # site user perm
+            subprocess.run(fn_call + f'declare permission vhost={site_db_name} user={admin_rabbitmq_user} configure=.* write=.* read=.*', shell=True) # admin perm
+            logger.debug(f"RabbitMQ init complete for site: {site}.")
+            print(f"RabbitMQ init complete for site: {site}.")
+    except Exception as e:
+        msg = f"Error setting up RabbitMQ for site: {site} e: {repr(e)}"
+        logger.critical(msg)
+        raise Exception(msg)
 
 
 def mongo_initialization():
@@ -129,10 +174,25 @@ def mongo_initialization():
     everything already. (Done in docker-compose).
     """
     # Getting admin/root credentials to create users.
-    admin_mongo_user = conf.admin_mongo_user or None
-    admin_mongo_pass = conf.admin_mongo_pass or None
+    try:
+        admin_mongo_user = conf.admin_mongo_user
+        admin_mongo_pass = conf.admin_mongo_pass
+    except Exception as e:
+        msg = f"MongoDB init requires mongo admin user and password. e: {e}"
+        logger.critical(msg)
+        raise RuntimeError(msg)
 
-    logger.debug(f"Administrating mongodb with user: {admin_mongo_user}.")
+    if not isinstance(admin_mongo_user, str) or not isinstance(admin_mongo_pass, str):
+        msg = f"MongoDB creds must be of type 'str'. user: {type(admin_mongo_user)}, pass: {type(admin_mongo_pass)}."
+        logger.critical(msg)
+        raise RuntimeError(msg)
+
+    if not admin_mongo_user or not admin_mongo_pass:
+        msg = f"MongoDB creds were given, but were None or empty. user: {admin_mongo_user}, pass: {admin_mongo_pass}" 
+        logger.critical(msg)
+        raise RuntimeError(msg)
+
+    logger.debug(f"Administrating MongoDB with user: {admin_mongo_user}.")
     mongo_obj = MongoStore(host=conf.mongo_host,
                            port=conf.mongo_port,
                            database="random", # db doesn't matter when just using mongo_client
@@ -140,26 +200,89 @@ def mongo_initialization():
                            password=admin_mongo_pass)
     mongo_client = mongo_obj._mongo_client
 
-    for site in SITE_LIST:
-        # Getting site object with parameters for specific site.
-        site_object = conf.get(f"{site}_site_object") or {}
+    # Initialize the replica set
+    if conf.mongo_replica_set:
+        i = 15
+        while i:
+            try:
+                mongo_client.admin.command("replSetInitiate")
+                msg = "Mongo replica set initialized. Client attached to server."
+                print(msg)
+                logger.debug(msg)
+                break
+            except errors.OperationFailure:
+                msg = "Mongo replica set already initialized. Client attached to server."
+                print(msg)
+                logger.debug(msg)
+                break
+            except Exception as e:
+                msg = "Mongo still initializing."
+                logger.debug(msg)
+                print(msg)
+                time.sleep(2)
+                i -= 1
+                if i == 0:
+                    msg = f"Mongo has failed to initialized after 15 attempts. e: {e}"
+                    logger.critical(msg)
+                    print(msg)
+                    raise RuntimeError(msg)
+                continue
 
-        # Checking for Mongo credentials for each site.
-        site_mongo_user = f"abaco_{site}_user"
-        site_mongo_pass = site_object.get("site_mongo_pass") or None
+        # Have to give some time so mongo does it's replicaset stuff
+        time.sleep(3)
 
-        # Site DB Name
-        site_db_name = f"abaco_{site}"
+        try:
+            # Get the pod hostname (full) for Mongo K8. We have to set the replica set primary host with
+            # this, as there's a chance the conf is still pointing at a dead node if you burned down/up
+            # This also works for Docker, but it's neccessary for K8.
+            primary_hostname = mongo_client.admin.command("hostInfo")['system']['hostname']
 
-        # Get database attr to create user for
-        site_database = getattr(mongo_client, site_db_name)
-        if site_mongo_pass:
-            site_database.command("createUser", site_mongo_user, pwd=site_mongo_pass, roles=[{'role': 'readWrite', 'db': site_db_name}])
-        else:
-            logger.warning(f"Mongo site user lacks pass in config. No password being set for site: {site}")
-            site_database.command("createUser", site_mongo_user, roles=[{'role': 'readWrite', 'db': site_db_name}])
-        logger.debug(f"MongoDB init complete for site: {site}.")
+            # Set hostname in replica config to ensure we're the primary of the replica set
+            repl_config = mongo_client.admin.command("replSetGetConfig")  
+            repl_config['config']['members'][0]['host'] = primary_hostname
+            mongo_client.admin.command("replSetReconfig", repl_config['config'], force=True)
+            msg = f"Mongo replica set config successfully changed to hostname: {primary_hostname}"
+        except Exception as e:
+            msg = f"Error while ensuring replica set host was correct. e: {e}"
+            logger.critical(msg)
+            raise Exception(msg)
 
+    try:    
+        for site in SITE_LIST:
+            # Getting site object with parameters for specific site.
+            site_object = conf.get(f"{site}_site_object") or {}
+
+            # Checking for Mongo credentials for each site.
+            site_mongo_user = f"abaco_{site}_user"
+            site_mongo_pass = site_object.get("site_mongo_pass")
+            if not site_mongo_pass:
+                msg = f'No site_mongo_pass found for site: {site}. Using Global.'
+                logger.warning(msg)
+                site_mongo_pass = conf.global_site_object.get("site_mongo_pass")
+                if not site_mongo_pass:
+                    msg = f'No global "site_mongo_pass" to act as default password. Cannot initialize.'
+                    logger.critical(msg)
+                    raise KeyError(msg)
+
+            # Site DB Name
+            site_db_name = f"abaco_{site}"
+            
+            # Getattr gets the database on the mongo_client to create user on
+            site_database = getattr(mongo_client, site_db_name)
+            try:
+                site_database.command("createUser", site_mongo_user, pwd=site_mongo_pass, roles=[{'role': 'readWrite', 'db': site_db_name}])
+            except errors.OperationFailure:
+                msg = f"User {site_mongo_user} already exists, skipping init. (roles could be wrong)."
+                logger.warning(msg)
+            logger.debug(f"MongoDB init complete for site: {site}.")
+            print(f"MongoDB init complete for site: {site}.")
+    except Exception as e:
+        # README. If you get this, lots of things could be wrong.
+        # "OperationFailure" could mean docker-compose lacks MONGO_INITDB_ROOT_USERNAME/PASS vars.
+        # Could also just be Mongo isn't working. Could also mean TLS isn't working.
+        msg = f"Error setting up mongo for site: {site} e: {repr(e)}"
+        logger.critical(msg)
+        raise Exception(msg)
 
 def mongo_index_initialization():
     """
@@ -181,7 +304,7 @@ def mongo_index_initialization():
         except errors.OperationFailure:
             # this will happen if the index already exists.
             pass
-        
+
         # Creating wildcard text indexing for full-text mongo search
         logs_store[site].create_index([('$**', TEXT)])
         executions_store[site].create_index([('$**', TEXT)])
@@ -208,6 +331,8 @@ nonce_store = {}
 alias_store = {}
 pregen_clients = {}
 abaco_metrics_store = {}
+configs_store = {}
+configs_permissions_store = {}
 
 # We go through each site, initializing database objects for ones we will use.
 for site in SITE_LIST:
@@ -216,7 +341,7 @@ for site in SITE_LIST:
 
     # Checking for Mongo credentials for each site.
     site_mongo_user = f"abaco_{site}_user"
-    site_mongo_pass = site_object.get("site_mongo_pass") or None
+    site_mongo_pass = site_object.get("site_mongo_pass") or conf.get("global_site_object").get("site_mongo_pass")
 
     # Site DB Name
     site_db_name = f"abaco_{site}"
@@ -242,6 +367,8 @@ for site in SITE_LIST:
     alias_store.update({site: site_config_store(db='alias_store')})
     pregen_clients.update({site: site_config_store(db='pregen_clients')})
     abaco_metrics_store.update({site: site_config_store(db='abaco_metrics_store')})
+    configs_store.update({site: site_config_store(db='configs_store')})
+    configs_permissions_store.update({site: site_config_store(db='configs_permissions_store')})
 
 if __name__ == "__main__":
     # Mongo indexes only go through init on primary site.

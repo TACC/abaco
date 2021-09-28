@@ -5,6 +5,7 @@ import time
 import rabbitpy
 
 from channelpy.exceptions import ChannelTimeoutException
+from pymongo.errors import OperationFailure
 
 from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
@@ -228,8 +229,6 @@ class Spawner(object):
 
         # start an actor executor container and wait for a confirmation that image was pulled.
         attempts = 0
-        # worker = get_worker(worker_id)
-        # worker['status'] = PULLING_IMAGE
         Worker.update_worker_status(actor_id, worker_id, PULLING_IMAGE, site_id)
         try:
             logger.debug(f"spawner pulling image {image}...")
@@ -370,6 +369,23 @@ class Spawner(object):
 
 def main():
     # todo - find something more elegant
+    # Ensure Mongo can connect.
+    idy = 0
+    while idy < 5:
+        try:
+            # Testing whatever function to see if Mongo connects
+            len(workers_store[site()])
+            msg = "Spawner succesfully connected to Mongo"
+            logger.debug(msg)
+            print(msg)
+            break
+        except OperationFailure:
+            msg = "Waiting for Mongo connection"
+            logger.debug(msg)
+            print(msg)
+            time.sleep(3)
+            idy +=1
+    # Start spawner
     idx = 0
     while idx < 3:
         try:

@@ -14,8 +14,9 @@ def main():
     # current working directory in the message. here we try to change to that directory if it
     # exists.
     cwd = m.get('cwd')
-    if os.path.isdir(cwd):
-        os.chdir(cwd)
+    if cwd:
+        if os.path.isdir(cwd):
+            os.chdir(cwd)
     # the function itself should be passed in the message --
     f = m.get('func')
     if not f:

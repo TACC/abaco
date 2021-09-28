@@ -16,9 +16,11 @@ logger = get_logger(__name__)
 from channels import ExecutionResultsChannel
 from common.config import conf
 from codes import BUSY, READY, RUNNING
+import encrypt_utils
 import globals
-from models import Actor, Execution, get_current_utc_time, display_time, site
-from stores import workers_store
+from models import Actor, Execution, get_current_utc_time, display_time, site, ActorConfig
+from stores import workers_store, alias_store, configs_store
+import encrypt_utils
 
 
 TAG = os.environ.get('TAG') or conf.version or ''
@@ -336,6 +338,15 @@ def run_worker(image,
                  f"image:{image}; revision: {revision}; command:{command}")
 
     mounts = []
+    if conf.mongo_tls:
+        # mount the directory on the host containing Mongo TLS certs.
+        # Paths should be formatted as host_path:container_path for split
+        mongo_certs_host_path_dir, mongo_certs_container_path_dir = conf.mongo_tls_certs_path.split(':')
+        logger.info(f"Using mongo certs paths - {mongo_certs_host_path_dir}:{mongo_certs_container_path_dir}")
+        mounts.append({'host_path': mongo_certs_host_path_dir,
+                       'container_path': mongo_certs_container_path_dir,
+                       'format': 'rw'})
+
     # mount the directory on the host for creating fifos
     # Paths should be formatted as host_path:container_path for split
     fifo_host_path_dir, fifo_container_path_dir = conf.worker_fifo_paths.split(':')
@@ -439,7 +450,53 @@ def execute_actor(actor_id,
     :param max_cpus: The maximum number of CPUs each actor will have available to them. Does not guarantee these CPU resources; serves as upper bound.
     :return: result (dict), logs (str) - `result`: statistics about resource consumption; `logs`: output from docker logs.
     """
-    logger.debug(f"top of execute_actor(); (worker {worker_id};{execution_id})")
+    logger.debug(f"top of execute_actor(); actor_id: {actor_id}; tenant: {tenant} (worker {worker_id};{execution_id})")
+
+    # get any configs for this actor
+    actor_configs = {}
+    config_list = []
+    # list of all aliases for the actor
+    alias_list = []
+    # the actor_id passed in is the dbid
+    actor_human_id = Actor.get_display_id(tenant, actor_id)
+
+    for alias in alias_store[site()].items():
+        logger.debug(f"checking alias: {alias}")
+        if actor_human_id == alias['actor_id'] and tenant == alias['tenant']:
+            alias_list.append(alias['alias'])
+    logger.debug(f"alias_list: {alias_list}")
+    # loop through configs to look for any that apply to this actor
+    for config in configs_store[site()].items():
+        # first look for the actor_id itself
+        if actor_human_id in config['actors']:
+            logger.debug(f"actor_id matched; adding config {config}")
+            config_list.append(config)
+        else:
+            logger.debug("actor id did not match; checking aliases...")
+            # if we didn't find the actor_id, look for ay of its aliases
+            for alias in alias_list:
+                if alias in config['actors']:
+                    # as soon as we find it, append and get out (only want to add once)
+                    logger.debug(f"alias {alias} matched; adding config: {config}")
+                    config_list.append(config)
+                    break
+    logger.debug(f"got config_list: {config_list}")
+    # for each config, need to check for secrets and decrypt ---
+    for config in config_list:
+        logger.debug('checking for secrets')
+        try:
+            if config['is_secret']:
+                value = encrypt_utils.decrypt(config['value'])
+                actor_configs[config['name']] = value
+            else:
+                actor_configs[config['name']] = config['value']
+
+        except Exception as e:
+            logger.error(f'something went wrong checking is_secret for config: {config}; e: {e}')
+
+    logger.debug(f"final actor configs: {actor_configs}")
+    d['_actor_configs'] = actor_configs
+
 
     # initially set the global force_quit variable to False
     globals.force_quit = False
