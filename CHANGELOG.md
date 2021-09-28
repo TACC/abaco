@@ -2,6 +2,44 @@
 All notable changes to this project will be documented in this file.
 
 
+## 1.0.1 - 2021-09-28
+
+### Breaking Changes:
+
+- No change.
+
+### New features:
+
+- No change.
+
+### Bug fixes:
+
+- New autoscaler logic. Simplified and streamlined, got ride of guage usage, should be much more readable and reliable.
+- Added site support for autoscaler, now it'll work on all sites that Abaco is residing over.
+- `py3_func_v3` sample image updated to not crash when `cwd` input is `None`.
+- Tests now use `py3_func_v3` instead of `py3_func` due to pyspark errors before (Version was too old, cloudpickle wasn't working.).
+
+
+## 1.0.0 - 2021-09-24
+
+### Breaking Changes:
+
+- No Change.
+
+### New features:
+
+- Initial 1.0.0 changelog.
+
+### Bug fixes:
+
+- No Change.
+
+
+
+
+# ARCHIVE
+# NOTE: Production Tapis V3 Changelog and Versioning is now to be used. 1.2.0 -> 1.0.0 is not a downgrade.
+
 ## 1.2.0 - 2021-07-01
 ### Added
 - Added everything from 1.9.0 from V2 Abaco. Changed everything to work with V3 and tested.
