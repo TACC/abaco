@@ -252,17 +252,21 @@ class MetricsResource(Resource):
         if inbox_length - len(pending_workers) > 0 and len(workers) < max_workers:
             tenant = actor["tenant"]
             worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
-            logger.info("New worker id: {}".format(worker_id))
-            ch = CommandChannel(name=channel_name)
-            ch.put_cmd(actor_id=actor_id,
-                       worker_id=worker_id,
-                       image=actor.image,
-                       revision=actor.revision,
-                       tenant=tenant,
-                       site_id=site(),
-                       stop_existing=False)
-            ch.close()
-            logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
+            try:
+                logger.info("New worker id: {}".format(worker_id))
+                ch = CommandChannel(name=channel_name)
+                ch.put_cmd(actor_id=actor_id,
+                        worker_id=worker_id,
+                        image=actor["image"],
+                        revision=actor["revision"],
+                        tenant=tenant,
+                        site_id=site(),
+                        stop_existing=False)
+                ch.close()
+                logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
+            except Exception as e:
+                # We continue as this is not a users fault.
+                logger.critical(f"Error adding command to command channel during autoscale up: {e}")
         else:
             logger.debug(f"autoscaler not adding worker for actor {actor_id}")
 
