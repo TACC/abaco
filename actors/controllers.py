@@ -259,6 +259,7 @@ class MetricsResource(Resource):
                        image=actor.image,
                        revision=actor.revision,
                        tenant=tenant,
+                       site_id=site(),
                        stop_existing=False)
             ch.close()
             logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
