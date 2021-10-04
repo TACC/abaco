@@ -19,7 +19,7 @@ from parse import parse
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
-    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
+    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
     UPDATING_STORE, SHUTDOWN_REQUESTED
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
@@ -223,7 +223,7 @@ class MetricsResource(Resource):
         workers = workers_store.items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
                                                                                   SHUTTING_DOWN,
                                                                                   SHUTDOWN_REQUESTED]}})
-        pending_workers = [w for w in workers if w['status'] in [REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
+        pending_workers = [w for w in workers if w['status'] in [READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
                                                                  CREATING_CONTAINER, UPDATING_STORE]]
         max_workers = Actor.get_max_workers_for_actor(actor_id)
         if inbox_length - len(pending_workers) > 0 and len(workers) < max_workers:
