@@ -62,7 +62,7 @@ def get_worker(wid):
     """
     worker = workers_store[site()].items({'id': wid})
     if worker:
-        return worker
+        return worker[0]
     return None
 
 def clean_up_socket_dirs():
