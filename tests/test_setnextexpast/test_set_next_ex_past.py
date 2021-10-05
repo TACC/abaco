@@ -216,7 +216,7 @@ class TestCalc(unittest.TestCase):
         monthdiff = now.month-cron_datetime.month
         #truedifference in the number of months is the relative difference of the months plus the difference in years
         #we also have to add 1 due to now also counting
-        truediff = (yeardiff*12+monthdiff+1)
+        truediff = (yeardiff*12+monthdiff)
         modulus = truediff % n
         if modulus == 0:
             timeleft = 0
