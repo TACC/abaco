@@ -222,7 +222,7 @@ def authorization():
     logger.debug(f"db_id: {db_id}")
 
     # Generally request.url returns `https://tapis.io/actors`, we get rid of the actors bit.
-    g.api_server = request.url.replace('/actors', '')
+    g.api_server = request.url.replace('/actors', '').replace('http://', 'https://')
 
     g.admin = False
     if request.method == 'OPTIONS':
