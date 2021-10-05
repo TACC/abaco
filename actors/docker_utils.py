@@ -26,7 +26,7 @@ import encrypt_utils
 TAG = os.environ.get('TAG') or conf.version or ''
 if not TAG[0] == ':':
     TAG = f':{TAG}'
-AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core')}{TAG}"
+AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core-v3')}{TAG}"
 
 # timeout (in seconds) for the socket server
 RESULTS_SOCKET_TIMEOUT = 0.1
