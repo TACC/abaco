@@ -9,7 +9,7 @@
         "dev",
         "admin"
     ],
-    "version": ":dev",
+    "version": "dev",
     "log_file": "/home/tapis/runtime_files/logs/service.log",
     "log_level": "DEBUG",
     "log_filing_strategy": "split",
