@@ -199,7 +199,7 @@ def test_execute_and_delete_sleep_loop_actor(headers):
         time.sleep(1)
         if idx > 15:
             print("worker never got sleep_loop execution. "
-                  "actor: {actor_id}; execution: {exc_id}; idx:{idx}")
+                  f"actor: {actor_id}; execution: {exc_id}; idx:{idx}")
             assert False
     # now let's kill the execution -
     time.sleep(1)
