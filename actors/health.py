@@ -7,7 +7,7 @@
 # 3. all actors with stateless=true have a number of workers proportional to the messages in the queue.
 
 # Execute from a container on a schedule as follows:
-# docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock abaco/core python3 -u /actors/health.py
+# docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock abaco/core-v3 python3 -u /actors/health.py
 
 import os
 import shutil
@@ -30,7 +30,7 @@ from worker import shutdown_worker
 TAG = os.environ.get('TAG') or conf.version or ""
 if not TAG[0] == ":":
     TAG = f":{TAG}"
-AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core')}{TAG}"
+AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core-v3')}{TAG}"
 
 # Give permissions to Docker copied folders and files.
 # Have to do this as we are running as Tapis user, not root.
@@ -62,7 +62,7 @@ def get_worker(wid):
     """
     worker = workers_store[site()].items({'id': wid})
     if worker:
-        return worker
+        return worker[0]
     return None
 
 def clean_up_socket_dirs():

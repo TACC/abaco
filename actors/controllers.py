@@ -16,7 +16,7 @@ from parse import parse
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
-    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
+    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
     UPDATING_STORE, SHUTDOWN_REQUESTED
 from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
@@ -241,7 +241,7 @@ class MetricsResource(Resource):
         workers = workers_store[site()].items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
                                                                                           SHUTTING_DOWN,
                                                                                           SHUTDOWN_REQUESTED]}})
-        pending_workers = [w for w in workers if w['status'] in [REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
+        pending_workers = [w for w in workers if w['status'] in [READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
                                                                  CREATING_CONTAINER, UPDATING_STORE]]
 
         try:
@@ -252,16 +252,21 @@ class MetricsResource(Resource):
         if inbox_length - len(pending_workers) > 0 and len(workers) < max_workers:
             tenant = actor["tenant"]
             worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
-            logger.info("New worker id: {}".format(worker_id))
-            ch = CommandChannel(name=channel_name)
-            ch.put_cmd(actor_id=actor_id,
-                       worker_id=worker_id,
-                       image=actor.image,
-                       revision=actor.revision,
-                       tenant=tenant,
-                       stop_existing=False)
-            ch.close()
-            logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
+            try:
+                logger.info("New worker id: {}".format(worker_id))
+                ch = CommandChannel(name=channel_name)
+                ch.put_cmd(actor_id=actor_id,
+                        worker_id=worker_id,
+                        image=actor["image"],
+                        revision=actor["revision"],
+                        tenant=tenant,
+                        site_id=site(),
+                        stop_existing=False)
+                ch.close()
+                logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
+            except Exception as e:
+                # We continue as this is not a users fault.
+                logger.critical(f"Error adding command to command channel during autoscale up: {e}")
         else:
             logger.debug(f"autoscaler not adding worker for actor {actor_id}")
 

@@ -1,5 +1,5 @@
 # Core image for Abaco project - Includes files for testing.
-# Image: abaco/core
+# Image: abaco/core-v3
 
 # inherit from the flaskbase iamge:
 FROM tapis/flaskbase:latest
