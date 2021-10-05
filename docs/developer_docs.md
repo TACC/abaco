@@ -104,7 +104,7 @@ Note: These instructions work for Linux. OS X and Windows will require different
 
 **Building the Images**
 
-All core Abaco processes run out of the same abaco/core image. It should be build using the Dockerfile at the root
+All core Abaco processes run out of the same abaco/core-v3 image. It should be build using the Dockerfile at the root
 of the repository and tagged with a tag equal to the branch name. Export a variable called $TAG with the tag name
 preceded by a colon (:) character in it.
 
@@ -321,8 +321,8 @@ Production Release
 
 Deployment checklist:
 * logon to build server (typically, megajenkins, 129.114.6.149) and tag and push the images:
-  - docker tag abaco/core:dev abaco/core:$TAG
-    docker tag abaco/core:dev abaco/core
+  - docker tag abaco/core-v3:dev abaco/core-v3:$TAG
+    docker tag abaco/core-v3:dev abaco/core
   - docker tag abaco/testsuite:dev abaco/testsuite
     docker tag abaco/testsuite:dev abaco/testsuite:$TAG
   - docker tag abaco/nginx:dev abaco/nginx:$TAG
@@ -331,7 +331,7 @@ Deployment checklist:
     docker tag abaco/prom:dev abaco/prom
 
 - change the tag in the compose and abaco.conf files on each production host
-- pull the image (abaco/core:$TAG)
+- pull the image (abaco/core-v3:$TAG)
 - update the TAG value in the abaco.conf file (e.g. TAG: 0.5.1)
 
 - prep the env:

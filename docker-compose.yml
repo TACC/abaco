@@ -83,7 +83,7 @@ services:
             - abaco
 
     reg:
-        image: abaco/core:$TAG
+        image: abaco/core-v3:$TAG
         ports:
             - "5000:5000"
         volumes:
@@ -105,7 +105,7 @@ services:
             - abaco
 
     mes:
-        image: abaco/core:$TAG
+        image: abaco/core-v3:$TAG
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
@@ -128,7 +128,7 @@ services:
             - abaco
 
     admin:
-        image: abaco/core:$TAG
+        image: abaco/core-v3:$TAG
         volumes:
             - ./config-local.json:/home/tapis/config.json
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
@@ -151,7 +151,7 @@ services:
             - abaco
 
     spawner:
-        image: abaco/core:$TAG
+        image: abaco/core-v3:$TAG
         command: "python3 -u /home/tapis/actors/spawner.py"
         volumes:
             - ./config-local.json:/home/tapis/config.json
@@ -172,7 +172,7 @@ services:
             - abaco
 
     health:
-        image: abaco/core:$TAG
+        image: abaco/core-v3:$TAG
         command: /home/tapis/actors/health_check.sh
         volumes:
             - /:/host
@@ -197,7 +197,7 @@ services:
             - abaco
 
     events:
-        image: abaco/core:$TAG
+        image: abaco/core-v3:$TAG
         command: "python3 -u /home/tapis/actors/events.py"
         volumes:
             - ./config-local.json:/home/tapis/config.json
@@ -257,7 +257,7 @@ services:
         restart: always
 
     metrics:
-        image: abaco/core:$TAG
+        image: abaco/core-v3:$TAG
         networks:
             - abaco
         volumes:
