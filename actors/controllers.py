@@ -16,7 +16,7 @@ from parse import parse
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
 from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
-    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
+    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
     UPDATING_STORE, SHUTDOWN_REQUESTED
 from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
@@ -241,7 +241,7 @@ class MetricsResource(Resource):
         workers = workers_store[site()].items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
                                                                                           SHUTTING_DOWN,
                                                                                           SHUTDOWN_REQUESTED]}})
-        pending_workers = [w for w in workers if w['status'] in [REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
+        pending_workers = [w for w in workers if w['status'] in [READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
                                                                  CREATING_CONTAINER, UPDATING_STORE]]
 
         try:
