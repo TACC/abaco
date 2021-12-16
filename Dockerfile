@@ -22,7 +22,6 @@ RUN chmod +x rabbitmqadmin
 RUN groupadd -g 1000 host_gid
 RUN groupadd -g 1001 docker_gid
 RUN usermod -aG tapis,host_gid,docker_gid tapis
-RUN chown -R tapis:tapis /home/tapis
 
 ## FILE INITIALIZATION
 # we mkdir's instead of copying because we don't
@@ -48,6 +47,8 @@ COPY actors /home/tapis/actors
 RUN echo "tapis ALL=NOPASSWD: /home/tapis/actors/folder_permissions.sh" >> /etc/sudoers
 RUN chmod +x /home/tapis/actors/folder_permissions.sh
 RUN chmod +x /home/tapis/actors/health_check.sh
+# Permission finalization
+RUN chown -R tapis:tapis /home/tapis
 
 ## Note, set this env when running tests through Makefile.
 #ENV _called_from_within_test=True
