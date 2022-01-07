@@ -2,7 +2,7 @@
 # Image: abaco/core-v3
 
 # inherit from the flaskbase iamge:
-FROM tapis/flaskbase:latest
+FROM tapis/flaskbase-plugins:latest
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api
 ENV PYTHONPATH .:*:actors:actors/*
@@ -29,7 +29,7 @@ RUN usermod -aG tapis,host_gid,docker_gid tapis
 RUN mkdir -p /home/tapis/runtime_files /home/tapis/runtime_files/_abaco_fifos /home/tapis/runtime_files/_abaco_results_sockets /home/tapis/runtime_files/logs /home/tapis/runtime_files/data1 /home/tapis/runtime_files/data2 /home/tapis/runtime_files/certs
 # create abaco.log file for logs
 RUN touch /home/tapis/runtime_files/logs/service.log
-RUN touch /home/tapis/runtime_files/logs/common.log
+RUN touch /home/tapis/runtime_files/logs/tapisservice.log
 # touch config.json
 RUN touch /home/tapis/config.json
 # regular abaco entrypoints
