@@ -5,11 +5,12 @@ import os
 if os.environ.get('_called_from_within_test'):
     pass
 else:
-    from common.auth import get_service_tapis_client, Tenants
-    from common.logs import get_logger
+    from tapisservice.tenants import TenantCache
+    from tapisservice.auth import get_service_tapis_client
+    from tapisservice.logs import get_logger
     logger = get_logger(__name__)
 
-    Tenants = Tenants()
+    Tenants = TenantCache()
     try:
         t = get_service_tapis_client(tenants=Tenants)
     except Exception as e:

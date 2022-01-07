@@ -2,7 +2,7 @@ from flask import Flask, render_template
 from flask_cors import CORS
 from prometheus_client import Summary, MetricsHandler, Counter
 
-from common.utils import handle_error, TapisApi
+from tapisservice.tapisflask.utils import handle_error, TapisApi
 
 
 from controllers import MetricsResource, CronResource

@@ -14,18 +14,18 @@ from parse import parse
 from dateutil.relativedelta import relativedelta
 from werkzeug.exceptions import BadRequest
 
-from common.utils import RequestParser
 from channels import CommandChannel, EventsChannel
 from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
     SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
-from common.config import conf
 import errors
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
 from stores import actors_store, alias_store, executions_store, logs_store, nonce_store, \
     permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store
-
-from common.logs import get_logger
+    
+from tapisservice.tapisflask.utils import RequestParser
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 
 

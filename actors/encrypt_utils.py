@@ -1,5 +1,5 @@
 from cryptography.fernet import Fernet
-from common.config import conf
+from tapisservice.config import conf
 
 key = conf.get('web_encryption_key')
 f = Fernet(key.encode())

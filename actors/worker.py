@@ -12,14 +12,14 @@ from __init__ import t
 from auth import get_tenant_verify
 from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from codes import SHUTDOWN_REQUESTED, SHUTTING_DOWN, ERROR, READY, BUSY, COMPLETE
-from common.config import conf
+from tapisservice.config import conf
 from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
 import globals
 from models import Actor, Execution, Worker, site
 from stores import actors_store, workers_store, executions_store
 
-from common.logs import get_logger
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 
 # keep_running will be updated by the thread listening on the worker channel when a graceful shutdown is
@@ -162,7 +162,8 @@ def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
                                           token_username=token_user,
                                           access_token_ttl=access_token_ttl,
                                           generate_refresh_token=False,
-                                          use_basic_auth=False)
+                                          use_basic_auth=False,
+                                          _tapis_set_x_headers_from_service=True)
         elasped_time = time.time() - start
         if elasped_time >= 2:
             logger.error(f"Time to create execution token: {elasped_time}")

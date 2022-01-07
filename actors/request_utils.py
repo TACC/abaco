@@ -5,7 +5,7 @@ from flask import jsonify, request
 from werkzeug.exceptions import ClientDisconnected
 from flask_restful import Api
 
-from common.config import conf
+from tapisservice.config import conf
 from errors import BaseAbacoError
 
 TAG = os.environ.get('TAG') or conf.version

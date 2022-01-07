@@ -9,8 +9,8 @@ from pymongo.errors import OperationFailure
 
 from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
-from common.config import conf
-from common.logs import get_logger
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 from docker_utils import DockerError, run_worker, pull_image
 from errors import WorkerException
 from models import Actor, Worker, site
