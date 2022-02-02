@@ -14,18 +14,18 @@ from parse import parse
 from dateutil.relativedelta import relativedelta
 from werkzeug.exceptions import BadRequest
 
-from common.utils import RequestParser
 from channels import CommandChannel, EventsChannel
 from codes import REQUESTED, READY, ERROR, SHUTDOWN_REQUESTED, SHUTTING_DOWN, SUBMITTED, EXECUTE, PermissionLevel, \
     SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, BUSY
-from common.config import conf
 import errors
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
 from stores import actors_store, alias_store, executions_store, logs_store, nonce_store, \
     permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store
-
-from common.logs import get_logger
+    
+from tapisservice.tapisflask.utils import RequestParser
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 
 
@@ -77,12 +77,15 @@ def dict_to_camel(d):
     return d2
 
 def camel_to_under(value):
+    """
+    Convert all camel case  variables to underscores.
+    Ex: testVariableScore.eq: value -> test_variable_score.eq: value"""
     return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
 
 def dict_to_under(d):
-    """Convert all keys in a dictionary to camel case."""
+    """Convert all keys in a dictionary to underscores case."""
     d2 = {}
-    for k,v in d.items():
+    for k, v in d.items():
         k = k.split(".")
         k[0] = camel_to_under(k[0])
         k = ".".join(k)
@@ -198,7 +201,7 @@ class Search():
         # multiple of the same key, one value if not.
         # Checks each key given by the requests query parameters.
         for key, val in self.args.items():
-            # Ignores x-nonce and that for Abaco authentication, not search.
+            # Ignores x-nonce as that's for Abaco authentication, not search.
             if key == "x-nonce":
                 pass
             # Adds vals matched to 'search' to the 'search' string which will

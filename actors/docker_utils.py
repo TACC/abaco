@@ -10,11 +10,11 @@ import docker
 from requests.packages.urllib3.exceptions import ReadTimeoutError
 from requests.exceptions import ReadTimeout, ConnectionError
 
-from common.logs import get_logger
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 
 from channels import ExecutionResultsChannel
-from common.config import conf
+from tapisservice.config import conf
 from codes import BUSY, READY, RUNNING
 import encrypt_utils
 import globals
@@ -327,7 +327,7 @@ def run_worker(image,
     :return:
     """
     logger.debug("top of run_worker()")
-    command = 'python3 -u /actors/worker.py'
+    command = 'python3 -u /home/tapis/actors/worker.py'
     logger.debug(f"docker_utils running worker. actor_id: {actor_id}; worker_id: {worker_id};"
                  f"image:{image}; revision: {revision}; command:{command}")
 

@@ -2,6 +2,35 @@
 All notable changes to this project will be documented in this file.
 
 
+## 1.0.2 - 2022-01-06 (Pre-release for 1.1.0)
+
+### Breaking Changes:
+
+- No change.
+
+### New features:
+
+- Abaco now relies on new Tapipy (w/Plugins) support. Now referencing tapisservice rather than common and built off the flaskbase-plugins image.
+
+### Bug fixes:
+
+- No Change.
+
+## 1.0.0 - 2021-09-24
+
+### Breaking Changes:
+
+- No Change.
+
+### New features:
+
+- Initial 1.0.0 changelog.
+
+### Bug fixes:
+
+- No Change.
+
+
 ## 1.0.1 - 2021-09-28
 
 ### Breaking Changes:

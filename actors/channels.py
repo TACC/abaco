@@ -6,7 +6,7 @@ from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 import cloudpickle
 import rabbitpy
 
-from common.config import conf
+from tapisservice.config import conf
 from flask import g
 from stores import get_site_rabbitmq_uri
 

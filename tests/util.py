@@ -5,8 +5,10 @@ import pytest
 import requests
 import time
 from tapipy.tapis import Tapis
-from common.auth import Tenants
+from tapisservice.tenants import TenantCache
 import subprocess
+from tapisservice.logs import get_logger
+logger = get_logger(__name__)
 
 # Need base_url as it's where we direct calls. But also need SK url for tapipy.
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
@@ -23,7 +25,7 @@ def get_service_tapis_client():
     resource_set = os.environ.get('resource_set', 'local')
     custom_spec_dict = os.environ.get('custom_spec_dict', None)
     download_latest_specs = os.environ.get('download_latest_specs', False)
-    # if there is no tenant_id, use the service_tenant_id and primary_site_admin_tenant_base_url configured for the service:
+    # if there is no tenant_id, use the service_tenant_id and primary_site_admin_tenant_base_url configured for the service:    
     t = Tapis(base_url=sk_url or base_url,
               tenant_id=tenant_id,
               username='abaco',
@@ -34,8 +36,11 @@ def get_service_tapis_client():
               custom_spec_dict=custom_spec_dict,
               download_latest_specs=download_latest_specs,
               is_tapis_service=True,
-              tenants=Tenants())
+              plugins=["tapisservice"],
+              tenants=TenantCache(),
+              _tapis_set_x_headers_from_service=True)
     if not jwt:
+        logger.debug("tapis service client constructed, now getting tokens.")
         t.get_tokens()
     return t
 
@@ -49,15 +54,15 @@ t = get_service_tapis_client()
 @pytest.fixture(scope='session', autouse=True)
 def create_test_roles():
     # Using Tapipy to ensure each abaco environment has proper roles and testusers created before starting
-    all_role_names = t.sk.getRoleNames(tenant=testuser_tenant)
+    all_role_names = t.sk.getRoleNames(tenant=testuser_tenant, _tapis_set_x_headers_from_service=True)
     if not 'abaco_admin' in all_role_names.names:
         print('Creating role: abaco_admin')
-        t.sk.createRole(roleTenant=testuser_tenant, roleName='abaco_admin', description='Admin role in Abaco.')
+        t.sk.createRole(roleTenant=testuser_tenant, roleName='abaco_admin', description='Admin role in Abaco.', _tapis_set_x_headers_from_service=True)
     if not 'abaco_privileged' in all_role_names.names:
         print('Creating role: abaco_privileged')
-        t.sk.createRole(roleTenant=testuser_tenant, roleName='abaco_privileged', description='Privileged role in Abaco.')
-    t.sk.grantRole(tenant=testuser_tenant, user='_abaco_testuser_admin', roleName='abaco_admin')
-    t.sk.grantRole(tenant=testuser_tenant, user='_abaco_testuser_privileged', roleName='abaco_privileged')
+        t.sk.createRole(roleTenant=testuser_tenant, roleName='abaco_privileged', description='Privileged role in Abaco.', _tapis_set_x_headers_from_service=True)
+    t.sk.grantRole(tenant=testuser_tenant, user='_abaco_testuser_admin', roleName='abaco_admin', _tapis_set_x_headers_from_service=True)
+    t.sk.grantRole(tenant=testuser_tenant, user='_abaco_testuser_privileged', roleName='abaco_privileged', _tapis_set_x_headers_from_service=True)
 
 @pytest.fixture(scope='session', autouse=True)
 def headers():
@@ -106,7 +111,8 @@ def get_tapis_token_headers(user, alt_tenant=None):
                                       token_username=user,
                                       access_token_ttl=999999,
                                       generate_refresh_token=False,
-                                      use_basic_auth=False)
+                                      use_basic_auth=False,
+                                      _tapis_set_x_headers_from_service=True)
     if not token_res.access_token or not token_res.access_token.access_token:
         raise KeyError(f"Did not get access token; token response: {token_res}")
     header_dat = {"X-Tapis-Token": token_res.access_token.access_token}
