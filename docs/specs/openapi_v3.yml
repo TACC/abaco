@@ -1075,6 +1075,12 @@ components:
           description: Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.
           nullable: true
           default: null
+        cronSchedule:
+          type: string
+          description: String of 'yyyy-mm-dd hh + <number> <unit of time>' format. Turns on cron feature for actor so that at the specified times the actor with execute with a generic static message.
+        cronOn:
+          type: boolean
+          description: Variable to turn on or off the cron schedule feature for the actor. 
       required: [image]
 
     Actor:
@@ -1127,6 +1133,15 @@ components:
         statusMessage:
           type: string
           description: Explanation of status.
+        cronSchedule:
+          type: string
+          description: String of 'yyyy-mm-dd hh + <number> <unit of time>' format. Turns on cron feature for actor so that at the specified times the actor with execute with a generic static message.
+        cronOn:
+          type: boolean
+          description: Variable to turn on or off the cron schedule feature for the actor.
+        cronNextEx:
+          type: string
+          description: Next cron execution time for the actor. Only used when `cronOn` is set to True.
         type:
           type: string
           description: Return type (none, bin, json) for this actor. Default is none.

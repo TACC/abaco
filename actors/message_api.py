@@ -1,7 +1,7 @@
 from flask import Flask
 from flask_cors import CORS 
 
-from common.utils import handle_error, TapisApi
+from tapisservice.tapisflask.utils import handle_error, TapisApi
 
 
 from auth import authn_and_authz

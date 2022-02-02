@@ -1,8 +1,7 @@
 """Module to determine file system mounts for an actor."""
 
-from common.config import conf
-
-from common.logs import get_logger
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 
 
