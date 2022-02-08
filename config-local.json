@@ -3,7 +3,7 @@
     "primary_site_admin_tenant_base_url": "https://admin.develop.tapis.io",
     "service_tenant_id": "admin",
     "service_name": "abaco",
-    "service_password": "",
+    "service_password": "***REMOVED***",
     "tenants": [
         "tacc",
         "dev",
@@ -61,7 +61,7 @@
     "web_apim_public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCUp/oV1vWc8/TkQSiAvTousMzOM4asB2iltr2QKozni5aVFu818MpOLZIr8LMnTzWllJvvaA5RAAdpbECb+48FjbBe0hseUdN5HpwvnH/DW8ZccGvk53I6Orq7hLCv1ZHtuOCokghz/ATrhyPq+QktMfXnRS4HrKGJTzxaCcU7OQIDAQAB",
     "web_show_traceback": false,
     "web_max_log_length": 1000000,
-    "web_case": "camel",
+    "web_case": "snake",
     "web_max_content_length": 500000000,
     "web_all_queues": [
         "default",
