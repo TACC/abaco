@@ -23,7 +23,7 @@ import errors
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
 from stores import actors_store, alias_store, executions_store, logs_store, nonce_store, \
-    permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store
+    permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store, adapters_store, adapter_servers_store, adapter_permissions_store
 
 from common.logs import get_logger
 logger = get_logger(__name__)
@@ -151,7 +151,8 @@ class Search():
         store_dict = {'executions': executions_store[site()],
                       'workers': workers_store[site()],
                       'actors': actors_store[site()],
-                      'logs': logs_store[site()]}
+                      'logs': logs_store[site()],
+                      'adapters': adapter_store[site()]}
         try:
             queried_store = store_dict[self.search_type]
         except KeyError:
@@ -159,7 +160,7 @@ class Search():
                             " be one of {list(store_dict.keys())}.")
         
         localField = 'actor_id'
-        if self.search_type =='actors':
+        if self.search_type =='actors' or self.search_type =='adapters':
             localField = '_id'
         security = [{'$match': {'tenant': self.tenant}},
                     {'$lookup':
@@ -405,6 +406,29 @@ class Search():
                 search_list[i].pop('executions', None)
                 search_list[i].pop('tenant', None)
                 search_list[i].pop('db_id', None)
+        
+        elif self.search_type == 'adapters':
+            for i, result in enumerate(search_list):
+                try:
+                    api_server = result['api_server']
+                    owner = result['owner']
+                    id = result['id']
+                    search_list[i]['_links'] = {
+                        'self': f'{api_server}/v3/adapters/{id}',
+                        'owner': f'{api_server}/v3/oauth2/profiles/{owner}',
+                        'servers': f'{api_server}/v3/actors/{id}/servers'}
+                    search_list[i].pop('api_server')
+                except KeyError:
+                    pass
+                if result.get('create_time'):
+                    search_list[i]['create_time'] = display_time(result['create_time'])
+                if result.get('last_update_time'):
+                    search_list[i]['last_update_time'] = display_time(result['last_update_time'])
+                search_list[i].pop('_id', None)
+                search_list[i].pop('permissions', None)
+                search_list[i].pop('api_server', None)
+                search_list[i].pop('tenant', None)
+                search_list[i].pop('db_id', None)
 
         # Does post processing on logs db searches.
         elif self.search_type == 'logs':
@@ -584,6 +608,23 @@ class ActorEvent(Event):
                          "event type: {}".format(event_type))
             raise errors.DAOError(f"Invalid actor event type {event_type}.")
 
+class AdapterEvent(Event):
+    """
+    Data access object class for creating and working with adapter event objects.
+    """
+    event_types = ('Adapter_READY',
+                  'Adapter_ERROR',
+                  )
+
+    def __init__(self, dbid: str, event_type: str, data: dict):
+        """
+        Create a new event object
+        """
+        super().__init__(dbid, event_type, data)
+        if not event_type.upper() in AdapterEvent.event_types:
+            logger.error("Invalid adapter event type passed to the AdapterEvent constructor. "
+                         "event type: {}".format(event_type))
+            raise errors.DAOError(f"Invalid adapter event type {event_type}.")
 
 class ActorExecutionEvent(Event):
     """
@@ -2071,6 +2112,560 @@ class Worker(AbacoDAO):
         self['create_time'] = display_time(create_time_str)
         return self.case()
 
+class Adapter(AbacoDAO):
+    """Basic data access object for working with adapters."""
+
+    PARAMS = [
+        # param_name, required/optional/provided/derived, attr_name, type, help, default
+        ('name', 'optional', 'name', str, 'User defined name for this adapter.', None),
+        ('image', 'required', 'image', str, 'Reference to image on docker hub for this adapter.', None),
+
+        ('stateless', 'optional', 'stateless', inputs.boolean, 'Whether the adapter stores private state.', True),
+        ('type', 'optional', 'type', str, 'Return type (none, bin, json) for this adapter. Default is none.', 'none'),
+        ('link', 'optional', 'link', str, "Adapter identifier of adapter to link this adapter's events too. May be an adapter id or an alias. Cycles not permitted.", ''),
+        ('token', 'optional', 'token', inputs.boolean, 'Whether this adapter requires an OAuth access token.', None),
+        ('webhook', 'optional', 'webhook', str, "URL to publish this adapter's events to.", ''),
+        ('hints', 'optional', 'hints', str, 'Hints for personal tagging or Abaco special hints', []),
+        ('description', 'optional', 'description', str,  'Description of this adapter', ''),
+        ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this adapter runs in privileged mode.', False),
+        ('mem_limit', 'optional', 'mem_limit', str, 'maximum amount of memory this adapter can use.', None),
+        ('max_cpus', 'optional', 'max_cpus', int, 'Maximum number of CPUs (nanoCPUs) this adapter will have available to it.', None),
+        ('use_container_uid', 'optional', 'use_container_uid', inputs.boolean, 'Whether this adapter runs as the UID set in the container image.', False),
+        ('default_environment', 'optional', 'default_environment', dict, 'A dictionary of default environmental variables and values.', {}),
+        ('status', 'optional', 'status', str, 'Current status of the adapter.', SUBMITTED),
+        ('status_message', 'optional', 'status_message', str, 'Explanation of status.', ''),
+        ('state', 'optional', 'state', dict, "Current state for this adapter.", {}),
+        ('create_time', 'derived', 'create_time', str, "Time (UTC) that this adapter was created.", {}),
+        ('last_update_time', 'derived', 'last_update_time', str, "Time (UTC) that this adapter was last updated.", {}),
+
+        ('tenant', 'provided', 'tenant', str, 'The tenant that this adapter belongs to.', None),
+        ('api_server', 'provided', 'api_server', str, 'The base URL for the tenant that this adapter belongs to.', None),
+        ('owner', 'provided', 'owner', str, 'The user who created this adapter.', None),
+        ('mounts', 'provided', 'mounts', list, 'List of volume mounts to mount into each adapter container.', []),
+        ('revision', 'provided', 'revision', int, 'A monotonically increasing integer, incremented each time the adapter is updated with new version of its image.', 1),
+        ('tasdir', 'optional', 'tasdir', str, 'Absolute path to the TAS defined home directory associated with the owner of the adapter', None),
+
+
+        ('queue', 'optional', 'queue', str, 'The command channel that this adapter uses.', 'default'),
+        ('db_id', 'derived', 'db_id', str, 'Primary key in the database for this adapter.', None),
+        ('id', 'derived', 'id', str, 'Human readable id for this adapter.', None),
+        ('log_ex', 'optional', 'log_ex', int, 'Amount of time, in seconds, after which logs will expire', None),
+        ('cron_on', 'optional', 'cron_on', inputs.boolean, 'Whether cron is on or off', False),
+        ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
+        ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
+
+        ('servers', 'optional', 'servers', dict, 'The server id and the network address for those servers', {}),
+        ('addresses', 'optional', 'addresses', list, 'The network address for those servers', [])
+        ]
+
+    SYNC_HINT = 'sync'
+
+    def get_derived_value(self, name, d):
+        """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
+        # first, see if the attribute is already in the object:
+        if hasattr(self, 'id'):
+            return
+        # next, see if it was passed:
+        try:
+            return d[name]
+        except KeyError:
+            pass
+        # if not, generate an id
+        try:
+            adapter_id, db_id = self.generate_id(d['name'], d['tenant'])
+        except KeyError:
+            logger.debug(f"name or tenant missing from adapter dict: {d}.")
+            raise errors.DAOError("Required field name or tenant missing")
+        # id fields:
+        self.id = adapter_id
+        self.db_id = db_id
+
+        # time fields
+        time_str = get_current_utc_time()
+        self.create_time = time_str
+        self.last_update_time = time_str
+        if name == 'id':
+            return adapter_id
+        elif name == 'create_time' or name == 'last_update_time':
+            return time_str
+        else:
+            return db_id
+    
+    @classmethod
+    def set_next_ex(cls, adapter, adapter_id):
+        # Parse cron into [datetime, number, unit of time]
+        logger.debug("In set_next_ex")
+        cron = adapter['cron_schedule']
+        cron_parsed = parse("{} + {} {}", cron)
+        unit_time = cron_parsed.fixed[2]
+        time_length = int(cron_parsed.fixed[1])
+        # Parse the first element of cron_parsed into another list of the form [year, month, day, hour]
+        cron_next_ex = adapter['cron_next_ex']
+        time = parse("{}-{}-{} {}", cron_next_ex)
+        # Create a datetime object
+        start = datetime.datetime(int(time[0]), int(time[1]), int(time[2]), int(time[3]))
+        logger.debug(f"cron_parsed[1] is {time_length}")
+        # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
+        if unit_time == "month" or unit_time == "months":
+            end = start + relativedelta(months=+time_length)
+        elif unit_time == "week" or unit_time == "weeks":
+            end = start + datetime.timedelta(weeks=time_length)
+        elif unit_time == "day" or unit_time == "days":
+            end = start + datetime.timedelta(days=time_length)
+        elif unit_time == "hour" or unit_time == "hours":
+            end = start + datetime.timedelta(hours=time_length)
+        else:
+            # The unit of time is not supported, turn off cron or else it will continue to execute
+            logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
+            adapters_store[adapter_id, 'cron_on'] = False
+        time = f"{end.year}-{end.month}-{end.day} {end.hour}"
+        logger.debug(f"returning {time}")
+        return time
+    
+    #this function assumes that cron_next_ex is in the past, due to some failure
+    # this function updates cron_next_ex, so the adapter starts getting executed at the same times that it
+    # would execute if the cron never failed; it also prints all the times the cron failed to execute when it
+    # was suppose to in the logger
+    @classmethod
+    def set_next_ex_past(cls, adapter, adapter_id):
+            logger.debug("In set_next_ex_past")
+            # Parse cron into [datetime, increment, unit of time]
+            cron = adapter['cron_schedule']
+            cron_parsed = parse("{} + {} {}", cron)
+            time_increment = int(cron_parsed.fixed[1])
+            unit_time = cron_parsed.fixed[2]
+            logger.debug(f"cron_parsed[1] is {time_increment}")
+            # Parse the cron_next_ex into another list of the form [year, month, day, hour]
+            cron_next_ex = adapter['cron_next_ex']
+            cron_nextex_parsed = parse("{}-{}-{} {}", cron_next_ex)
+            # Create a datetime object from the cron_next_ex_parsed list
+            cron_datetime = datetime.datetime(int(cron_nextex_parsed[0]), int(cron_nextex_parsed[1]), \
+                int(cron_nextex_parsed[2]), int(cron_nextex_parsed[3]))
+            # Create a datetime object for current time
+            now = datetime.datetime.utcnow()
+            now = datetime.datetime(now.year, now.month, now.day, now.hour)
+            #initialize certain variables to report when Cron failed
+            timeswherecronfailed=[]
+            # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
+            # we use a while loop
+            if unit_time == "month" or unit_time == "months":
+                while cron_datetime<now:                                                        #while cron_next_ex is less than now
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)                                       #recording when cron failed
+                    cron_datetime = cron_datetime + relativedelta(months=+time_increment)       #increment the cron_next_ex value by time increment
+            elif unit_time == "week" or unit_time == "weeks":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(weeks=time_increment)
+            elif unit_time == "day" or unit_time == "days":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(days=time_increment)
+            elif unit_time == "hour" or unit_time == "hours":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(hours=time_increment)
+            else:
+                # The unit of time is not supported, turn off cron or else it will continue to execute
+                logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
+                adapters_store[adapter_id, 'cron_on'] = False
+            new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+            logger.debug("The cron failed to execute the adapter at")
+            logger.debug(timeswherecronfailed)
+            return new_cron  
+
+    @classmethod
+    def set_cron(cls, cron):
+        # Method checks for the 'now' alias and also checks that the cron sent in has not passed yet
+        logger.debug("in set_cron()")
+        now = get_current_utc_time()
+        now_datetime = datetime.datetime(now.year, now.month, now.day, now.hour)
+        logger.debug(f"now_datetime is {now_datetime}")
+        # parse r: if r is not in the correct format, parse() will return None
+        r = parse("{} + {} {}", cron)
+        logger.debug(f"r is {r}")
+        if r is None:
+            raise errors.DAOError(f"The cron is not in the correct format")
+        # Check that the cron schedule hasn't already passed
+        # Check for the 'now' alias and change the cron to now if 'now' is sent in
+        cron_time = r.fixed[0]
+        logger.debug(f"Cron time is {cron_time}")
+        if cron_time.lower() == "now":
+            cron_time_parsed = [now.year, now.month, now.day, now.hour]
+            # Change r to the current UTC datetime
+            logger.debug(f"cron_time_parsed when now is sent in is {cron_time_parsed}")
+            r_temp = "{}-{}-{} {}".format(cron_time_parsed[0], cron_time_parsed[1], cron_time_parsed[2], cron_time_parsed[3])
+            r = "{} + {} {}".format(r_temp, int(r.fixed[1]), r.fixed[2])
+            # parse r so that, when it is returned, it is a parsed object
+            r = parse("{} + {} {}", r)
+            logger.debug(f"User sent now, new r is the current time: {r}")
+        else:
+            cron_time_parsed = parse("{}-{}-{} {}", cron_time)
+            if cron_time_parsed is None:
+                logger.debug(f'{r} is not in the correct format')
+                raise errors.DAOError(f"The starting date {r.fixed[0]} is not in the correct format")
+            else:
+                # Create a datetime object out of cron_datetime
+                schedule_execution = datetime.datetime(int(cron_time_parsed[0]), int(cron_time_parsed[1]), int(cron_time_parsed[2]), int(cron_time_parsed[3]))
+                if schedule_execution < now_datetime:
+                    logger.debug("User sent in old time, raise exception")
+                    raise errors.DAOError(f'The starting datetime is old. The current UTC time is {now_datetime}')
+        return r
+
+    @classmethod
+    def get_adapter_id(cls, tenant, identifier):
+        """
+        Return the human readable adapter_id associated with the identifier 
+        :param identifier (str): either an adapter_id or an alias. 
+        :return: The adapter_id; raises a KeyError if no adapter exists. 
+        """
+        if is_hashid(identifier):
+            return identifier
+        # look for an alias with the identifier:
+        alias_id = Alias.generate_alias_id(tenant, identifier)
+        alias = Alias.retrieve_by_alias_id(alias_id)
+        return alias.adapter_id
+
+    @classmethod
+    def get_adapter(cls, identifier, is_alias=False):
+        """
+        Return the adapter object based on `identifier` which could be either a dbid or an alias.
+        :param identifier (str): Unique identifier for an adapter; either a dbid or an alias dbid.
+        :param is_alias (bool): Caller can pass a hint, "is_alias=True", to avoid extra code checks. 
+        
+        :return: adapter dictionary; caller should instantiate an adapter object from it.  
+        """
+        if not is_alias:
+            # check whether the identifier is an adapter_id:
+            if is_hashid(identifier):
+                return adapters_store[site()][identifier]
+        # if we're here, either the caller set the is_alias=True hint or the is_hashid() returned False.
+        # either way, we need to check the alias store
+        alias = alias_store[site()][identifier]
+        db_id = alias['db_id']
+        return adapters_store[site()][db_id]
+
+    def get_uuid_code(self):
+        """ Return the uuid code for this object.
+        :return: str
+        """
+        return '059'
+
+    def display(self):
+        """Return a representation fit for display."""
+        self.update(self.get_hypermedia())
+        self.pop('db_id')
+        self.pop('servers')
+        self.pop('tenant')
+        self.pop('api_server')
+        c_time_str = self.pop('create_time')
+        up_time_str = self.pop('last_update_time')
+        self['create_time'] = display_time(c_time_str)
+        self['last_update_time'] = display_time(up_time_str)
+        return self.case()
+
+    def get_hypermedia(self):
+        return {'_links': { 'self': f'{self.api_server}/v3/adapters/{self.id}',
+                            'owner': f'{self.api_server}/v3/oauth2/profiles/{self.owner}',
+                            'servers': f'{self.api_server}/v3/adapters/{self.id}/servers'
+        }}
+
+    def generate_id(self, name, tenant):
+        """Generate an id for a new adapter."""
+        id = self.get_uuid()
+        return id, adapter.get_dbid(tenant, id)
+
+    def ensure_one_server(self, site_id=None):
+        """This method will check the servers store for the adapter and request a new server if none exist."""
+        logger.debug("top of adapter.ensure_one_server().")
+        site_id = site_id or site()
+        server_id = AdapterServer.ensure_one_server(self.db_id, self.tenant)
+        logger.debug(f"AdapterServer.ensure_one_server returned server_id: {server_id}")
+        if server_id:
+            logger.info("adapter.ensure_one_server() putting message on command "
+                        f"channel for server_id: {server_id}")
+            ch = CommandChannel(name=self.queue)
+            ch.put_cmd(adapter_id=self.db_id,
+                       server_id=server_id,
+                       image=self.image,
+                       revision=self.revision,
+                       tenant=self.tenant,
+                       site_id=site_id,
+                       stop_existing=False)
+            ch.close()
+            return server_id
+        else:
+            logger.debug("adapter.ensure_one_serverr() returning None.")
+            return None
+
+    @classmethod
+    def get_adapter_log_ttl(cls, adapter_id):
+        """
+        Returns the log time to live, looking at both the config file and logEx if passed
+        Find the proper log expiry time, checking user log_ex, tenant, and global.
+        """
+        logger.debug("In get_adapter_log_ttl")
+        adapter = adapter.from_db(adapters_store[site()][adapter_id])
+        tenant = adapter['tenant']
+        # Gets the log_ex variables from the config.
+        # Get user_log_ex
+        user_log_ex = adapter['log_ex']
+        # Get tenant_log_ex and tenant limit
+        tenant_obj = conf.get(f'{tenant}_tenant_object')
+        if tenant_obj:
+            tenant_log_ex = tenant_obj.get('log_ex')
+            tenant_log_ex_limit = tenant_obj.get('log_ex_limit')
+        else:
+            tenant_log_ex = None
+            tenant_log_ex_limit = None
+        # Get global_log_ex and global limit (these are required fields in configschema)
+        global_obj = conf.get('global_tenant_object')
+        global_log_ex = global_obj.get('log_ex')
+        global_log_ex_limit = global_obj.get('log_ex_limit')
+
+        # Inspect vars to check they're within set bounds.
+        if not user_log_ex:
+            # Try to set tenant log_ex if it exists, default to global.
+            log_ex = tenant_log_ex or global_log_ex
+        else:
+            # Restrict user_log_ex based on tenant or global config limit
+            if tenant_log_ex_limit and user_log_ex > tenant_log_ex_limit:
+                #raise DAOError(f"{user_log_ex} is larger than max tenant expiration {tenant_log_ex_limit}, will be set to this expiration")
+                log_ex = tenant_log_ex_limit
+            elif global_log_ex_limit and user_log_ex > global_log_ex_limit:
+                #raise DAOError(f"{user_log_ex} is larger than max global expiration {global_log_ex_limit}, will be set to this expiration")
+                log_ex = global_log_ex_limit
+            else:
+                log_ex = user_log_ex
+
+        logger.debug(f"log_ex will be set to {log_ex}")
+        return log_ex
+
+    @classmethod
+    def get_dbid(cls, tenant, id):
+        """Return the key used in mongo from the "display_id" and tenant. """
+        return str(f'{tenant}_{id}')
+
+    @classmethod
+    def get_display_id(cls, tenant, dbid):
+        """Return the display id from the dbid."""
+        if tenant + '_' in dbid:
+            return dbid[len(tenant + '_'):]
+        else:
+            return dbid
+
+    @classmethod
+    def set_status(cls, adapter_id, status, status_message=None, site_id=None):
+        """
+        Update the status of an adapter.
+        adapter_id (str) should be the adapter db_id.
+        """
+        site_id = site_id or site()
+        logger.debug(f"top of set_status for status: {status}")
+        adapters_store[site_id][adapter_id, 'status'] = status
+        # we currently publish status change events for adapters when the status is changing to ERROR or READY:
+        if status == ERROR or status == READY:
+            try:
+                event_type = f'adapter_{status}'.upper()
+                event = AdapterEvent(adapter_id, event_type, {'status_message': status_message})
+                event.publish()
+            except Exception as e:
+                logger.error("Got exception trying to publish an adapter status event. "
+                             "adapter_id: {}; status: {}; exception: {}".format(adapter_id, status, e))
+        if status_message:
+            adapters_store[site_id][adapter_id, 'status_message'] = status_message
+
+class AdapterServer(AbacoDAO):
+    """Basic data access object for working with adapter servers."""
+
+    PARAMS = [
+        # param_name, required/optional/provided/derived, attr_name, type, help, default
+        ('tenant', 'required', 'tenant', str, 'The tenant that this server belongs to.', None),
+        ('api_server', 'required', 'api_server', str, 'The base URL for the tenant that this adaper belongs to.', None),
+        ('adapter_id', 'required', 'adapter_id', str, 'The human readable id for the adapter associated with this server.', None),
+        ('start_time', 'optional', 'start_time', str, 'Time (UTC) the server started.', None),
+        ('cpu', 'required', 'cpu', str, 'CPU usage, in user jiffies, of the server.', None),
+        ('io', 'required', 'io', str,
+         'Block I/O usage, in number of 512-byte sectors read from and written to, by the server.', None),
+        
+        ('id', 'derived', 'id', str, 'Human readable id for this server.', None),
+        ('status', 'required', 'status', str, 'Status of the server.', None),
+        ('exit_code', 'optional', 'exit_code', str, 'The exit code of this server.', None),
+        ('final_state', 'optional', 'final_state', str, 'The final state of the server.', None),
+        ('image', 'optional', 'image', list, 'The list of images associated with this worker', None),
+        ('host_id', 'optional', 'host_id', str, 'id of the host where server is running.', None),
+        ('host_ip', 'optional', 'host_ip', str, 'ip of the host where server is running.', None),
+        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the worker had a health check.', None),
+    ]
+
+    def get_derived_value(self, name, d):
+        """Compute a derived value for the attribute `name` from the dictionary d of attributes provided."""
+        # first, see if the attribute is already in the object:
+        try:
+            if d[name]:
+                return d[name]
+        except KeyError:
+            pass
+        self.id = self.get_uuid()
+        self.message_received_time = get_current_utc_time()
+        if name == 'id':
+            return self.id
+        else:
+            return self.message_received_time
+
+    @classmethod
+    def add_server(cls, adapter_id, ex):
+        """
+        Add an server to an adapter.
+        :param adapter_id: str; the dbid of the adapter
+        :param ser: dict describing the server.
+        :return:
+        """
+        logger.debug(f"top of add_server for adapter: {adapter_id} and server: {ser}.")
+        adapter = adapter.from_db(adapters_store[site()][adapter_id])
+        ser.update({'adapter_id': adapter_id,
+                   'tenant': adapter.tenant,
+                   'api_server': adapter['api_server']
+                   })
+        server = AdapterServer(**ser)
+        start_timer = timeit.default_timer()
+        
+        adapter_servers_store[site()][f'{adapter_id}_{server.id}'] = server
+        abaco_metrics_store[site()].full_update(
+            {'_id': f'{datetime.date.today()}-stats'},
+            {'$inc': {'server_total': 1},
+             '$addToSet': {'server_dbids': f'{adapter_id}_{server.id}'}},
+             upsert=True)
+
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"AdapterServer.add_server took {ms} to run for adapter {adapter_id}, server: {server}")
+        logger.info(f"server: {ser} saved for adapter: {adapter_id}.")
+        return server.id
+
+
+    @classmethod
+    def update_status(cls, adapter_id, server_id, status):
+        """
+        :param adapter_id: the id of the adapter
+        :param server_id: the id of the server
+        :param status: the new status of the server.
+        :return:
+        """
+        logger.debug("top of update_status() for adapter: {} server: {} status: {}".format(
+            adapter_id, server_id, status))
+        start_timer = timeit.default_timer()
+        try:
+            adapter_servers_store[site()][f'{adapter_id}_{server_id}', 'status'] = status
+            logger.debug("status updated for server: {} adapter: {}. New status: {}".format(
+            server_id, adapter_id, status))
+        except KeyError as e:
+            logger.error("Could not update status. KeyError: {}. adapter: {}. ex: {}. status: {}".format(
+                e, adapter_id, server_id, status))
+            raise errors.serverException(f"server {server_id} not found.")
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"AdapterServer.update_status took {ms} to run for adapter {adapter_id}, "
+                            f"server: {server_id}.")
+
+    
+    @classmethod
+    def get_uuid(cls):
+        """Generate a random uuid."""
+        hashids = Hashids(salt=HASH_SALT)
+        return hashids.encode(uuid.uuid1().int>>64)
+
+
+    @classmethod
+    def ensure_one_server(cls, adapter_id, tenant, site_id=None):
+        """
+        Atomically ensure at least one server exists in the database. If not, adds a server to the database.
+        This method returns an id for the server if a new server was added and otherwise returns none.
+        """
+        logger.debug("top of ensure_one_server.")
+        site_id = site_id or site()
+        server_id = AdapterServer.get_uuid()
+        server = {'status': REQUESTED,
+                  'id': server_id,
+                  'tenant': tenant,
+                  'create_time': get_current_utc_time(),
+                  'adapter_id': adapter_id}
+        servers_for_adapter = len(adapter_servers_store[site_id].items({'adapter_id': adapter_id}))
+        if servers_for_adapter:
+            logger.debug(f"servers_for_adapter was: {servers_for_adapter}; returning None.")
+            return None
+        else:
+            val = adapter_servers_store[site_id][f'{adapter_id}_{server_id}'] = server
+            abaco_metrics_store[site_id].full_update(
+                {'_id': f'{datetime.date.today()}-stats'},
+                {'$inc': {'server_total': 1},
+                 '$addToSet': {'server_dbids': f'{adapter_id}_{server_id}'}},
+                upsert=True)
+            logger.info(f"got server: {val} from add_if_empty.")
+            return server_id
+
+    @classmethod
+    def update_server_health_time(cls, adapter_id, server_id):
+        """Pass db_id as `adapter_id` parameter."""
+        logger.debug("top of update_server_health_time().")
+        now = get_current_utc_time()
+        servers_store[site()][f'{adapter_id}_{server_id}', 'last_health_check_time'] = now
+        logger.info(f"server last_health_check_time updated. server_id: {server_id}")
+
+    @classmethod
+    def get_servers(cls, adapter_id):
+        """Retrieve all servers for an adapter. Pass db_id as `adapter_id` parameter."""
+        try:
+            result = adapter_servers_store[site()].items({'adapter_id': adapter_id})            
+        except:
+            result = adapter_servers_store['tacc'].items({'adapter_id': adapter_id})            
+        return result
+
+    @classmethod
+    def get_server(cls, adapter_id, server_id, site_id=None):
+        """Retrieve a server from the servers store. Pass db_id as `adapter_id` parameter."""
+        site_id = site_id or site()
+        try:
+            result = adapter_servers_store[site_id][f'{adapter_id}_{server_id}']
+        except KeyError:
+            raise errors.WorkerException("Server not found.")
+        return result
+
+    @classmethod
+    def delete_server(cls, adapter_id, server_id, site_id=None):
+        """Deletes a server from the server store. Pass db_id as `adapter_id`
+        parameter.
+        """
+        site_id = site_id or site()
+        logger.debug(f"top of delete_server(). adapter_id: {adapter_id}; server_id: {server_id}")
+        try:
+            wk = servers_store[site_id].pop_field([f'{adapter_id}_{server_id}'])
+            logger.info(f"server deleted. adapter: {adapter_id}. server: {server_id}.")
+        except KeyError as e:
+            logger.info(f"KeyError deleting server. adapter: {adapter_id}. server: {adapter_id}. exception: {e}")
+            raise errors.serverException("server not found.")
+
+    def get_uuid_code(self):
+        """ Return the uuid code for this object.
+        :return: str
+        """
+        return '058'
+
+    def display(self):
+        """Return a representation fit for display."""
+        last_execution_time_str = self.pop('last_execution_time')
+        last_health_check_time_str = self.pop('last_health_check_time')
+        create_time_str = self.pop('create_time')
+        self['last_execution_time'] = display_time(last_execution_time_str)
+        self['last_health_check_time'] = display_time(last_health_check_time_str)
+        self['create_time'] = display_time(create_time_str)
+        return self.case()
+
 def get_permissions(actor_id):
     """ Return all permissions for an actor
     :param actor_id:
@@ -2082,6 +2677,16 @@ def get_permissions(actor_id):
         logger.error(f"Actor {actor_id} does not have entries in the permissions store, returning []")
         return {}
 
+def get_adapter_permissions(adapter_id):
+    """ Return all permissions for an adapter
+    :param adapter_id:
+    :return:
+    """
+    try:
+        return adapter_permissions_store[site()][adapter_id]
+    except KeyError:
+        logger.error(f"Adapterr {adapter_id} does not have entries in the permissions store, returning []")
+        return {}
 
 def get_config_permissions(config_id):
     """ Return all permissions for a config_id
@@ -2135,6 +2740,17 @@ def set_permission(user, actor_id, level):
     if not new:
         permissions_store[site()][actor_id, user] = str(level)
     logger.info(f"Permission set for actor: {actor_id}; user: {user} at level: {level}")
+
+def set_adapter_permission(user, adapter_id, level):
+    """Set the permission for a user and level to an actor. Here, actor_id can be a dbid or an alias dbid."""
+    logger.debug("top of set_permission().")
+    if not isinstance(level, PermissionLevel):
+        raise errors.DAOError("level must be a PermissionLevel object.")
+    new = adapter_permissions_store[site()].add_if_empty([adapterr_id, user], str(level))
+    if not new:
+        adapter_permissions_store[site()][adapter_id, user] = str(level)
+    logger.info(f"Permission set for actor: {adapter_id}; user: {user} at level: {level}")
+
 
 def set_config_permission(user, config_id, level):
     """Set the permission for user `user` and level `level` to an actor config with id `config_id`."""

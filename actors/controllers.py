@@ -21,11 +21,11 @@ from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, 
 from common.config import conf
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
-    get_config_permissions, set_permission, get_current_utc_time, set_config_permission, site
+    get_config_permissions, set_permission, get_current_utc_time, set_config_permission, site, Adapter, AdapterServer, get_adapter_permissions, set_adapter_permission
 from mounts import get_all_mounts
 import codes
 from stores import actors_store, alias_store, configs_store, configs_permissions_store, workers_store, \
-    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, SITE_LIST
+    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, adapters_store, adapter_servers_store, adapter_permissions_store, SITE_LIST
 from worker import shutdown_workers, shutdown_worker
 import encrypt_utils
 
@@ -2163,6 +2163,482 @@ class PermissionsResource(Resource):
 
         return ok(result=permissions, msg="Permission added successfully.")
 
+class AdaptersResource(Resource):
+
+    def get(self):
+        logger.debug("top of GET /adapters")
+        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+            args_given = request.args
+            args_full = {}
+            args_full.update(args_given)
+            result = Search(args_full, 'adapters', g.request_tenant_id, g.username).search()
+            return ok(result=result, msg="adapters search completed successfully.")
+        else:
+            adapters = []
+            for adapter_info in adapters_store[site()].items():
+                if adapter_info['tenant'] == g.request_tenant_id:
+                    adapter = Adapter.from_db(adapter_info)
+                    if check_permissions(g.username, adapter.db_id, READ):
+                        adapters.append(adapter.display())
+            logger.info("adapters retrieved.")
+            return ok(result=adapters, msg="adapters retrieved successfully.")
+
+    def validate_post(self):
+        logger.debug("top of validate post in /adapters")
+        parser = Adapter.request_parser()
+        try:
+            args = parser.parse_args()
+            logger.debug(f"initial adapter args from parser: {args}")
+            if args['queue']:
+                valid_queues = conf.spawner_host_queues
+                if args['queue'] not in valid_queues:
+                    raise BadRequest('Invalid queue name.')
+            if args['link']:
+                validate_link(args)
+            if args['hints']:
+                # a combination of the for loop iteration and the check for bad characters, including '[' and '{'
+                # ensures that the hints parameter is a single string or a simple list of strings.
+                for hint in args['hints']:
+                    for bad_char in ['"', "'", '{', '}', '[', ']']:
+                        if bad_char in hint:
+                            raise BadRequest(f"Hints must be simple stings or numbers, no lists or dicts. "
+                                             f"Error character: {bad_char}")
+
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            else:
+                msg = f'{msg}: {e}'
+            logger.debug(f"Validate post - invalid adapter description: {msg}")
+            raise DAOError(f"Invalid adapter description: {msg}")
+        return args
+
+    def post(self):
+        logger.info("top of POST to register a new adapter.")
+        args = self.validate_post()
+
+        logger.debug("validate_post() successful")
+        args['tenant'] = g.request_tenant_id
+        args['api_server'] = g.api_server
+        args['revision'] = 1
+        args['owner'] = g.username
+        # token attribute - if the user specifies whether the adapter requires a token, we always use that.
+        # otherwise, we determine the default setting based on configs.
+        if 'token' in args and args.get('token') is not None:
+            token = args.get('token')
+            logger.debug(f"user specified token: {token}")
+        else:
+            token = get_token_default()
+        args['token'] = token
+         # Checking for 'log_ex' input arg.
+        if conf.web_case == 'camel':
+            if 'logEx' in args and args.get('logEx') is not None:
+                log_ex = int(args.get('logEx'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['logEx'] = log_ex
+        else:
+            if 'log_ex' in args and args.get('log_ex') is not None:
+                log_ex = int(args.get('log_ex'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['log_ex'] = log_ex
+        cron = None
+        if conf.web_case == 'camel':
+            logger.debug("Case is camel")
+            if 'cronSchedule' in args and args.get('cronSchedule') is not None:
+                cron = args.get('cronSchedule')
+        else:
+            if 'cron_schedule' in args and args.get('cron_schedule') is not None:
+                logger.debug("Case is snake")
+                cron = args.get('cron_schedule')
+        if cron is not None:
+            logger.debug("Cron has been posted")
+            # set_cron checks for the 'now' alias 
+            # It also checks that the cron schedule is greater than or equal to the current UTC time
+            r = adapter.set_cron(cron)
+            logger.debug(f"r is {r}")
+            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']:
+                args['cron_schedule'] = cron
+                logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
+                args['cron_next_ex'] = r.fixed[0]
+                args['cron_on'] = True
+            else:
+                raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
+        else:
+            logger.debug("Cron schedule was not sent in")
+
+        args['mounts'] = get_all_mounts(args)
+        logger.debug(f"create args: {args}")
+        adapter = adapter(**args)
+        # Change function
+        adapters_store[site()].add_if_empty([adapter.db_id], adapter)
+        abaco_metrics_store[site()].full_update(
+            {'_id': f'{datetime.date.today()}-stats'},
+            {'$inc': {'adapter_total': 1},
+             '$addToSet': {'adapter_dbids': adapter.db_id}},
+             upsert=True)
+
+        logger.debug(f"new adapter saved in db. id: {adapter.db_id}. image: {adapter.image}. tenant: {adapter.tenant}")
+        adapter.ensure_one_server()
+        logger.debug("ensure_one_worker() called")
+        set_permission(g.username, adapter.db_id, UPDATE)
+        logger.debug(f"UPDATE permission added to user: {g.username}")
+        return ok(result=adapter.display(), msg="adapter created successfully.", request=request)
+
+class AdapterResource(Resource):
+    def get(self, adapter_id):
+        logger.debug(f"top of GET /adapters/{adapter_id}")
+        try:
+            adapter = Adapter.from_db(adapters_store[site()][g.db_id])
+        except KeyError:
+            logger.debug(f"did not find adapter with id: {adapter_id}")
+            raise ResourceError(
+                f"No adapter found with identifier: {adapter_id}.", 404)
+        logger.debug(f"found adapter {adapter_id}")
+        return ok(result=adapter.display(), msg="adapter retrieved successfully.")
+
+    def delete(self, adapter_id):
+        logger.debug(f"top of DELETE /adapters/{adapter_id}")
+        id = g.db_id
+        try:
+            adapter = Adapter.from_db(adapters_store[site()][id])
+        except KeyError:
+            adapter = None
+
+        if adapter:
+            # first set adapter status to SHUTTING_DOWN
+            adapter.set_status(id, SHUTTING_DOWN)
+            # delete all logs associated with executions -
+            try:
+                servers_by_adapter = adapter_servers_store[site()].items({'adapter_id': id})
+                for server in servers_by_adapter:
+                    server.update_status[id,server[id],'SHUTDOWN_REQUESTED']
+                    del logs_store[site()][server['id']]
+            except KeyError as e:
+                logger.info(f"got KeyError {e} trying to retrieve adapter or servers with id {id}")
+        del adapters_store[site()][id]
+        logger.info(f"adapter {id} deleted from store.")
+        del adapter_permissions_store[site()][id]
+        logger.info(f"adapter {id} permissions deleted from store.")
+        del nonce_store[site()][id]
+        logger.info(f"adapter {id} nonces delete from nonce store.")
+        msg = 'adapter deleted successfully.'
+        return ok(result=None, msg=msg)
+
+    def put(self, adapter_id):
+        logger.debug(f"top of PUT /adapters/{adapter_id}")
+        dbid = g.db_id
+        try:
+            adapter = Adapter.from_db(adapters_store[site()][dbid])
+        except KeyError:
+            logger.debug(f"did not find adapter {dbid} in store.")
+            raise ResourceError(
+                f"No adapter found with id: {adapter_id}.", 404)
+        previous_image = adapter.image
+        previous_status = adapter.status
+        previous_owner = adapter.owner
+        previous_revision = adapter.revision
+        args = self.validate_put(adapter)
+        logger.debug("PUT args validated successfully.")
+        args['tenant'] = g.request_tenant_id
+         # Checking for 'log_ex' input arg.
+        if conf.web_case == 'camel':
+            if 'logEx' in args and args.get('logEx') is not None:
+                log_ex = int(args.get('logEx'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['logEx'] = log_ex
+        else:
+            if 'log_ex' in args and args.get('log_ex') is not None:
+                log_ex = int(args.get('log_ex'))
+                logger.debug(f"Found log_ex in args; using: {log_ex}")
+                args['log_ex'] = log_ex
+        # Check for both camel and snake catenantse
+        cron = None
+        if conf.web_case == 'camel':
+            if 'cronSchedule' in args and args.get('cronSchedule') is not None:
+                cron = args.get('cronSchedule')
+            if 'cronOn' in args and args.get('cronOn') is not None:
+                adapter['cron_on'] = args.get('cronOn')
+        else:
+            if 'cron_schedule' in args and args.get('cron_schedule') is not None:
+                cron = args.get('cron_schedule')
+            if 'cron_on' in args and args.get('cron_on') is not None:
+                adapter['cron_on'] = args.get('cron_on')
+        if cron is not None:
+            # set_cron checks for the 'now' alias 
+            # It also checks that the cron schedule is greater than or equal to the current UTC time
+            # Check for proper unit of time
+            r = adapter.set_cron(cron)
+            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']: 
+                args['cron_schedule'] = cron
+                logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
+                args['cron_next_ex'] = r.fixed[0]
+            else:
+                raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
+        else:
+            logger.debug("No cron schedule has been sent")
+        if args['queue']:
+            valid_queues = conf.spawner_host_queues
+            if args['queue'] not in valid_queues:
+                raise BadRequest('Invalid queue name.')
+        if args['link']:
+            validate_link(args)
+        # user can force an update by setting the force param:
+        update_image = args.get('force')
+        if not update_image and args['image'] == previous_image:
+            logger.debug("new image is the same and force was false. not updating adapter.")
+            logger.debug(f"Setting status to the adapter's previous status which is: {previous_status}")
+            args['status'] = previous_status
+            args['revision'] = previous_revision
+        else:
+            update_image = True
+            args['status'] = SUBMITTED
+            args['revision'] = previous_revision + 1
+            logger.debug("new image is different. updating adapter.")
+        args['api_server'] = g.api_server
+
+        # we do not allow a PUT to override the owner in case the PUT is issued by another user
+        args['owner'] = previous_owner
+
+        # token is an attribute that gets defaulted at the Abaco instance or tenant level. as such, we want
+        # to use the default unless the user specified a value explicitly.
+        if 'token' in args and args.get('token') is not None:
+            token = args.get('token')
+            logger.debug("token in args; using: {token}")
+        else:
+            token = get_token_default()
+            logger.debug("token not in args; using default: {token}")
+        args['token'] = token
+                 
+
+        args['mounts'] = get_all_mounts(args)
+        args['last_update_time'] = get_current_utc_time()
+        logger.debug(f"update args: {args}")
+        adapter = adapter(**args)
+
+        adapters_store[site()][adapter.db_id] = adapter.to_db()
+
+        logger.info(f"updated adapter {adapter_id} stored in db.")
+        if update_image:
+            #prepare existing servers to shut down
+            servers_by_adapter = adapter_servers_store[site()].items({'adapter_id': id})
+            for server in servers_by_adapter:
+                    server.update_status[id,server[id],'SHUTDOWN_REQUESTED']
+            
+
+            adapter.ensure_one_server()
+        # put could have been issued by a user with
+        if not previous_owner == g.username:
+            set_permission(g.username, adapter.db_id, UPDATE)
+        return ok(result=adapter.display(),
+                  msg="adapter updated successfully.")
+
+    def validate_put(self, adapter):
+        # inherit derived attributes from the original adapter, including id and db_id:
+        parser = Adapter.request_parser()
+        # remove since name is only required for POST, not PUT
+        parser.remove_argument('name')
+        parser.add_argument('force', type=bool, required=False, help="Whether to force an update of the adapter image", default=False)
+
+        # if camel case, need to remove fields snake case versions of fields that can be updated
+        if conf.web_case == 'camel':
+            adapter.pop('default_environment')
+            adapter.pop('mem_limit')
+            adapter.pop('max_cpus')
+            adapter.pop('log_ex')
+
+        # this update overrides all required and optional attributes
+        try:
+            new_fields = parser.parse_args()
+            logger.debug(f"new fields from adapter PUT: {new_fields}")
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            else:
+                msg = f'{msg}: {e}'
+            raise DAOError(f"Invalid adapter description: {msg}")
+        if not adapter.stateless and new_fields.get('stateless'):
+            raise DAOError("Invalid adapter description: an adapter that was not stateless cannot be updated to be stateless.")
+        if not adapter.stateless and (new_fields.get('max_workers') or new_fields.get('maxWorkers')):
+            raise DAOError("Invalid adapter description: stateful adapters can only have 1 worker.")
+        if new_fields['hints']:
+            for hint in new_fields['hints']:
+                for bad_char in ['"', "'", '{', '}', '[', ']']:
+                    if bad_char in hint:
+                        raise BadRequest(f"Hints must be simple stings or numbers, no lists or dicts. Error character: {bad_char}")    
+        adapter.update(new_fields)
+        return adapter
+
+class AdapterMessagesResource(Resource):
+    def get(self, adapter_id):
+        logger.debug(f"top of GET /adapters/{adapter_id}/data")
+        # check that adapter exists
+        id = g.db_id
+        try:
+            adapter = Adapter.from_db(adapters_store[site()][id])
+        except KeyError:
+            logger.debug(f"did not find adapter: {adapter_id}.")
+            raise ResourceError(
+                f"No adapter found with id: {adapter_id}.", 404)
+        networkaddy = adapter[networkaddy][0]
+        result = request.get(networkaddy)
+        logger.debug(f"messages found for adapter: {adapter_id}.")
+        return ok(result)
+
+    def delete(self, adapter_id):
+        logger.debug(f"top of DELETE /adapters/{adapter_id}/messages")
+        # check that adapter exists
+        id = g.db_id
+        try:
+            adapter = Adapter.from_db(adapters_store[site()][id])
+        except KeyError:
+            logger.debug(f"did not find adapter: {adapter_id}.")
+            raise ResourceError(
+                f"No adapter found with id: {adapter_id}.", 404)
+        networkaddy = adapter[networkaddy][0]
+        result = request.delete(networkaddy)
+        logger.debug(f"messages purged for adapter: {adapter_id}.")
+        result.update(get_messages_hypermedia(adapter))
+        return ok(result)
+
+    def validate_post(self):
+        logger.debug("validating message payload.")
+        parser = RequestParser()
+        parser.add_argument('message', type=str, required=False, help="The message to send to the adapter.")
+        args = parser.parse_args()
+        # if a special 'message' object isn't passed, use entire POST payload as message
+        if not args.get('message'):
+            logger.debug("POST body did not have a message field.")
+            # first check for binary data:
+            if request.headers.get('Content-Type') == 'application/octet-stream':
+                # ensure not sending too much data
+                length = request.headers.get('Content-Length')
+                if not length:
+                    raise ResourceError("Content Length required for application/octet-stream.")
+                try:
+                    int(length)
+                except Exception:
+                    raise ResourceError("Content Length must be an integer.")
+                if int(length) > conf.web_max_content_length:
+                    raise ResourceError(f"Message exceeds max content length of: {conf.web_max_content_length}")
+                logger.debug("using get_data, setting content type to application/octet-stream.")
+                args['message'] = request.get_data()
+                args['_abaco_Content_Type'] = 'application/octet-stream'
+                return args
+            json_data = request.get_json()
+            if json_data:
+                logger.debug("message was JSON data.")
+                args['message'] = json_data
+                args['_abaco_Content_Type'] = 'application/json'
+            else:
+                logger.debug("message was NOT JSON data.")
+                # try to get data for mime types not recognized by flask. flask creates a python string for these
+                try:
+                    args['message'] = json.loads(request.data)
+                except (TypeError, json.decoder.JSONDecodeError):
+                    logger.debug(f"message POST body could not be serialized. args: {args}")
+                    raise DAOError('message POST body could not be serialized. Pass JSON data or use the message attribute.')
+                args['_abaco_Content_Type'] = 'str'
+        else:
+            # the special message object is a string
+            logger.debug("POST body has a message field. Setting _abaco_Content_type to 'str'.")
+            args['_abaco_Content_Type'] = 'str'
+        return args
+
+    def post(self, adapter_id):
+        start_timer = timeit.default_timer()
+        def get_hypermedia(adapter, ser):
+            return {'_links': {'self': f'{adapter.api_server}/v3/adapters/{adapter.id}/server/{ser}',
+                               'owner': f'{adapter.api_server}/v3/oauth2/profiles/{adapter.owner}',
+                               'messages': f'{adapter.api_server}/v3/adapters/{adapter.id}/messages'}, }
+
+        logger.debug(f"top of POST /adapters/{adapter_id}/messages.")
+        dbid = g.db_id
+        try:
+            adapter = Adapter.from_db(adapters_store[site()][dbid])
+        except KeyError:
+            logger.debug(f"did not find adapter: {adapter_id}.")
+            raise ResourceError(f"No adapter found with id: {adapter_id}.", 404)
+        args = self.validate_post()
+        d = {}
+        # build a dictionary of k:v pairs from the query parameters, and pass a single
+        # additional object 'message' from within the post payload. Note that 'message'
+        # need not be JSON data.
+        logger.debug(f"POST body validated. adapter: {adapter_id}.")
+        for k, v in request.args.items():
+            if k == 'message':
+                continue
+            d[k] = v
+        logger.debug(f"extra fields added to message from query parameters: {d}.")
+        if hasattr(g, 'username'):
+            d['_abaco_username'] = g.username
+            logger.debug(f"_abaco_username: {g.username} added to message.")
+        if hasattr(g, 'jwt_header_name'):
+            d['_abaco_jwt_header_name'] = g.jwt_header_name
+            logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
+
+        d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
+        d['_abaco_adapter_revision'] = adapter.revision
+        logger.debug(f"Final message dictionary: {d}")
+        networkaddy = adapter[networkaddy][0]
+        result = request.post(networkaddy, headers=d, data=args['message'])
+        logger.info(f"Times to process message: {time_data}")
+        
+        if synchronous:
+            return self.do_synch_message(exc)
+        if not case == 'camel':
+            return ok(result)
+        else:
+            return ok(dict_to_camel(result))
+
+class AdapterPermissionsResource(Resource):
+    """This class handles permissions endpoints for all objects that need permissions.
+    The `identifier` is the human-readable id (e.g., actor_id, alias).
+    The code uses the request rule to determine which object is being referenced.
+    """
+    def get(self, identifier):
+        is_config = False
+       
+        logger.debug(f"top of GET /adapter/{identifier}/permissions.")
+        id = g.db_id
+        # config permissions are stored in a separate store --
+        try:
+            permissions = get_adapter_permissions(id)
+        except PermissionsException as e:
+            logger.debug(f"Did not find adapter permissions for config: {identifier}.")
+            raise ResourceError(e.msg, 404)
+        return ok(result=permissions, msg="Permissions retrieved successfully.")
+
+    def validate_post(self):
+        parser = RequestParser()
+        parser.add_argument('user', type=str, required=True, help="User owning the permission.")
+        parser.add_argument('level', type=str, required=True,
+                            help=f"Level of the permission: {PERMISSION_LEVELS}")
+        try:
+            args = parser.parse_args()
+        except BadRequest as e:
+            msg = 'Unable to process the JSON description.'
+            if hasattr(e, 'data'):
+                msg = e.data.get('message')
+            raise DAOError(f"Invalid permissions description: {msg}")
+
+        if not args['level'] in PERMISSION_LEVELS:
+            raise ResourceError(f"Invalid permission level: {args['level']}. The valid values are {PERMISSION_LEVELS}")
+        return args
+
+    def post(self, identifier):
+        """Add new permissions for an object `identifier`."""
+        logger.debug(f"top of POST /adapter/{identifier}/permissions.")
+        dbid = g.db_id
+        args = self.validate_post()
+        logger.debug(f"POST permissions body validated for identifier: {dbid}.")
+       
+        set_adapter_permission(args['user'], dbid, PermissionLevel(args['level']))
+        permissions = get_adapter_permissions(actor_id=dbid)
+        logger.info(f"Permission added for user: {args['user']}; identifier: {dbid}; level: {args['level']}")
+
+        return ok(result=permissions, msg="Permission added successfully.")
 
 class ActorPermissionsResource(PermissionsResource):
     pass

@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 from common.config import conf
 import codes
-from models import Actor, Alias, ActorConfig, get_permissions, is_hashid, Nonce, get_config_permissions, permission_process
+from models import Actor, Adapter, Alias, Actor, ActorConfig, get_adapter_permissions, get_permissions, is_hashid, Nonce, get_config_permissions, permission_process
 
 from errors import ClientException, ResourceError, PermissionsException
 
@@ -211,7 +211,9 @@ def authorization():
         or '/actors/aliases' in request.url_rule.rule \
         or '/actors/configs' in request.url_rule.rule \
         or '/actors/utilization' in request.url_rule.rule \
-        or '/actors/search/' in request.url_rule.rule:
+        or '/actors/search/' in request.url_rule.rule \
+        or request.url_rule.rule == '/adapters' \
+        or request.url_rule.rule == '/adapters/':
         db_id = None
         logger.debug(f"setting db_id to None; rule: {request.url_rule.rule}")
     else:
@@ -264,7 +266,9 @@ def authorization():
         return True
 
     # there are special rules on the actors root collection:
-    if '/actors' == request.url_rule.rule or '/actors/' == request.url_rule.rule:
+    if '/actors' == request.url_rule.rule or '/actors/' == request.url_rule.rule \
+        or request.url_rule.rule == '/adapters' \
+        or request.url_rule.rule == '/adapters/':
         logger.debug("Checking permissions on root collection.")
         # first, only admins can create/update actors to be privileged, so check that:
         if request.method == 'POST':
@@ -272,6 +276,8 @@ def authorization():
         # if we are here, it is either a GET or a new actor, so the request is allowed:
         logger.debug("new actor or GET on root connection. allowing request.")
         return True
+    
+    
 
     # aliases root collection has special rules as well -
     if '/actors/configs' == request.url_rule.rule or '/actors/configs/' == request.url_rule.rule:
@@ -411,7 +417,10 @@ def check_permissions(user, identifier, level, roles=None):
             return True
     # get all permissions for this actor -
     try:
-        permissions = get_permissions(identifier)
+        if get_adapter_permissions:
+            permissions = get_adapter_permissions(identifier)
+        else:
+            permissions = get_permissions(identifier)
     except PermissionsException:
         # There's a chance that a permission doc does not exist, but an actor still does
         # In this case, no one should have access to it, but we're not just going to delete it
@@ -433,7 +442,10 @@ def check_permissions(user, identifier, level, roles=None):
                 return False
     # didn't find the user or world_user, return False
     logger.info(f"user had no permissions for {identifier}. Permissions found: {permissions}")
-    permissions = get_permissions(identifier)
+    if get_adapter_permissions:
+            permissions = get_adapter_permissions(identifier)
+    else:
+            permissions = get_permissions(identifier)
     if permission_process(permissions, user, level, identifier):
         return True
     # didn't find the user or world_user, return False
@@ -475,24 +487,27 @@ def get_db_id():
         raise PermissionsException("Not authorized.")
     logger.debug(f"path_split: {path_split}")
     try:
-        actor_identifier = path_split[idx]
+        a_identifier = path_split[idx]      #could be actor or adapter
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
-    logger.debug(f"actor_identifier: {actor_identifier}; tenant: {g.request_tenant_id}")
-    if actor_identifier == 'search':
+    logger.debug(f"actor_identifier: {a_identifier}; tenant: {g.request_tenant_id}")
+    if a_identifier == 'search':
         raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
-        actor_id = Actor.get_actor_id(g.request_tenant_id, actor_identifier)
+        if path_split[1]=='actors':
+            a_id = Actor.get_actor_id(g.request_tenant_id, a_identifier)
+        else:
+            a_id = Adapter.get_adapter_id(g.request_tenant_id, a_identifier)
     except KeyError:
-        logger.info(f"Unrecognized actor_identifier: {actor_identifier}. Actor not found")
-        raise ResourceError(f"Actor with identifier '{actor_identifier}' not found", 404)
+        logger.info(f"Unrecognized actor_identifier: {a_identifier}. Actor not found")
+        raise ResourceError(f"Actor with identifier '{a_identifier}' not found", 404)
     except Exception as e:
         msg = "Unrecognized exception trying to resolve actor identifier: {}; " \
-              "exception: {}".format(actor_identifier, e)
+              "exception: {}".format(a_identifier, e)
         logger.error(msg)
         raise ResourceError(msg)
-    logger.debug(f"actor_id: {actor_id}")
-    return Actor.get_dbid(g.request_tenant_id, actor_id), actor_identifier
+    logger.debug(f"actor_id: {a_id}")
+    return Actor.get_dbid(g.request_tenant_id, a_id), a_identifier
 
 def get_alias_id():
     """Get the alias from the request path."""

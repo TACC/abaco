@@ -18,8 +18,8 @@ from common.config import conf
 from codes import BUSY, READY, RUNNING
 import encrypt_utils
 import globals
-from models import Actor, Execution, get_current_utc_time, display_time, site, ActorConfig
-from stores import workers_store, alias_store, configs_store
+from models import Actor, Adapter, AdapterServer, Execution, get_current_utc_time, display_time, site, ActorConfig
+from stores import workers_store, alias_store, configs_store, adapter_servers_store
 import encrypt_utils
 
 
@@ -183,6 +183,28 @@ def get_current_worker_containers():
             except:
                 pass
     return worker_containers
+
+def get_current_server_containers():
+    server_containers = []
+    containers = list_all_containers()
+    for c in containers:
+        if 'adapterserver' in c['Names'][0]:
+            container_name = c['Names'][0]
+            # server container names have format "/adapterserver_<tenant>_<adapter-id>_<server-id>
+            # so split on _ to get parts
+            try:
+                parts = container_name.split('_')
+                tenant_id = parts[1]
+                adapter_id = parts[2]
+                server_id = parts[3]
+                server_containers.append({'container': c,
+                                          'tenant_id': tenant_id,
+                                          'adapter_id': adapter_id,
+                                          'server_id': server_id
+                                          })
+            except:
+                pass
+    return server_containers
 
 def check_worker_containers_against_store():
     """
@@ -916,3 +938,154 @@ def execute_actor(actor_id,
     logger.debug("right after removing fifo; about to return: {}; (worker {};{})".format(timeit.default_timer(),
                                                                                          worker_id, execution_id))
     return result, logs, container_state, exit_code, start_time
+
+def start_adapter_server(adapter_id,
+                  server_id,
+                  image,
+                  user=None,
+                  d={},
+                  privileged=False,
+                  mounts=[],
+                  mem_limit=None,
+                  max_cpus=None,
+                  tenant=None):
+    """
+    Creates and runs an adapter container and supervises the execution, collecting statistics about resource consumption
+    from the Docker daemon.
+
+    :param adapter_id: the dbid of the adapter; for updating server status
+    :param server_id: the worker id; also for updating server status
+    :param image: the adapter's image; worker must have already downloaded this image to the local docker registry.
+    :param user: string in the form {uid}:{gid} representing the uid and gid to run the command as.
+    :param d: dictionary representing the environment to instantiate within the adapter container.
+    :param privileged: whether this adapter is "privileged"; i.e., its container should run in privileged mode with the
+    docker daemon mounted.
+    :param mounts: list of dictionaries representing the mounts to add; each dictionary mount should have 3 keys:
+    host_path, container_path and format (which should have value 'ro' or 'rw').
+    :param mem_limit: The maximum amount of memory the adapter container can use; should be the same format as the --memory Docker flag.
+    :param max_cpus: The maximum number of CPUs each adapter will have available to them. Does not guarantee these CPU resources; serves as upper bound.
+    :return: server_ports
+    """
+    logger.debug(f"top of start_adapter_server(); adapter_id: {adapter_id}; tenant: {tenant}")
+
+    # get any configs for this adapter
+    adapter_configs = {}
+    config_list = []
+    # list of all aliases for the adapter
+    alias_list = []
+    # the adapter_id passed in is the dbid
+    adapter_human_id = Adapter.get_display_id(tenant, adapter_id)
+
+    for alias in alias_store[site()].items():
+        logger.debug(f"checking alias: {alias}")
+        if adapter_human_id == alias['adapter_id'] and tenant == alias['tenant']:
+            alias_list.append(alias['alias'])
+    logger.debug(f"alias_list: {alias_list}")
+    # loop through configs to look for any that apply to this adapter
+    for config in configs_store[site()].items():
+        # first look for the adapter_id itself
+        if adapter_human_id in config['adapters']:
+            logger.debug(f"adapter_id matched; adding config {config}")
+            config_list.append(config)
+        else:
+            logger.debug("adapter id did not match; checking aliases...")
+            # if we didn't find the adapter_id, look for ay of its aliases
+            for alias in alias_list:
+                if alias in config['adapters']:
+                    # as soon as we find it, append and get out (only want to add once)
+                    logger.debug(f"alias {alias} matched; adding config: {config}")
+                    config_list.append(config)
+                    break
+    logger.debug(f"got config_list: {config_list}")
+    # for each config, need to check for secrets and decrypt ---
+    for config in config_list:
+        logger.debug('checking for secrets')
+        try:
+            if config['is_secret']:
+                value = encrypt_utils.decrypt(config['value'])
+                adapter_configs[config['name']] = value
+            else:
+                adapter_configs[config['name']] = config['value']
+
+        except Exception as e:
+            logger.error(f'something went wrong checking is_secret for config: {config}; e: {e}')
+
+    logger.debug(f"final adapter configs: {adapter_configs}")
+    d['_adapter_configs'] = adapter_configs
+
+
+    # initially set the global force_quit variable to False
+    globals.force_quit = False
+    # initial stats object, environment and binds
+    result = {'cpu': 0,
+              'io': 0,
+              'runtime': 0 }
+
+    # instantiate docker client
+    cli = docker.APIClient(base_url=dd, version="auto")
+
+    binds = {}
+
+    # if container is privileged, mount the docker daemon so that additional
+    # containers can be started.
+    logger.debug(f"privileged: {privileged}")
+    if privileged:
+        binds = {'/var/run/docker.sock':{
+                    'bind': '/var/run/docker.sock',
+                    'ro': False }}
+
+    # add a bind key and dictionary as well as a volume for each mount
+    for m in mounts:
+        binds[m.get('host_path')] = {'bind': m.get('container_path'),
+                                     'ro': m.get('format') == 'ro'}
+
+    # mem_limit
+    # -1 => unlimited memory
+    if mem_limit == '-1':
+        mem_limit = None
+
+    # max_cpus
+    try:
+        max_cpus = int(max_cpus)
+    except:
+        max_cpus = None
+    # -1 => unlimited cpus
+    if max_cpus == -1:
+        max_cpus = None
+
+    host_config = cli.create_host_config(binds=binds, privileged=privileged, mem_limit=mem_limit, nano_cpus=max_cpus, port_bindings={8080: None})
+    logger.debug(f"host_config object created.")
+
+    spn = conf.spawner_host_ip      #the ip address of the spawner
+    # create and start the container
+    logger.debug(f"Final container environment: {d}")
+    logger.debug("Final binds: {} and host_config: {} for the container.".format(binds, host_config))
+    cont = cli.create_container(image=image,
+                                     environment=d,
+                                     user=user,
+                                     name=f'adapterserver_{adapter_id}_{server_id}',
+                                     host_config=host_config)
+
+    start = timeit.default_timer()
+    logger.debug("right before cli.start: {}; container id: {}; ".format(start, container.get('Id')))
+    try:
+        container = cli.start(container=cont.get('Id'))
+        idx = 0
+        while idx<25:
+            try:
+                port=cli.inspect_container(container)['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort']
+                break
+            except:
+                idx = idx+1
+    except Exception as e:
+        # if there was an error starting the container, user will need to debug
+        logger.info(f"Got exception starting adapter container: {e}")
+        raise DockerStartContainerError(f"Could not start container {container.get('Id')}. Exception {str(e)}")
+
+    AdapterServer.update_status(adapter_id, server_id, RUNNING)
+
+    result = f'https://{spn}:{port}'
+    result2 = conf.spawner_host_id
+
+
+    return result, result2

@@ -326,6 +326,9 @@ permissions_store = {}
 executions_store = {}
 clients_store = {}
 actors_store = {}
+adapters_store = {}
+adapter_servers_store = {}
+adapter_permissions_store = {}
 workers_store = {}
 nonce_store = {}
 alias_store = {}
@@ -369,6 +372,9 @@ for site in SITE_LIST:
     abaco_metrics_store.update({site: site_config_store(db='abaco_metrics_store')})
     configs_store.update({site: site_config_store(db='configs_store')})
     configs_permissions_store.update({site: site_config_store(db='configs_permissions_store')})
+    adapters_store.update({site: site_config_store(db='adapters_store')})
+    adapter_servers_store.update({site: site_config_store(db='adapter_servers_store')})
+    adapter_permissions_store.update({site: site_config_store(db='adapter_permissions_store')})
 
 if __name__ == "__main__":
     # Mongo indexes only go through init on primary site.

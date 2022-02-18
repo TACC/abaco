@@ -11,10 +11,10 @@ from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER,
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
 from common.config import conf
 from common.logs import get_logger
-from docker_utils import DockerError, run_worker, pull_image
+from docker_utils import DockerError, run_worker, pull_image, start_adapter_server
 from errors import WorkerException
-from models import Actor, Worker, site
-from stores import actors_store, workers_store
+from models import Actor, AdapterServer, Worker, Adapter, site
+from stores import actors_store, workers_store, adapters_store, adapter_servers_store
 from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from health import get_worker
 
@@ -123,99 +123,182 @@ class Spawner(object):
     def process(self, cmd):
         """Main spawner method for processing a command from the CommandChannel."""
         logger.info(f"top of process; cmd: {cmd}")
-        actor_id = cmd['actor_id']
+        try:
+            actor_id = cmd['actor_id']
+        except:
+            adapter_id = cmd['adapter_id']
         site_id = cmd['site_id']
         try:
-            actor = Actor.from_db(actors_store[site()][actor_id])
+            if actor_id:
+                actor = Actor.from_db(actors_store[site()][actor_id])
+            else:
+                adapter = Adapter.from_db(actors_store[site()][actor_id])
         except Exception as e:
             msg = f"Exception in spawner trying to retrieve actor object from store. Aborting. Exception: {e}"
             logger.error(msg)
             return
-        worker_id = cmd['worker_id']
-        image = cmd['image']
-        revision = cmd['revision']
-        tenant = cmd['tenant']
-        stop_existing = cmd.get('stop_existing', True)
-        num_workers = 1
-        logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {} site_id: {}"
+        if actor:
+            worker_id = cmd['worker_id']
+            image = cmd['image']
+            revision = cmd['revision']
+            tenant = cmd['tenant']
+            stop_existing = cmd.get('stop_existing', True)
+            num_workers = 1
+            logger.debug("spawner command params: actor_id: {} worker_id: {} image: {} tenant: {} site_id: {}"
                     "stop_existing: {} num_workers: {}".format(actor_id, worker_id,
                                                                image, tenant, site_id,
                                                                stop_existing, num_workers))
+        elif adapter:
+            server_id = cmd['server_id']
+            image = cmd['image']
+            revision = cmd['revision']
+            tenant = cmd['tenant']
+            stop_existing = cmd.get('stop_existing', True)
+        
         # if the worker was sent a delete request before spawner received this message to create the worker,
         # the status will be SHUTDOWN_REQUESTED, not REQUESTED. in that case, we simply abort and remove the
         # worker from the collection.
-        try:
-            logger.debug("spawner checking worker's status for SHUTDOWN_REQUESTED")
-            worker = Worker.get_worker(actor_id, worker_id, site_id)
-            logger.debug(f"spawner got worker; worker: {worker}")
-        except Exception as e:
-            logger.error(f"spawner got exception trying to retrieve worker. "
-                         f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
-            return
-
-        status = worker.get('status')
-        if not status == REQUESTED:
-            logger.debug(f"worker was NOT in REQUESTED status. status: {status}")
-            if status == SHUTDOWN_REQUESTED or status == SHUTTING_DOWN or status == ERROR:
-                logger.debug(f"worker status was {status}; spawner deleting worker and returning..")
-                try:
-                    Worker.delete_worker(actor_id, worker_id, site_id)
-                    logger.debug(f"spawner called delete_worker because its status was: {status}. {actor_id}_{worker_id}")
-                    return
-                except Exception as e:
-                    logger.error(f"spawner got exception trying to delete a worker in SHUTDOWN_REQUESTED status."
-                                 f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
-                    return
-            else:
-                logger.error(f"spawner found worker in unexpected status: {status}. Not processing command and returning.")
+        if actor:
+            try:
+                logger.debug("spawner checking worker's status for SHUTDOWN_REQUESTED")
+                worker = Worker.get_worker(actor_id, worker_id, site_id)
+                logger.debug(f"spawner got worker; worker: {worker}")
+            except Exception as e:
+                logger.error(f"spawner got exception trying to retrieve worker. "
+                            f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
                 return
 
-        # before starting up a new worker, check to see if the actor is in ERROR state; it is possible the actor was put
-        # into ERROR state after the autoscaler put the worker request message on the spawner command channel.
-        if actor.status == ERROR:
-            logger.debug(f"actor {actor_id} was in ERROR status while spawner was starting worker {worker_id} . "
-                         f"Aborting creation of worker.")
+            status = worker.get('status')
+            if not status == REQUESTED:
+                logger.debug(f"worker was NOT in REQUESTED status. status: {status}")
+                if status == SHUTDOWN_REQUESTED or status == SHUTTING_DOWN or status == ERROR:
+                    logger.debug(f"worker status was {status}; spawner deleting worker and returning..")
+                    try:
+                        Worker.delete_worker(actor_id, worker_id, site_id)
+                        logger.debug(f"spawner called delete_worker because its status was: {status}. {actor_id}_{worker_id}")
+                        return
+                    except Exception as e:
+                        logger.error(f"spawner got exception trying to delete a worker in SHUTDOWN_REQUESTED status."
+                                    f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
+                        return
+                else:
+                    logger.error(f"spawner found worker in unexpected status: {status}. Not processing command and returning.")
+                    return
+
+            # before starting up a new worker, check to see if the actor is in ERROR state; it is possible the actor was put
+            # into ERROR state after the autoscaler put the worker request message on the spawner command channel.
+            if actor.status == ERROR:
+                logger.debug(f"actor {actor_id} was in ERROR status while spawner was starting worker {worker_id} . "
+                            f"Aborting creation of worker.")
+                try:
+                    Worker.delete_worker(actor_id, worker_id, site_id)
+                    logger.debug("spawner deleted worker because actor was in ERROR status.")
+                except Exception as e:
+                    logger.error(f"spawner got exception trying to delete a worker was in ERROR status."
+                                f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
+                # either way, return from processing this worker message:
+                return
+
+            # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
+            Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP, site_id)
+            logger.debug(f"spawner has updated worker status to SPAWNER_SETUP; worker_id: {worker_id}")
+            api_server = actor.get('api_server', None)
+
+            spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
+            logger.debug(f"spawner attempting to start worker; worker_id: {worker_id}")
             try:
-                Worker.delete_worker(actor_id, worker_id, site_id)
-                logger.debug("spawner deleted worker because actor was in ERROR status.")
+                worker = self.start_worker(
+                    image,
+                    revision,
+                    tenant,
+                    actor_id,
+                    worker_id,
+                    spawner_ch,
+                    api_server,
+                    site_id
+                )
             except Exception as e:
-                logger.error(f"spawner got exception trying to delete a worker was in ERROR status."
-                             f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
-            # either way, return from processing this worker message:
-            return
+                msg = f"Spawner got an exception from call to start_worker. Exception:{e}"
+                logger.error(msg)
+                self.error_out_actor(actor_id, worker_id, msg, site_id)
+                return
 
-        # worker status was REQUESTED; moving on to SPAWNER_SETUP ----
-        Worker.update_worker_status(actor_id, worker_id, SPAWNER_SETUP, site_id)
-        logger.debug(f"spawner has updated worker status to SPAWNER_SETUP; worker_id: {worker_id}")
-        api_server = actor.get('api_server', None)
+            logger.debug(f"Returned from start_worker; Created new worker: {worker}")
+            spawner_ch.close()
+            logger.debug("Worker's spawner channel closed")
 
-        spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
-        logger.debug(f"spawner attempting to start worker; worker_id: {worker_id}")
-        try:
-            worker = self.start_worker(
-                image,
-                revision,
-                tenant,
-                actor_id,
-                worker_id,
-                spawner_ch,
-                api_server,
-                site_id
-            )
-        except Exception as e:
-            msg = f"Spawner got an exception from call to start_worker. Exception:{e}"
-            logger.error(msg)
-            self.error_out_actor(actor_id, worker_id, msg, site_id)
-            return
+            if stop_existing:
+                logger.info(f"Stopping existing workers: {worker_id}")
+                # TODO - update status to stop_requested
+                self.stop_workers(actor_id, [worker_id])
+        
+        elif adapter:
+            try:
+                logger.debug("spawner checking server's status for SHUTDOWN_REQUESTED")
+                server = AdapterServer.get_server(adapter_id, server_id, site_id)
+                logger.debug(f"spawner got server; server: {server}")
+            except Exception as e:
+                logger.error(f"spawner got exception trying to retrieve server. "
+                            f"adapter_id: {adapter_id}; server_id: {server_id}; e: {e}")
+                return
 
-        logger.debug(f"Returned from start_worker; Created new worker: {worker}")
-        spawner_ch.close()
-        logger.debug("Worker's spawner channel closed")
+            status = server.get('status')
+            if not status == REQUESTED:
+                logger.debug(f"server was NOT in REQUESTED status. status: {status}")
+                if status == SHUTDOWN_REQUESTED or status == SHUTTING_DOWN or status == ERROR:
+                    logger.debug(f"server status was {status}; spawner deleting server and returning..")
+                    try:
+                        server.delete_server(adapter_id, server_id, site_id)
+                        logger.debug(f"spawner called delete_server because its status was: {status}. {adapter_id}_{server_id}")
+                        return
+                    except Exception as e:
+                        logger.error(f"spawner got exception trying to delete a server in SHUTDOWN_REQUESTED status."
+                                    f"adapter_id: {adapter_id}; server_id: {server_id}; e: {e}")
+                        return
+                else:
+                    logger.error(f"spawner found server in unexpected status: {status}. Not processing command and returning.")
+                    return
 
-        if stop_existing:
-            logger.info(f"Stopping existing workers: {worker_id}")
-            # TODO - update status to stop_requested
-            self.stop_workers(actor_id, [worker_id])
+            # before starting up a new server, check to see if the adapter is in ERROR state; it is possible the adapter was put
+            # into ERROR state after the autoscaler put the server request message on the spawner command channel.
+            if adapter.status == ERROR:
+                logger.debug(f"adapter {adapter_id} was in ERROR status while spawner was starting server {server_id} . "
+                            f"Aborting creation of server.")
+                try:
+                    server.delete_server(adapter_id, server_id, site_id)
+                    logger.debug("spawner deleted server because adapter was in ERROR status.")
+                except Exception as e:
+                    logger.error(f"spawner got exception trying to delete a server was in ERROR status."
+                                f"adapter_id: {adapter_id}; server_id: {server_id}; e: {e}")
+                # either way, return from processing this server message:
+                return
+
+            # server status was REQUESTED; moving on to SPAWNER_SETUP ----
+            server.update_server_status(adapter_id, server_id, SPAWNER_SETUP, site_id)
+            logger.debug(f"spawner has updated server status to SPAWNER_SETUP; server_id: {server_id}")
+            api_server = adapter.get('api_server', None)
+
+            logger.debug(f"spawner attempting to start server; server_id: {server_id}")
+            try:
+                addy, hostid = start_adapter_server(adapter_id,         #this will create the server and return the network address to the server
+                  server_id,
+                  image)
+            except Exception as e:
+                msg = f"Spawner got an exception from call to start_adapter_server. Exception:{e}"
+                logger.error(msg)
+                self.error_out_adapter(adapter_id, server_id, msg, site_id)
+                return
+            addy_list=adapters_store[site()][f'{adapter_id}']['network_address']
+            adapters_store[site()][f'{adapter_id}', 'network_address'] = addy_list.append(addy)
+
+            adapter_servers_store[site()][f'{adapter_id}_{server_id}', 'host_id'] = hostid
+
+            logger.debug(f"Returned from start_adapter_server; Created new server: {server}")
+            
+            if stop_existing:
+                logger.info(f"Stopping existing servers: {server_id}")
+                # TODO - update status to stop_requested
+                self.stop_servers(adapter_id, [server_id])
 
     def start_worker(self,
                      image,
