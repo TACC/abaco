@@ -1061,7 +1061,6 @@ def start_adapter_server(adapter_id,
     if docker_network:
         netconf = cli.create_networking_config({docker_network: cli.create_endpoint_config()})
 
-    spn = conf.spawner_host_ip      #the ip address of the spawner
     # create and start the container
     logger.debug(f"Final container environment: {d}")
     logger.debug("Final binds: {} and host_config: {} for the container.".format(binds, host_config))
@@ -1073,8 +1072,7 @@ def start_adapter_server(adapter_id,
                                      host_config=host_config,
                                      networking_config=netconf)
 
-    start = timeit.default_timer()
-    logger.debug("right before cli.start: {}; ".format(start, cont.get('Id')))
+    logger.debug("right before cli.start: {}; ".format(cont.get('Id')))
     try:
         container = cli.start(container=cont.get('Id'))
         idx = 0
@@ -1089,10 +1087,13 @@ def start_adapter_server(adapter_id,
         logger.info(f"Got exception starting adapter container: {e}")
         raise DockerStartContainerError(f"Could not start container {container.get('Id')}. Exception {str(e)}")
     logger.info(f"port#: {port}")
+    adapter_servers_store[site()][f'{adapter_id}_{server_id}', 'host_id'] = host_id
+    logger.debug("host_id updated for server: {} adapter: {}. New status: {}".format(
+            server_id, adapter_id, host_id))
     AdapterServer.update_status(adapter_id, server_id, RUNNING)
+    
 
-    result = f'http://{spn}:{port}'
-    result2 = conf.spawner_host_id
+    result = f'http://{host_ip}:{port}'
 
 
     return result

@@ -15,7 +15,7 @@ from docker_utils import DockerError, run_worker, pull_image, start_adapter_serv
 from errors import WorkerException
 from models import Actor, AdapterServer, Worker, Adapter, site
 from stores import actors_store, workers_store, adapters_store, adapter_servers_store
-from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
+from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel, ServerChannel
 from health import get_worker
 
 
@@ -289,13 +289,13 @@ class Spawner(object):
                 return
             logger.debug(f"The server address of the new server: {addy}")
             adapters_store[site()][f'{adapter_id}', 'addresses'] = addy
-
+            
            
 
             logger.debug(f"Returned from start_adapter_server; Created new server: {server}")
             
-            
-            AdapterServer.update_status(adapter_id, server_id, RUNNING)
+            adapter_servers_store[site()][f'{server_id}', 'ch_name'] =  ServerChannel.get_name(server_id)
+            AdapterServer.update_status(adapter_id, server_id, READY)
             if stop_existing:
                 logger.info(f"Stopping existing servers: {server_id}")
                 # TODO - update status to stop_requested

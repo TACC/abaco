@@ -513,7 +513,7 @@ def get_db_id():
         a_identifier = path_split[idx]      #could be actor or adapter
     except IndexError:
         raise ResourceError("Unable to parse actor identifier: is it missing from the URL?", 404)
-    logger.debug(f"actor_identifier: {a_identifier}; tenant: {g.request_tenant_id}")
+    logger.debug(f"a_identifier: {a_identifier}; tenant: {g.request_tenant_id}")
     if a_identifier == 'search':
         raise ResourceError("'x-nonce' query parameter on the '/actors/search/{database}' endpoint does not resolve.", 404)
     try:
@@ -529,8 +529,12 @@ def get_db_id():
               "exception: {}".format(a_identifier, e)
         logger.error(msg)
         raise ResourceError(msg)
-    logger.debug(f"actor_id: {a_id}")
-    return Actor.get_dbid(g.request_tenant_id, a_id), a_identifier
+    logger.debug(f"a_id: {a_id}")
+    if path_split[1]=='actors':
+        return Actor.get_dbid(g.request_tenant_id, a_id), a_identifier
+    else:
+        return Adapter.get_dbid(g.request_tenant_id, a_id), a_identifier
+    
 
 def get_alias_id():
     """Get the alias from the request path."""

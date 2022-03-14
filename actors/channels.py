@@ -247,6 +247,21 @@ class WorkerChannel(BinaryTaskQueue):
             ch_name = WorkerChannel.get_name(worker_id)
         super().__init__(name=ch_name)
 
+class ServerChannel(BinaryTaskQueue):
+    """Channel for communication with a server. Pass the id of the server to communicate with an
+    existing server.
+    """
+    @classmethod
+    def get_name(cls, server_id):
+        """Return the name of the channel that would be used for this server_id."""
+        return f'server_{server_id}'
+
+    def __init__(self, server_id=None):
+        self.uri = RABBIT_URI
+        ch_name = None
+        if server_id:
+            ch_name = WorkerChannel.get_name(server_id)
+        super().__init__(name=ch_name)
 
 class ActorMsgChannel(BinaryTaskQueue):
     def __init__(self, actor_id):

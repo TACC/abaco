@@ -2361,7 +2361,7 @@ class AdapterServer(AbacoDAO):
         ('tenant', 'required', 'tenant', str, 'The tenant that this server belongs to.', None),
         ('api_server', 'required', 'api_server', str, 'The base URL for the tenant that this adaper belongs to.', None),
         ('adapter_id', 'required', 'adapter_id', str, 'The human readable id for the adapter associated with this server.', None),
-        ('start_time', 'optional', 'start_time', str, 'Time (UTC) the server started.', None),
+        ('create_time', 'derived', 'create_time', str, 'Time (UTC) the server started.', None),
         ('cpu', 'required', 'cpu', str, 'CPU usage, in user jiffies, of the server.', None),
         ('io', 'required', 'io', str,
          'Block I/O usage, in number of 512-byte sectors read from and written to, by the server.', None),
@@ -2370,10 +2370,12 @@ class AdapterServer(AbacoDAO):
         ('status', 'required', 'status', str, 'Status of the server.', None),
         ('exit_code', 'optional', 'exit_code', str, 'The exit code of this server.', None),
         ('final_state', 'optional', 'final_state', str, 'The final state of the server.', None),
-        ('image', 'optional', 'image', list, 'The list of images associated with this worker', None),
+        ('image', 'optional', 'image', list, 'The list of images associated with this server', None),
         ('host_id', 'optional', 'host_id', str, 'id of the host where server is running.', None),
         ('host_ip', 'optional', 'host_ip', str, 'ip of the host where server is running.', None),
-        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the worker had a health check.', None),
+
+        ('ch_name', 'optional', 'ch_name', str, 'The name of the associated server chanel.', None),
+        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the server had a health check.', None),
     ]
 
     def get_derived_value(self, name, d):
@@ -2388,8 +2390,12 @@ class AdapterServer(AbacoDAO):
         self.message_received_time = get_current_utc_time()
         if name == 'id':
             return self.id
+        elif name == 'create_time':
+            return get_current_utc_time()
         else:
             return self.message_received_time
+        
+
 
     @classmethod
     def add_server(cls, adapter_id, ser):
@@ -2448,6 +2454,43 @@ class AdapterServer(AbacoDAO):
             logger.critical(f"AdapterServer.update_status took {ms} to run for adapter {adapter_id}, "
                             f"server: {server_id}.")
 
+    def update_status(cls, adapter_id, server_id, status):
+        """
+        :param adapter_id: the id of the adapter
+        :param server_id: the id of the server
+        :param status: the new status of the server.
+        :return:
+        """
+        logger.debug("top of update_status() for adapter: {} server: {} status: {}".format(
+            adapter_id, server_id, status))
+        start_timer = timeit.default_timer()
+        try:
+            adapter_servers_store[site()][f'{adapter_id}_{server_id}', 'status'] = status
+            logger.debug("status updated for server: {} adapter: {}. New status: {}".format(
+            server_id, adapter_id, status))
+        except KeyError as e:
+            logger.error("Could not update status. KeyError: {}. adapter: {}. ex: {}. status: {}".format(
+                e, adapter_id, server_id, status))
+            raise errors.serverException(f"server {server_id} not found.")
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"AdapterServer.update_status took {ms} to run for adapter {adapter_id}, "
+                            f"server: {server_id}.")
+
+    @classmethod
+    def get_servers(cls, adapter_id):
+        """Retrieve all workers for an actor. Pass db_id as `actor_id` parameter."""
+        start_timer = timeit.default_timer()
+        try:
+            result = adapter_servers_store[site()].items({'adapter_id': adapter_id})            
+        except:
+            result = adapter_servers_store['tacc'].items({'adapter_id': adapter_id})            
+        stop_timer = timeit.default_timer()
+        ms = (stop_timer - start_timer) * 1000
+        if ms > 2500:
+            logger.critical(f"get_servers took {ms} to run for adapter {adapter_id}")
+        return result
     
     @classmethod
     def get_uuid(cls):
@@ -2462,7 +2505,7 @@ class AdapterServer(AbacoDAO):
         Atomically ensure at least one server exists in the database. If not, adds a server to the database.
         This method returns an id for the server if a new server was added and otherwise returns none.
         """
-        logger.debug("top of ensure_one_server.")
+        logger.debug("top of ensure_one_server for AdapterServer.")
         site_id = site_id or site()
         server_id = AdapterServer.get_uuid()
         server = {'status': REQUESTED,
