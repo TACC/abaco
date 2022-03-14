@@ -20,8 +20,8 @@ from auth import get_tenants, get_tenant_verify
 import codes
 from common.config import conf
 from common.logs import get_logger
-from docker_utils import rm_container, get_current_worker_containers, container_running, run_container_with_docker
-from models import Actor, Worker, is_hashid, get_current_utc_time, site
+from docker_utils import rm_container, get_current_worker_containers, container_running, run_container_with_docker, get_current_server_containers
+from models import Actor, AdapterServer, Worker, is_hashid, get_current_utc_time, site
 from channels import CommandChannel, WorkerChannel
 from stores import actors_store, executions_store, workers_store
 from worker import shutdown_worker
@@ -164,6 +164,36 @@ def hard_delete_worker(actor_id, worker_id, worker_container_id=None, reason_str
             logger.error(f"Got exception trying to delete worker container; worker: {worker_id}; "
                          f"container: {worker_container_id}; exception: {e}")
 
+def hard_delete_server(adapter_id, server_id, server_container_id=None, reason_str=None):
+    """
+    Hard delete of server from the db. Will also try to hard remove the server container id, if one is passed,
+    but does not stop for errors.
+    :param adapter_id: db_id of the adapter.
+    :param server_id: id of the server
+    :param server_container_id: Docker container id of the server container (optional)
+    :param reason_str: The reason the server is being hard deleted (optional, for the logs only).
+    :return: None
+    """
+    logger.error(f"Top of hard_delete_server for adapter_id: {adapter_id}; "
+                 f"server_id: {server_id}; "
+                 f"server_container_id: {server_container_id};"
+                 f"reason: {reason_str}")
+
+    # hard delete from server db --
+    try:
+        AdapterServer.delete_server(adapter_id, server_id)
+        logger.info(f"server {server_id} deleted from store")
+    except Exception as e:
+        logger.error(f"Got exception trying to delete server: {server_id}; exception: {e}")
+
+    # also try to delete container --
+    if server_container_id != None:
+        try:
+            rm_container(server_container_id)
+            logger.info(f"server {server_id} container deleted from docker")
+        except Exception as e:
+            logger.error(f"Got exception trying to delete server container; server: {server_id}; "
+                         f"container: {server_container_id}; exception: {e}")
 
 def check_workers(actor_id, ttl):
     """Check health of all workers for an actor."""

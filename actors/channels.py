@@ -206,6 +206,18 @@ class CommandChannel(BinaryTaskQueue):
 
         self.put(msg)
 
+    def put_adapter_cmd(self, adapter_id, server_id, image, revision, tenant, site_id, stop_existing=True):
+        """Put a new command on the command channel."""
+        msg = {'adapter_id': adapter_id,
+               'server_id': server_id,
+               'image': image,
+               'revision': revision,
+               'tenant': tenant,
+               'site_id': site_id,
+               'stop_existing': stop_existing}
+
+        self.put(msg)
+
 
 class SpawnerWorkerChannel(BinaryTaskQueue):
     """Channel facilitating communication between a spawner and a worker during startup. Pass the name of the worker to communicate with an

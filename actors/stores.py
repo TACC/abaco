@@ -310,6 +310,8 @@ def mongo_index_initialization():
         executions_store[site].create_index([('$**', TEXT)])
         actors_store[site].create_index([('$**', TEXT)])
         workers_store[site].create_index([('$**', TEXT)])
+        adapters_store[site].create_index([('$**', TEXT)])
+        adapter_servers_store[site].create_index([('$**', TEXT)])
 
 
 if __name__ == "__main__":

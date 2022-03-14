@@ -2242,34 +2242,11 @@ class AdaptersResource(Resource):
                 log_ex = int(args.get('log_ex'))
                 logger.debug(f"Found log_ex in args; using: {log_ex}")
                 args['log_ex'] = log_ex
-        cron = None
-        if conf.web_case == 'camel':
-            logger.debug("Case is camel")
-            if 'cronSchedule' in args and args.get('cronSchedule') is not None:
-                cron = args.get('cronSchedule')
-        else:
-            if 'cron_schedule' in args and args.get('cron_schedule') is not None:
-                logger.debug("Case is snake")
-                cron = args.get('cron_schedule')
-        if cron is not None:
-            logger.debug("Cron has been posted")
-            # set_cron checks for the 'now' alias 
-            # It also checks that the cron schedule is greater than or equal to the current UTC time
-            r = adapter.set_cron(cron)
-            logger.debug(f"r is {r}")
-            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']:
-                args['cron_schedule'] = cron
-                logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
-                args['cron_next_ex'] = r.fixed[0]
-                args['cron_on'] = True
-            else:
-                raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
-        else:
-            logger.debug("Cron schedule was not sent in")
+
 
         args['mounts'] = get_all_mounts(args)
         logger.debug(f"create args: {args}")
-        adapter = adapter(**args)
+        adapter = Adapter(**args)
         # Change function
         adapters_store[site()].add_if_empty([adapter.db_id], adapter)
         abaco_metrics_store[site()].full_update(
@@ -2280,8 +2257,8 @@ class AdaptersResource(Resource):
 
         logger.debug(f"new adapter saved in db. id: {adapter.db_id}. image: {adapter.image}. tenant: {adapter.tenant}")
         adapter.ensure_one_server()
-        logger.debug("ensure_one_worker() called")
-        set_permission(g.username, adapter.db_id, UPDATE)
+        logger.debug("ensure_one_server() called")
+        set_adapter_permission(g.username, adapter.db_id, UPDATE)
         logger.debug(f"UPDATE permission added to user: {g.username}")
         return ok(result=adapter.display(), msg="adapter created successfully.", request=request)
 
@@ -2352,31 +2329,6 @@ class AdapterResource(Resource):
                 log_ex = int(args.get('log_ex'))
                 logger.debug(f"Found log_ex in args; using: {log_ex}")
                 args['log_ex'] = log_ex
-        # Check for both camel and snake catenantse
-        cron = None
-        if conf.web_case == 'camel':
-            if 'cronSchedule' in args and args.get('cronSchedule') is not None:
-                cron = args.get('cronSchedule')
-            if 'cronOn' in args and args.get('cronOn') is not None:
-                adapter['cron_on'] = args.get('cronOn')
-        else:
-            if 'cron_schedule' in args and args.get('cron_schedule') is not None:
-                cron = args.get('cron_schedule')
-            if 'cron_on' in args and args.get('cron_on') is not None:
-                adapter['cron_on'] = args.get('cron_on')
-        if cron is not None:
-            # set_cron checks for the 'now' alias 
-            # It also checks that the cron schedule is greater than or equal to the current UTC time
-            # Check for proper unit of time
-            r = adapter.set_cron(cron)
-            if r.fixed[2] in ['hours', 'hour', 'days', 'day', 'weeks', 'week', 'months', 'month']: 
-                args['cron_schedule'] = cron
-                logger.debug(f"setting cron_next_ex to {r.fixed[0]}")
-                args['cron_next_ex'] = r.fixed[0]
-            else:
-                raise BadRequest(f'{r.fixed[2]} is an invalid unit of time')
-        else:
-            logger.debug("No cron schedule has been sent")
         if args['queue']:
             valid_queues = conf.spawner_host_queues
             if args['queue'] not in valid_queues:
@@ -2429,7 +2381,7 @@ class AdapterResource(Resource):
             adapter.ensure_one_server()
         # put could have been issued by a user with
         if not previous_owner == g.username:
-            set_permission(g.username, adapter.db_id, UPDATE)
+            set_adapter_permission(g.username, adapter.db_id, UPDATE)
         return ok(result=adapter.display(),
                   msg="adapter updated successfully.")
 
@@ -2481,8 +2433,8 @@ class AdapterMessagesResource(Resource):
             logger.debug(f"did not find adapter: {adapter_id}.")
             raise ResourceError(
                 f"No adapter found with id: {adapter_id}.", 404)
-        networkaddy = adapter[networkaddy][0]
-        result = request.get(networkaddy)
+        networkaddy = adapter['addresses']
+        result = requests.get(networkaddy)
         logger.debug(f"messages found for adapter: {adapter_id}.")
         return ok(result)
 
@@ -2496,8 +2448,8 @@ class AdapterMessagesResource(Resource):
             logger.debug(f"did not find adapter: {adapter_id}.")
             raise ResourceError(
                 f"No adapter found with id: {adapter_id}.", 404)
-        networkaddy = adapter[networkaddy][0]
-        result = request.delete(networkaddy)
+        networkaddy = adapter['addresses']
+        result = requests.delete(networkaddy)
         logger.debug(f"messages purged for adapter: {adapter_id}.")
         result.update(get_messages_hypermedia(adapter))
         return ok(result)
@@ -2581,16 +2533,11 @@ class AdapterMessagesResource(Resource):
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         d['_abaco_adapter_revision'] = adapter.revision
         logger.debug(f"Final message dictionary: {d}")
-        networkaddy = adapter[networkaddy][0]
-        result = request.post(networkaddy, headers=d, data=args['message'])
-        logger.info(f"Times to process message: {time_data}")
+        networkaddy = adapter['addresses']
+        result = requests.post(networkaddy, headers=d, data=args['message'])
         
-        if synchronous:
-            return self.do_synch_message(exc)
-        if not case == 'camel':
-            return ok(result)
-        else:
-            return ok(dict_to_camel(result))
+        
+        return ok(result)
 
 class AdapterPermissionsResource(Resource):
     """This class handles permissions endpoints for all objects that need permissions.

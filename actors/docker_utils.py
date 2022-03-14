@@ -954,7 +954,7 @@ def start_adapter_server(adapter_id,
     from the Docker daemon.
 
     :param adapter_id: the dbid of the adapter; for updating server status
-    :param server_id: the worker id; also for updating server status
+    :param server_id: the server id; also for updating server status
     :param image: the adapter's image; worker must have already downloaded this image to the local docker registry.
     :param user: string in the form {uid}:{gid} representing the uid and gid to run the command as.
     :param d: dictionary representing the environment to instantiate within the adapter container.
@@ -1053,8 +1053,13 @@ def start_adapter_server(adapter_id,
     if max_cpus == -1:
         max_cpus = None
 
-    host_config = cli.create_host_config(binds=binds, privileged=privileged, mem_limit=mem_limit, nano_cpus=max_cpus, port_bindings={8080: None})
+    host_config = cli.create_host_config(binds=binds, privileged=privileged, mem_limit=mem_limit, nano_cpus=max_cpus, port_bindings={5000: None})
     logger.debug(f"host_config object created.")
+
+    netconf = None
+    docker_network = conf.spawner_docker_network
+    if docker_network:
+        netconf = cli.create_networking_config({docker_network: cli.create_endpoint_config()})
 
     spn = conf.spawner_host_ip      #the ip address of the spawner
     # create and start the container
@@ -1064,16 +1069,18 @@ def start_adapter_server(adapter_id,
                                      environment=d,
                                      user=user,
                                      name=f'adapterserver_{adapter_id}_{server_id}',
-                                     host_config=host_config)
+                                     ports=[5000],
+                                     host_config=host_config,
+                                     networking_config=netconf)
 
     start = timeit.default_timer()
-    logger.debug("right before cli.start: {}; container id: {}; ".format(start, container.get('Id')))
+    logger.debug("right before cli.start: {}; ".format(start, cont.get('Id')))
     try:
         container = cli.start(container=cont.get('Id'))
         idx = 0
         while idx<25:
             try:
-                port=cli.inspect_container(container)['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort']
+                port = cli.inspect_container(cont.get('Id'))['NetworkSettings']['Ports']['5000/tcp'][0]['HostPort']
                 break
             except:
                 idx = idx+1
@@ -1081,11 +1088,11 @@ def start_adapter_server(adapter_id,
         # if there was an error starting the container, user will need to debug
         logger.info(f"Got exception starting adapter container: {e}")
         raise DockerStartContainerError(f"Could not start container {container.get('Id')}. Exception {str(e)}")
-
+    logger.info(f"port#: {port}")
     AdapterServer.update_status(adapter_id, server_id, RUNNING)
 
-    result = f'https://{spn}:{port}'
+    result = f'http://{spn}:{port}'
     result2 = conf.spawner_host_id
 
 
-    return result, result2
+    return result

@@ -51,8 +51,8 @@ api.add_resource(ActorNoncesResource, '/actors/<string:actor_id>/nonces')
 api.add_resource(ActorNonceResource, '/actors/<string:actor_id>/nonces/<string:nonce_id>')
 api.add_resource(ActorExecutionLogsResource, '/actors/<string:actor_id>/executions/<string:execution_id>/logs')
 
-api.add_resource(AdapterResource, '/adapters')
-api.add_resource(AdaptersResource, '/adapters/<string:adapter_id>')
+api.add_resource(AdaptersResource, '/adapters')
+api.add_resource(AdapterResource, '/adapters/<string:adapter_id>')
 api.add_resource(AdapterMessagesResource, '/adapters/<string:adapter_id>/data')
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)

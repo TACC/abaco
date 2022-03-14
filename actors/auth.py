@@ -331,6 +331,29 @@ def authorization():
                 # all other requests require UPDATE access
             elif request.method in ['DELETE', 'POST', 'PUT']:
                 has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
+    
+    if '/adapter' in request.url_rule.rule:
+        noun = 'adapter'
+        db_id, _ = get_db_id()
+        if request.method == 'GET':
+            # GET requests require READ access
+            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.READ)
+        elif request.method == 'DELETE':
+            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+        else:
+            logger.debug(f"URL rule in request: {request.url_rule.rule}")
+            # first, only admins can create/update actors to be privileged, so check that:
+            if request.method == 'POST' or request.method == 'PUT':
+                check_privileged()
+                # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
+                if 'workers' in request.url_rule.rule:
+                    raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
+                # POST to the messages endpoint requires EXECUTE
+                if 'messages' in request.url_rule.rule:
+                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)
+                # otherwise, we require UPDATE
+                else:
+                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
     else:
         # all other checks are based on actor-id:
         noun = 'actor'
@@ -417,9 +440,9 @@ def check_permissions(user, identifier, level, roles=None):
             return True
     # get all permissions for this actor -
     try:
-        if get_adapter_permissions:
+        try:
             permissions = get_adapter_permissions(identifier)
-        else:
+        except:
             permissions = get_permissions(identifier)
     except PermissionsException:
         # There's a chance that a permission doc does not exist, but an actor still does
@@ -442,7 +465,7 @@ def check_permissions(user, identifier, level, roles=None):
                 return False
     # didn't find the user or world_user, return False
     logger.info(f"user had no permissions for {identifier}. Permissions found: {permissions}")
-    if get_adapter_permissions:
+    if get_adapter_permissions(identifier):
             permissions = get_adapter_permissions(identifier)
     else:
             permissions = get_permissions(identifier)

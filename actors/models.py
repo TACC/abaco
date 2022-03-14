@@ -118,8 +118,8 @@ class Search():
 
     def search(self):
         """
-        Does a search on one of four selected Mongo databases. Workers,
-        executions, actors, and logs. Uses the Mongo aggregation function
+        Does a search on one of five selected Mongo databases. Workers,
+        executions, actors, adapters and logs. Uses the Mongo aggregation function
         to first perform a full-text search. Following that permissions are
         checked, variable matching is attempted, logical operators are attempted,
         and truncation is performed.
@@ -152,7 +152,7 @@ class Search():
                       'workers': workers_store[site()],
                       'actors': actors_store[site()],
                       'logs': logs_store[site()],
-                      'adapters': adapter_store[site()]}
+                      'adapters': adapters_store[site()]}
         try:
             queried_store = store_dict[self.search_type]
         except KeyError:
@@ -2155,7 +2155,7 @@ class Adapter(AbacoDAO):
         ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
 
         ('servers', 'optional', 'servers', dict, 'The server id and the network address for those servers', {}),
-        ('addresses', 'optional', 'addresses', list, 'The network address for those servers', [])
+        ('addresses', 'optional', 'addresses', str, 'The network address for the servers', None)
         ]
 
     SYNC_HINT = 'sync'
@@ -2190,130 +2190,6 @@ class Adapter(AbacoDAO):
             return time_str
         else:
             return db_id
-    
-    @classmethod
-    def set_next_ex(cls, adapter, adapter_id):
-        # Parse cron into [datetime, number, unit of time]
-        logger.debug("In set_next_ex")
-        cron = adapter['cron_schedule']
-        cron_parsed = parse("{} + {} {}", cron)
-        unit_time = cron_parsed.fixed[2]
-        time_length = int(cron_parsed.fixed[1])
-        # Parse the first element of cron_parsed into another list of the form [year, month, day, hour]
-        cron_next_ex = adapter['cron_next_ex']
-        time = parse("{}-{}-{} {}", cron_next_ex)
-        # Create a datetime object
-        start = datetime.datetime(int(time[0]), int(time[1]), int(time[2]), int(time[3]))
-        logger.debug(f"cron_parsed[1] is {time_length}")
-        # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
-        if unit_time == "month" or unit_time == "months":
-            end = start + relativedelta(months=+time_length)
-        elif unit_time == "week" or unit_time == "weeks":
-            end = start + datetime.timedelta(weeks=time_length)
-        elif unit_time == "day" or unit_time == "days":
-            end = start + datetime.timedelta(days=time_length)
-        elif unit_time == "hour" or unit_time == "hours":
-            end = start + datetime.timedelta(hours=time_length)
-        else:
-            # The unit of time is not supported, turn off cron or else it will continue to execute
-            logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
-            adapters_store[adapter_id, 'cron_on'] = False
-        time = f"{end.year}-{end.month}-{end.day} {end.hour}"
-        logger.debug(f"returning {time}")
-        return time
-    
-    #this function assumes that cron_next_ex is in the past, due to some failure
-    # this function updates cron_next_ex, so the adapter starts getting executed at the same times that it
-    # would execute if the cron never failed; it also prints all the times the cron failed to execute when it
-    # was suppose to in the logger
-    @classmethod
-    def set_next_ex_past(cls, adapter, adapter_id):
-            logger.debug("In set_next_ex_past")
-            # Parse cron into [datetime, increment, unit of time]
-            cron = adapter['cron_schedule']
-            cron_parsed = parse("{} + {} {}", cron)
-            time_increment = int(cron_parsed.fixed[1])
-            unit_time = cron_parsed.fixed[2]
-            logger.debug(f"cron_parsed[1] is {time_increment}")
-            # Parse the cron_next_ex into another list of the form [year, month, day, hour]
-            cron_next_ex = adapter['cron_next_ex']
-            cron_nextex_parsed = parse("{}-{}-{} {}", cron_next_ex)
-            # Create a datetime object from the cron_next_ex_parsed list
-            cron_datetime = datetime.datetime(int(cron_nextex_parsed[0]), int(cron_nextex_parsed[1]), \
-                int(cron_nextex_parsed[2]), int(cron_nextex_parsed[3]))
-            # Create a datetime object for current time
-            now = datetime.datetime.utcnow()
-            now = datetime.datetime(now.year, now.month, now.day, now.hour)
-            #initialize certain variables to report when Cron failed
-            timeswherecronfailed=[]
-            # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
-            # we use a while loop
-            if unit_time == "month" or unit_time == "months":
-                while cron_datetime<now:                                                        #while cron_next_ex is less than now
-                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
-                    timeswherecronfailed.append(new_cron)                                       #recording when cron failed
-                    cron_datetime = cron_datetime + relativedelta(months=+time_increment)       #increment the cron_next_ex value by time increment
-            elif unit_time == "week" or unit_time == "weeks":
-                while cron_datetime<now:
-                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
-                    timeswherecronfailed.append(new_cron)
-                    cron_datetime = cron_datetime + datetime.timedelta(weeks=time_increment)
-            elif unit_time == "day" or unit_time == "days":
-                while cron_datetime<now:
-                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
-                    timeswherecronfailed.append(new_cron)
-                    cron_datetime = cron_datetime + datetime.timedelta(days=time_increment)
-            elif unit_time == "hour" or unit_time == "hours":
-                while cron_datetime<now:
-                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
-                    timeswherecronfailed.append(new_cron)
-                    cron_datetime = cron_datetime + datetime.timedelta(hours=time_increment)
-            else:
-                # The unit of time is not supported, turn off cron or else it will continue to execute
-                logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
-                adapters_store[adapter_id, 'cron_on'] = False
-            new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
-            logger.debug("The cron failed to execute the adapter at")
-            logger.debug(timeswherecronfailed)
-            return new_cron  
-
-    @classmethod
-    def set_cron(cls, cron):
-        # Method checks for the 'now' alias and also checks that the cron sent in has not passed yet
-        logger.debug("in set_cron()")
-        now = get_current_utc_time()
-        now_datetime = datetime.datetime(now.year, now.month, now.day, now.hour)
-        logger.debug(f"now_datetime is {now_datetime}")
-        # parse r: if r is not in the correct format, parse() will return None
-        r = parse("{} + {} {}", cron)
-        logger.debug(f"r is {r}")
-        if r is None:
-            raise errors.DAOError(f"The cron is not in the correct format")
-        # Check that the cron schedule hasn't already passed
-        # Check for the 'now' alias and change the cron to now if 'now' is sent in
-        cron_time = r.fixed[0]
-        logger.debug(f"Cron time is {cron_time}")
-        if cron_time.lower() == "now":
-            cron_time_parsed = [now.year, now.month, now.day, now.hour]
-            # Change r to the current UTC datetime
-            logger.debug(f"cron_time_parsed when now is sent in is {cron_time_parsed}")
-            r_temp = "{}-{}-{} {}".format(cron_time_parsed[0], cron_time_parsed[1], cron_time_parsed[2], cron_time_parsed[3])
-            r = "{} + {} {}".format(r_temp, int(r.fixed[1]), r.fixed[2])
-            # parse r so that, when it is returned, it is a parsed object
-            r = parse("{} + {} {}", r)
-            logger.debug(f"User sent now, new r is the current time: {r}")
-        else:
-            cron_time_parsed = parse("{}-{}-{} {}", cron_time)
-            if cron_time_parsed is None:
-                logger.debug(f'{r} is not in the correct format')
-                raise errors.DAOError(f"The starting date {r.fixed[0]} is not in the correct format")
-            else:
-                # Create a datetime object out of cron_datetime
-                schedule_execution = datetime.datetime(int(cron_time_parsed[0]), int(cron_time_parsed[1]), int(cron_time_parsed[2]), int(cron_time_parsed[3]))
-                if schedule_execution < now_datetime:
-                    logger.debug("User sent in old time, raise exception")
-                    raise errors.DAOError(f'The starting datetime is old. The current UTC time is {now_datetime}')
-        return r
 
     @classmethod
     def get_adapter_id(cls, tenant, identifier):
@@ -2358,7 +2234,6 @@ class Adapter(AbacoDAO):
         """Return a representation fit for display."""
         self.update(self.get_hypermedia())
         self.pop('db_id')
-        self.pop('servers')
         self.pop('tenant')
         self.pop('api_server')
         c_time_str = self.pop('create_time')
@@ -2376,7 +2251,7 @@ class Adapter(AbacoDAO):
     def generate_id(self, name, tenant):
         """Generate an id for a new adapter."""
         id = self.get_uuid()
-        return id, adapter.get_dbid(tenant, id)
+        return id, Adapter.get_dbid(tenant, id)
 
     def ensure_one_server(self, site_id=None):
         """This method will check the servers store for the adapter and request a new server if none exist."""
@@ -2388,7 +2263,7 @@ class Adapter(AbacoDAO):
             logger.info("adapter.ensure_one_server() putting message on command "
                         f"channel for server_id: {server_id}")
             ch = CommandChannel(name=self.queue)
-            ch.put_cmd(adapter_id=self.db_id,
+            ch.put_adapter_cmd(adapter_id=self.db_id,
                        server_id=server_id,
                        image=self.image,
                        revision=self.revision,
@@ -2517,7 +2392,7 @@ class AdapterServer(AbacoDAO):
             return self.message_received_time
 
     @classmethod
-    def add_server(cls, adapter_id, ex):
+    def add_server(cls, adapter_id, ser):
         """
         Add an server to an adapter.
         :param adapter_id: str; the dbid of the adapter
@@ -2614,7 +2489,7 @@ class AdapterServer(AbacoDAO):
         """Pass db_id as `adapter_id` parameter."""
         logger.debug("top of update_server_health_time().")
         now = get_current_utc_time()
-        servers_store[site()][f'{adapter_id}_{server_id}', 'last_health_check_time'] = now
+        adapter_servers_store[site()][f'{adapter_id}_{server_id}', 'last_health_check_time'] = now
         logger.info(f"server last_health_check_time updated. server_id: {server_id}")
 
     @classmethod
@@ -2644,7 +2519,7 @@ class AdapterServer(AbacoDAO):
         site_id = site_id or site()
         logger.debug(f"top of delete_server(). adapter_id: {adapter_id}; server_id: {server_id}")
         try:
-            wk = servers_store[site_id].pop_field([f'{adapter_id}_{server_id}'])
+            wk = adapter_servers_store[site_id].pop_field([f'{adapter_id}_{server_id}'])
             logger.info(f"server deleted. adapter: {adapter_id}. server: {server_id}.")
         except KeyError as e:
             logger.info(f"KeyError deleting server. adapter: {adapter_id}. server: {adapter_id}. exception: {e}")
@@ -2685,7 +2560,7 @@ def get_adapter_permissions(adapter_id):
     try:
         return adapter_permissions_store[site()][adapter_id]
     except KeyError:
-        logger.error(f"Adapterr {adapter_id} does not have entries in the permissions store, returning []")
+        logger.error(f"Adapter {adapter_id} does not have entries in the adapter permissions store, returning []")
         return {}
 
 def get_config_permissions(config_id):
@@ -2743,13 +2618,13 @@ def set_permission(user, actor_id, level):
 
 def set_adapter_permission(user, adapter_id, level):
     """Set the permission for a user and level to an actor. Here, actor_id can be a dbid or an alias dbid."""
-    logger.debug("top of set_permission().")
+    logger.debug("top of set_adapter_permission().")
     if not isinstance(level, PermissionLevel):
         raise errors.DAOError("level must be a PermissionLevel object.")
-    new = adapter_permissions_store[site()].add_if_empty([adapterr_id, user], str(level))
+    new = adapter_permissions_store[site()].add_if_empty([adapter_id, user], str(level))
     if not new:
         adapter_permissions_store[site()][adapter_id, user] = str(level)
-    logger.info(f"Permission set for actor: {adapter_id}; user: {user} at level: {level}")
+    logger.info(f"Permission set for adapter: {adapter_id}; user: {user} at level: {level}")
 
 
 def set_config_permission(user, config_id, level):
