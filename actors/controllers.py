@@ -2423,6 +2423,22 @@ class AdapterResource(Resource):
         return adapter
 
 class AdapterMessagesResource(Resource):
+    def get(self, adapter_id):
+        logger.debug(f"top of GET /actors/{adapter_id}/messages")
+        # check that actor exists
+        id = g.db_id
+        try:
+            adapter = Adapter.from_db(adapters_store[site()][id])
+        except KeyError:
+            logger.debug(f"did not find adapter: {adapter_id}.")
+            raise ResourceError(f"No adapter found with id: {adapter_id}.", 404)
+        server = adapter['server']
+        networkaddy = adapter_servers_store[site()][f'{id}_{server[0]}','addresses']
+        result = requests.get(networkaddy)
+        logger.debug(f"messages found for actor: {id}.")
+        result.update(get_messages_hypermedia(adapter))
+        return ok(result)
+    
     def validate_post(self):
         logger.debug("validating message payload.")
         parser = RequestParser()
