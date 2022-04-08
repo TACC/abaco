@@ -1,6 +1,6 @@
 # comment/uncomment the following line(s) when using a local checkout of git repos:
 
--e git://github.com/TACC/channelpy.git#egg=channelpy
+-e git+https://github.com/TACC/channelpy.git#egg=channelpy 
 
 Werkzeug==0.16.1
 flask==0.12.2

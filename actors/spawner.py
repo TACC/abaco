@@ -288,13 +288,11 @@ class Spawner(object):
                 logger.error(msg)
                 return
             logger.debug(f"The server address of the new server: {addy}")
-            adapters_store[site()][f'{adapter_id}', 'addresses'] = addy
-            
+            adapter_servers_store[site()][f'{adapter_id}_{server_id}', 'address'] = addy
            
 
             logger.debug(f"Returned from start_adapter_server; Created new server: {server}")
             
-            adapter_servers_store[site()][f'{server_id}', 'ch_name'] =  ServerChannel.get_name(server_id)
             AdapterServer.update_status(adapter_id, server_id, READY)
             if stop_existing:
                 logger.info(f"Stopping existing servers: {server_id}")

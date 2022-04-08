@@ -1,4 +1,5 @@
 import datetime
+from http import server
 import json
 import os
 import requests
@@ -2284,8 +2285,7 @@ class AdapterResource(Resource):
 
         if adapter:
             # first set adapter status to SHUTTING_DOWN
-            adapter.set_status(id, SHUTTING_DOWN)
-            # delete all logs associated with executions -
+            adapter.set_status(id, 'RETIRED')
             try:
                 servers_by_adapter = adapter_servers_store[site()].items({'adapter_id': id})
                 for server in servers_by_adapter:
@@ -2423,37 +2423,6 @@ class AdapterResource(Resource):
         return adapter
 
 class AdapterMessagesResource(Resource):
-    def get(self, adapter_id):
-        logger.debug(f"top of GET /adapters/{adapter_id}/data")
-        # check that adapter exists
-        id = g.db_id
-        try:
-            adapter = Adapter.from_db(adapters_store[site()][id])
-        except KeyError:
-            logger.debug(f"did not find adapter: {adapter_id}.")
-            raise ResourceError(
-                f"No adapter found with id: {adapter_id}.", 404)
-        networkaddy = adapter['addresses']
-        result = requests.get(networkaddy)
-        logger.debug(f"messages found for adapter: {adapter_id}.")
-        return ok(result)
-
-    def delete(self, adapter_id):
-        logger.debug(f"top of DELETE /adapters/{adapter_id}/messages")
-        # check that adapter exists
-        id = g.db_id
-        try:
-            adapter = Adapter.from_db(adapters_store[site()][id])
-        except KeyError:
-            logger.debug(f"did not find adapter: {adapter_id}.")
-            raise ResourceError(
-                f"No adapter found with id: {adapter_id}.", 404)
-        networkaddy = adapter['addresses']
-        result = requests.delete(networkaddy)
-        logger.debug(f"messages purged for adapter: {adapter_id}.")
-        result.update(get_messages_hypermedia(adapter))
-        return ok(result)
-
     def validate_post(self):
         logger.debug("validating message payload.")
         parser = RequestParser()
@@ -2533,9 +2502,9 @@ class AdapterMessagesResource(Resource):
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         d['_abaco_adapter_revision'] = adapter.revision
         logger.debug(f"Final message dictionary: {d}")
-        networkaddy = adapter['addresses']
+        server = adapter['server']
+        networkaddy = adapter_servers_store[site()][f'{dbid}_{server[0]}','addresses']
         result = requests.post(networkaddy, headers=d, data=args['message'])
-        
         
         return ok(result)
 

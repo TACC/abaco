@@ -2154,8 +2154,7 @@ class Adapter(AbacoDAO):
         ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
         ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
 
-        ('servers', 'optional', 'servers', dict, 'The server id and the network address for those servers', {}),
-        ('addresses', 'optional', 'addresses', str, 'The network address for the servers', None)
+        ('servers', 'optional', 'servers', list, 'The server id and the network address for those servers', []),
         ]
 
     SYNC_HINT = 'sync'
@@ -2374,8 +2373,7 @@ class AdapterServer(AbacoDAO):
         ('host_id', 'optional', 'host_id', str, 'id of the host where server is running.', None),
         ('host_ip', 'optional', 'host_ip', str, 'ip of the host where server is running.', None),
 
-        ('ch_name', 'optional', 'ch_name', str, 'The name of the associated server chanel.', None),
-        ('last_health_check_time', 'optional', 'last_health_check_time', str, 'Last time the server had a health check.', None),
+        ('address', 'optional', 'address', str, 'The network address for the server', None)
     ]
 
     def get_derived_value(self, name, d):
@@ -2454,30 +2452,6 @@ class AdapterServer(AbacoDAO):
             logger.critical(f"AdapterServer.update_status took {ms} to run for adapter {adapter_id}, "
                             f"server: {server_id}.")
 
-    def update_status(cls, adapter_id, server_id, status):
-        """
-        :param adapter_id: the id of the adapter
-        :param server_id: the id of the server
-        :param status: the new status of the server.
-        :return:
-        """
-        logger.debug("top of update_status() for adapter: {} server: {} status: {}".format(
-            adapter_id, server_id, status))
-        start_timer = timeit.default_timer()
-        try:
-            adapter_servers_store[site()][f'{adapter_id}_{server_id}', 'status'] = status
-            logger.debug("status updated for server: {} adapter: {}. New status: {}".format(
-            server_id, adapter_id, status))
-        except KeyError as e:
-            logger.error("Could not update status. KeyError: {}. adapter: {}. ex: {}. status: {}".format(
-                e, adapter_id, server_id, status))
-            raise errors.serverException(f"server {server_id} not found.")
-        stop_timer = timeit.default_timer()
-        ms = (stop_timer - start_timer) * 1000
-        if ms > 2500:
-            logger.critical(f"AdapterServer.update_status took {ms} to run for adapter {adapter_id}, "
-                            f"server: {server_id}.")
-
     @classmethod
     def get_servers(cls, adapter_id):
         """Retrieve all workers for an actor. Pass db_id as `actor_id` parameter."""
@@ -2513,12 +2487,15 @@ class AdapterServer(AbacoDAO):
                   'tenant': tenant,
                   'create_time': get_current_utc_time(),
                   'adapter_id': adapter_id}
-        servers_for_adapter = len(adapter_servers_store[site_id].items({'adapter_id': adapter_id}))
+        servers_for_adapter = len(adapter_servers_store[site_id].items({'adapter_id': adapter_id, 'status': 'READY'}))+len(adapter_servers_store[site_id].items({'adapter_id': adapter_id, 'status': 'SPAWNER SETUP'}))
         if servers_for_adapter:
             logger.debug(f"servers_for_adapter was: {servers_for_adapter}; returning None.")
             return None
         else:
             val = adapter_servers_store[site_id][f'{adapter_id}_{server_id}'] = server
+            serverlist = adapters_store[site_id][f'{adapter_id}','servers']
+            serverlist.append(server_id)
+            adapters_store[site()][f'{adapter_id}','servers'] = serverlist
             abaco_metrics_store[site_id].full_update(
                 {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'server_total': 1},

@@ -23,7 +23,7 @@ from common.logs import get_logger
 from docker_utils import rm_container, get_current_worker_containers, container_running, run_container_with_docker, get_current_server_containers
 from models import Actor, AdapterServer, Worker, is_hashid, get_current_utc_time, site
 from channels import CommandChannel, WorkerChannel, ServerChannel
-from stores import actors_store, executions_store, workers_store, adapters_store
+from stores import actors_store, executions_store, workers_store, adapters_store, adapter_servers_store
 from worker import shutdown_worker
 
 
@@ -315,7 +315,7 @@ def check_servers(adapter_id, ttl):
     """Check health of all servers for an adapter."""
     logger.info(f"Checking health for adapter: {adapter_id}")
     try:
-        servers = adapter_servers_store.get_servers(adapter_id)
+        servers = AdapterServer.get_servers(adapter_id)
     except Exception as e:
         logger.error(f"Got exception trying to retrieve servers: {e}")
         return None
@@ -349,47 +349,12 @@ def check_servers(adapter_id, ttl):
 
         # we need to delete any server that is in SHUTDOWN REQUESTED or SHUTTING down for too long
         if server_status == codes.SHUTDOWN_REQUESTED or server_status == codes.SHUTTING_DOWN:
-            server_last_health_check_time = server.get('last_health_check_time')
-            if not server_last_health_check_time:
-                server_last_health_check_time = server.get('create_time')
-            if not server_last_health_check_time:
-                hard_delete_server(adapter_id, server_id, reason_str='Worker in SHUTDOWN and no health checks.')
-            elif server_last_health_check_time < get_current_utc_time() - datetime.timedelta(minutes=5):
-                hard_delete_server(adapter_id, server_id, reason_str='Worker in SHUTDOWN for too long.')
-
-        # check if the server has not responded to a health check recently; we use a relatively long period
-        # (60 minutes) of idle health checks in case there is an issue with sending health checks through rabbitmq.
-        # this needs to be watched closely though...
-        server_last_health_check_time = server.get('last_health_check_time')
-        if not server_last_health_check_time or \
-                (server_last_health_check_time < get_current_utc_time() - datetime.timedelta(minutes=60)):
-            hard_delete_server(adapter_id, server_id, reason_str='Worker has not health checked for too long.')
-
-        # first send server a health check
-        logger.info(f"sending server {server_id} a health check")
-        ch = ServerChannel(server_id=server_id)
-        try:
-            logger.debug(f"Issuing status check to channel: {server['ch_name']}")
-            ch.put('status')
-        except (channelpy.exceptions.ChannelTimeoutException, Exception) as e:
-            logger.error(f"Got exception of type {type(e)} trying to send server {server_id} a "
-                         f"health check. e: {e}")
-        finally:
-            try:
-                ch.close()
-            except Exception as e:
-                logger.error(f"Got an error trying to close the server channel for dead server. Exception: {e}")
-
-        # now check if the server has been idle beyond the max server_ttl configured for this abaco:
-        if ttl < 0:
-            # ttl < 0 means infinite life
-            logger.info("Infinite ttl configured; leaving server")
-            continue
+            hard_delete_server(adapter_id, server_id, server_container_id=f'adapterserver_{adapter_id}_{server_id}', reason_str='Server in SHUTDOWN.')
 
         if server['status'] == codes.ERROR:
             # shutdown server
             logger.info("Shutting down server in error status.")
-            shutdown_server(adapter_id, server_id)
+            hard_delete_server(adapter_id, server_id)
 
         # Ensure the server container still exists on the correct host_id. Servers can be deleted after restarts or crashes.
         server_container_found = False
@@ -404,7 +369,6 @@ def check_servers(adapter_id, ttl):
                     hard_delete_server(adapter_id, server_id, reason_str='Worker container not found on proper host.')
             except Exception as e:
                 logger.critical(f'Error when checking server container existence. e: {e}')
-
 
 def get_host_queues():
     """
@@ -518,7 +482,7 @@ def main():
     for aid in ids:
         check_workers(aid, ttl)
     for aid in adapterids:
-        check_servers(aid,ttl)
+        check_servers(aid, ttl)
     tenants = get_tenants()
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
