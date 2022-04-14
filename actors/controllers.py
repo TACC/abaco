@@ -857,7 +857,7 @@ class ActorsResource(Resource):
                 msg = e.data.get('message')
             else:
                 msg = f'{msg}: {e}'
-            logger.debug(f"Validate post - invalid actor description: {msg}")
+            logger.debug(f"Validate post - invalid actor description: {msg}, e:{e}")
             raise DAOError(f"Invalid actor description: {msg}")
         return args
 
@@ -1010,7 +1010,7 @@ class ActorResource(Resource):
         shutdown = False
         workers = None
         while idx < 20 and not shutdown:
-            # get all workers in db:
+            # get all workers in db for actor:
             try:
                 workers = Worker.get_workers(id)
             except WorkerException as e:

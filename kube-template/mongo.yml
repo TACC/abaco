@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actors-mongo
+spec:
+  selector:
+    matchLabels:
+      app: actors-mongo
+  template:
+    metadata:
+      labels:
+        app: actors-mongo
+    spec:
+      containers:
+      - name: actors-mongo
+        image: mongo:4.2.6
+        ports:
+        - name: mongo
+          containerPort: 27017
+        volumeMounts:
+        #- name: actors-mongo-data
+        #  mountPath: "/data/db"
+        - name: actors-mongo-keyfile-secret
+          mountPath: "/keyfiles"
+        env:
+        - name: MONGO_REPLICA_SET_NAME
+          value: rs0
+        - name: MONGO_INITDB_ROOT_USERNAME
+          value: admin
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tapis-abaco-secrets
+              key: mongo-password
+        command:
+        - bash
+        - -c
+        - |
+          echo "admin1" > /keyfile-to-use 
+          chmod 400 /keyfile-to-use
+          chown 999:999 /keyfile-to-use
+          exec docker-entrypoint.sh $$@
+        args: ["mongod", "--bind_ip_all", "--replSet", "rs0", "--keyFile", "/keyfile-to-use"]
+      volumes:
+      - name: actors-mongo-keyfile-secret
+        secret:
+          secretName: tapis-abaco-secrets
+          items:
+          - key: mongo-password
+            path: keyfile-base

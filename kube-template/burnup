@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# security
+kubectl apply -f secrets.yml
+kubectl apply -f security.yml
+
+# config files
+kubectl create configmap actors-config --from-file=config.json
+kubectl apply -f nginx-config.yml
+kubectl apply -f prometheus-config.yml
+kubectl apply -f configmap.yml
+
+# services files
+kubectl apply -f services.yml 
+
+# deploy
+kubectl apply -f nfs-pvc.yml
+kubectl apply -f nfs.yml
+kubectl apply -f rabbit.yml
+kubectl apply -f nginx.yml
+kubectl apply -f mongo.yml
+kubectl apply -f reg.yml
+kubectl apply -f mes.yml
+kubectl apply -f admin.yml
+#kubectl apply -f events.yml 
+kubectl apply -f prometheus.yml
+#kubectl apply -f grafana.yml
+kubectl apply -f metrics.yml
+kubectl apply -f spawner.yml
+kubectl apply -f health.yml
+
+
+
+# spawner & health & events should be on compute node?
+# kubectl apply -f spawner.yml
+# kubectl apply -f health.yml
+# kubectl apply -f events.yml
+
+# deprecated?
+#kubectl apply -f clientg.yml
+

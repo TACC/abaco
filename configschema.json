@@ -25,6 +25,16 @@
       "default": "flask",
       "description": "The framework this service will use. e.g. Flask, Django, FastApi, etc."
     },
+    "kubernetes_namespace": {
+      "type": "string",
+      "description": "The namespace for kubernetes to create workers and execution pods. Only relevant to spawner and health. Meaning the config should be changed on each new namespace to match."
+    },
+    "container_backend": {
+      "type": "string",
+      "pattern": "kubernetes|docker",
+      "default": "docker",
+      "description": "Container backend to use when creating workers/execs."
+    },
     "mongo_host": {
       "type": "string",
       "description": "The url for the mongo instance."

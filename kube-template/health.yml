@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actors-health
+spec:
+  selector:
+    matchLabels:
+      app: actors-health
+  template:
+    metadata:
+      labels:
+        app: actors-health
+    spec:
+      serviceAccountName: actors-serviceaccount
+      containers:
+      - name: actors-health
+        imagePullPolicy: Never
+        image: abaco/core-v3:MAKEFILE_TAG
+        command: ["/home/tapis/actors/health_check.sh"]
+        envFrom:
+        - configMapRef:
+            name: actors-environment-vars
+        env:
+        - name: abaco_host_path
+          valueFrom:
+            configMapKeyRef:
+              name: actors-environment-vars
+              key: abaco_host_path
+        - name: TAS_ROLE_ACCT
+          valueFrom:
+            configMapKeyRef:
+              name: actors-environment-vars
+              key: TAS_ROLE_ACCT
+        - name: TAS_ROLE_PASS
+          valueFrom:
+            configMapKeyRef:
+              name: actors-environment-vars
+              key: TAS_ROLE_PASS
+        - name: SERVICE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tapis-abaco-secrets
+              key: service-password
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tapis-abaco-secrets
+              key: mongo-password
+        - name: RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tapis-abaco-secrets
+              key: rabbitmq-password
+        volumeMounts:
+        - name: actors-config
+          mountPath: /home/tapis/config.json
+          subPath: config.json
+      volumes:
+      - name: actors-config
+        configMap: 
+          name: actors-config 
+

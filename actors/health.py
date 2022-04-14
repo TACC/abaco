@@ -13,6 +13,7 @@ import os
 import shutil
 import time
 import datetime
+import copy
 
 import channelpy
 
@@ -20,23 +21,32 @@ from auth import get_tenants, get_tenant_verify
 import codes
 from tapisservice.config import conf
 from tapisservice.logs import get_logger
-from docker_utils import rm_container, get_current_worker_containers, container_running, run_container_with_docker
 from models import Actor, Worker, is_hashid, get_current_utc_time, site
 from channels import CommandChannel, WorkerChannel
 from stores import actors_store, executions_store, workers_store
 from worker import shutdown_worker
+from kubernetes import client, config
 
+
+# Give permissions some files since we are running as Tapis user, not root.
+# folder_permissions is made to require no sudo permissions to run.
+os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
+
+# This isn't currently working because they require different code in some functions
+if conf.container_backend == "docker":
+    from docker_utils import rm_container, get_current_worker_containers, container_running, run_container
+    # Another run of folder_permissions, for docker.sock
+    os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+elif conf.container_backend == "kubernetes":
+    from kubernetes_utils import rm_container, get_current_worker_containers, container_running, run_container
+    # k8 client creation
+    config.load_incluster_config()
+    k8 = client.CoreV1Api()
 
 TAG = os.environ.get('TAG') or conf.version or ""
 if not TAG[0] == ":":
     TAG = f":{TAG}"
 AE_IMAGE = f"{os.environ.get('AE_IMAGE', 'abaco/core-v3')}{TAG}"
-
-# Give permissions to Docker copied folders and files.
-# Have to do this as we are running as Tapis user, not root.
-# This script requires no permissions.
-os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
-os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
 
 logger = get_logger(__name__)
 
@@ -145,7 +155,7 @@ def hard_delete_worker(actor_id, worker_id, worker_container_id=None, reason_str
     """
     logger.error(f"Top of hard_delete_worker for actor_id: {actor_id}; "
                  f"worker_id: {worker_id}; "
-                 f"worker_container_id: {worker_container_id};"
+                 f"worker_container_id: {worker_container_id}; "
                  f"reason: {reason_str}")
 
     # hard delete from worker db --
@@ -177,7 +187,14 @@ def check_workers(actor_id, ttl):
     host_id = os.environ.get('SPAWNER_HOST_ID', conf.spawner_host_id)
     logger.debug(f"host_id: {host_id}")
     worker_containers = get_current_worker_containers()
-    logger.info(f"Health: worker_containers for host_id {conf.spawner_host_id}: {worker_containers}")
+    
+    # kubernetes issue - pod data too large for logs
+    if conf.container_backend == 'kubernetes':
+        loggable_worker_containers = copy.copy(worker_containers)
+        for container in loggable_worker_containers:
+            container["pod"] = "Removed due to length (around 200 lines for pod data)"
+        logger.info(f"Health: worker_containers for host_id {conf.spawner_host_id}: {loggable_worker_containers}")
+
     for worker in workers:
         worker_id = worker['id']
         worker_status = worker.get('status')
@@ -268,15 +285,40 @@ def check_workers(actor_id, ttl):
         if worker['host_id'] == conf.spawner_host_id and worker['status'] == 'READY':
             try:
                 for container in worker_containers:
-                    if worker_id in container['worker_id']:
+                    # Kubernete container names have to be completely lowercase.
+                    if conf.container_backend == 'kubernetes':
+                        db_worker_id = worker_id.lower()
+                    else:
+                        db_worker_id = worker_id
+                    if db_worker_id in container['worker_id']:
                         worker_container_found = True
                         break
                 if not worker_container_found:
-                    logger.warning(f"Worker container {worker_id} not found on host {conf.spawner_host_id} as expected. Deleting record.")
-                    hard_delete_worker(actor_id, worker_id, reason_str='Worker container not found on proper host.')
+                    logger.warning(f"Worker container {db_worker_id} not found on host {conf.spawner_host_id} as expected. Deleting record.")
+                    hard_delete_worker(actor_id, db_worker_id, reason_str='Worker container not found on proper host.')
             except Exception as e:
                 logger.critical(f'Error when checking worker container existence. e: {e}')
-            
+
+def check_containers():
+    # Delete hanging containers without db record. Should be ran only when if leave_containers=False
+    logger.info(f"Top of check_containers in health. Looking to delete hanging containers.")
+    worker_records = workers_store['tacc'].items()
+    worker_ids_in_db = []
+    for worker in worker_records:
+        worker_ids_in_db.append(worker['id'].lower())
+    logger.info(f"check_containers(). List of all worker_ids found in db: {worker_ids_in_db}")
+
+    worker_containers = get_current_worker_containers()
+    # We check only by worker_id (not actors-worker-tenant-actor_id-worker_id) because it's easier. + better to leave container, then delete
+    for container in worker_containers:
+        container_worker_id = container['worker_id']
+        if not container_worker_id in worker_ids_in_db:
+            # Couldn't find worker doc matching worker container
+            # reconstitute container name actors-worker-<tenant>-<actor-id>-<worker-id>
+            container_id = f"actors-worker-{container['tenant_id']}-{container['actor_id']}-{container_worker_id}"
+            logger.debug(f"Container {container_id} found, but no worker_id == {container_worker_id} found in db. Hanging container, deleting pod.")
+            rm_container(container_id)
+
 def get_host_queues():
     """
     Read host_queues string from config and parse to return a Python list.
@@ -320,12 +362,12 @@ def start_spawner(queue, idx='0'):
         log_file = conf.get('spawner_log_file')
 
     try:
-        run_container_with_docker(AE_IMAGE,
-                                  command,
-                                  name=name,
-                                  environment=environment,
-                                  mounts=[],
-                                  log_file=log_file)
+        run_container(AE_IMAGE,
+                      command,
+                      name=name,
+                      environment=environment,
+                      mounts=[],
+                      log_file=log_file)
     except Exception as e:
         logger.critical(f"Could not restart spawner for queue {queue}. Exception: {e}")
 
@@ -357,7 +399,6 @@ def check_spawners():
     for queue in host_queues:
         check_spawner(queue)
 
-
 def shutdown_all_workers():
     """
     Utility function for properly shutting down all existing workers.
@@ -374,19 +415,23 @@ def shutdown_all_workers():
 
 def main():
     logger.info(f"Running abaco health checks. Now: {time.time()}")
-    # TODO - turning off the check_spawners call in the health process for now as there seem to be some issues.
-    # the way the check works currently is to look for a spawner with a specific name. However, that check does not
-    # appear to be working currently.
-    # check_spawners()
-    try:
-        clean_up_ipc_dirs()
-    except Exception as e:
-        logger.error(f"Got exception from clean_up_ipc_dirs: {e}")
+    if conf.container_backend == 'docker':
+        try:
+            clean_up_ipc_dirs()
+        except Exception as e:
+            logger.error(f"Got exception from clean_up_ipc_dirs: {e}")
+        # TODO - turning off the check_spawners call in the health process for now as there seem to be some issues.
+        # the way the check works currently is to look for a spawner with a specific name. However, that check does not
+        # appear to be working currently.
+        # check_spawners()
+
     ttl = conf.worker_worker_ttl
     ids = get_actor_ids()
     logger.info(f"Found {len(ids)} actor(s). Now checking status.")
     for aid in ids:
         check_workers(aid, ttl)
+    if conf.container_backend == 'kubernetes' and not conf.worker_leave_containers:
+        check_containers()
     tenants = get_tenants()
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects

@@ -14,7 +14,7 @@ COPY requirements.txt /home/tapis/
 RUN apt-get update && apt-get install python3-dev g++ sudo -y
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/requirements.txt
-# rabbitmqadmin download for tests
+# rabbitmqadmin download for rabbit init
 RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
 RUN chmod +x rabbitmqadmin
 

@@ -127,6 +127,7 @@ def rm_container(cid):
         raise DockerError(f"Error removing container {cid}, exception: {str(e)}")
     logger.info(f"container {cid} removed.")
 
+
 def pull_image(image):
     """
     Update the local registry with an actor's image.
@@ -223,21 +224,21 @@ def container_running(name=None):
     logger.debug(f"found containers: {containers}")
     return len(containers) > 0
 
-def run_container_with_docker(image,
-                              command,
-                              name=None,
-                              environment={},
-                              mounts=[],
-                              log_file=None,
-                              auto_remove=False,
-                              actor_id=None,
-                              tenant=None,
-                              api_server=None):
+def run_container(image,
+                command,
+                name=None,
+                environment={},
+                mounts=[],
+                log_file=None,
+                auto_remove=False,
+                actor_id=None,
+                tenant=None,
+                api_server=None):
     """
     Run a container with docker mounted in it.
     Note: this function always mounts the abaco conf file so it should not be used by execute_actor().
     """
-    logger.debug("top of run_container_with_docker().")
+    logger.debug("top of run_container().")
     cli = docker.APIClient(base_url=dd, version="auto")
 
     # bind the docker socket as r/w since this container gets docker.
@@ -358,8 +359,11 @@ def run_worker(image,
                    'format': 'rw'})
 
     logger.info(f"Final fifo and socket mounts: {mounts}")
+    
+    #### Should look into if k8 has any auto_remove akin thing to delete pods or jobs.
+    #### ttlSecondsAfterFinished does exist for jobs.
     auto_remove = conf.worker_auto_remove
-    container = run_container_with_docker(
+    container = run_container(
         image=AE_IMAGE,
         command=command,
         environment={

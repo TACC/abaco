@@ -1,0 +1,33 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actors-nginx
+spec:
+  selector:
+    matchLabels:
+      app: actors-nginx
+  template:
+    metadata:
+      labels:
+        app: actors-nginx
+    spec:
+      containers:
+      - name: actors-nginx
+        image: abaco/nginxk8s:dev
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 80 
+        volumeMounts:
+        - name: actors-nginx-config
+          mountPath: /etc/nginx/sites-enabled/flask-project
+          subPath: flask-project
+      volumes:
+      - name: actors-nginx-config
+        configMap:
+          name: actors-nginx-config
+          items:
+          - key: flask-project
+            path: flask-project
+

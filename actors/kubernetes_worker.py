@@ -10,27 +10,35 @@ import channelpy
 
 from __init__ import t
 from auth import get_tenant_verify
+from kubernetes import client, config
 from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from codes import SHUTDOWN_REQUESTED, SHUTTING_DOWN, ERROR, READY, BUSY, COMPLETE
 from tapisservice.config import conf
-from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
+from kubernetes_utils import KubernetesError, KubernetesStartContainerError, KubernetesStopContainerError, execute_actor, stop_container
 from errors import WorkerException
 import globals
 from models import Actor, Execution, Worker, site
 from stores import actors_store, workers_store, executions_store
+from pathlib import Path
 
 from tapisservice.logs import get_logger
 logger = get_logger(__name__)
+
 
 # keep_running will be updated by the thread listening on the worker channel when a graceful shutdown is
 # required.
 keep_running = True
 
+# k8 client creation
+config.load_incluster_config()
+k8 = client.CoreV1Api()
+
 # maximum number of consecutive errors a worker can encounter before giving up and moving itself into an ERROR state.
-MAX_WORKER_CONSECUTIVE_ERRORS = 5
+MAX_WORKER_CONSECUTIVE_ERRORS = 2
 
 def shutdown_worker(actor_id, worker_id, delete_actor_ch=True):
-    """Gracefully shutdown a single worker."
+    """
+    Gracefully shutdown a single worker.
     actor_id (str) - the dbid of the associated actor.
     """
     logger.debug(f"top of shutdown_worker for worker_id: {worker_id}")
@@ -48,6 +56,7 @@ def shutdown_worker(actor_id, worker_id, delete_actor_ch=True):
     logger.info(f"A 'stop' message was sent to worker: {worker_id}")
     ch.close()
 
+
 def shutdown_workers(actor_id, delete_actor_ch=True):
     """
     Graceful shutdown of all workers for an actor. Arguments:
@@ -60,7 +69,7 @@ def shutdown_workers(actor_id, delete_actor_ch=True):
         workers = Worker.get_workers(actor_id)
     except Exception as e:
         logger.error(f"Got exception from get_workers: {e}")
-    if not workers:
+    if not workers: 
         logger.info(f"shutdown_workers did not receive any workers from Worker.get_workers for actor: {actor_id}")
     # @TODO - this code is not thread safe. we need to update the workers state in a transaction:
     for worker in workers:
@@ -68,7 +77,8 @@ def shutdown_workers(actor_id, delete_actor_ch=True):
 
 
 def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
-    """ Target for a thread to listen on the worker channel for a message to stop processing.
+    """
+    Target for a thread to listen on the worker channel for a message to stop processing.
     :param worker_ch:
     :return:
     """
@@ -318,36 +328,40 @@ def subscribe(tenant,
             raise Exception()
 
 
-        # for results, create a socket in the configured directory.
-        # Paths should be formatted as host_path:container_path for split
-        socket_host_path_dir, socket_container_path_dir = conf.worker_socket_paths.split(':')
-        socket_host_path = f'{os.path.join(socket_host_path_dir, worker_id, execution_id)}.sock'
-        socket_container_path = f'{os.path.join(socket_container_path_dir, worker_id, execution_id)}.sock'
-        logger.info(f"Create socket at path: {socket_host_path}")
-        # add the socket as a mount:
-        mounts.append({'host_path': socket_host_path,
-                       'container_path': '/_abaco_results.sock',
-                       'format': 'ro'})
-
-        # for binary data, create a fifo in the configured directory. The configured
-        # fifo_host_path_dir is equal to the fifo path in the worker container:
+        ## Mounts - require creating a volume and then mounting it. FYI.
+        # mount_example (volume type)
+        # abaco config (configMap)
+        # fifo and sockets (nfs mount to pod in cluster - requires ReadWriteMany)
+        # /work (???)
+        # logging file (Deployment prints to stdout. Ignoring for now.)
+        volumes = []
+        volume_mounts = []        
+        # Get the actors-nfs cluster IP address so you can mount it on workers.
+        nfs_cluster_ip = k8.read_namespaced_service(namespace='default', name='actors-nfs').spec.cluster_ip
+        ## fifo mount - Read by all pods. Created by worker. Written to by spawner. Read by worker.
         fifo_container_path = None
         if content_type == 'application/octet-stream':
-            fifo_host_path_dir, fifo_container_path_dir = conf.worker_fifo_paths.split(':')
-            fifo_host_path = os.path.join(fifo_host_path_dir, worker_id, execution_id)
-            fifo_container_path = os.path.join(fifo_container_path_dir, worker_id, execution_id)
             try:
-                os.mkfifo(fifo_container_path)
-                logger.info(f"Created fifo at path: {fifo_host_path}")
+                fifo_container_path = f"/home/tapis/runtime_files/_abaco_fifos/{worker_id}/{execution_id}"
+                Path(fifo_container_path).mkdir(parents=True, exist_ok=True)
+                os.mkfifo(f"{fifo_container_path}/_abaco_binary_data")
             except Exception as e:
-                logger.error(f"Could not create fifo_path at {fifo_host_path}. Nacking message. Exception: {e}")
+                logger.error(f"Could not create fifo_path. Nacking message. Exception: {e}")
                 msg_obj.nack(requeue=True)
                 logger.info(f"worker exiting. worker_id: {worker_id}")
                 raise e
-            # add the fifo as a mount:
-            mounts.append({'host_path': fifo_host_path,
-                           'container_path': '/_abaco_binary_data',
-                           'format': 'ro'})
+            nfs = client.V1NFSVolumeSource(server=nfs_cluster_ip, path=f"/_abaco_fifos/{worker_id}/{execution_id}")
+            volumes.append(client.V1Volume(name='actors-nfs-fifos', nfs = nfs))
+            volume_mounts.append(client.V1VolumeMount(name="actors-nfs-fifos", mount_path="/_abaco_fifo_folder", read_only=False))
+
+        ## socket mount - for results, create a socket in the configured directory.
+        # First have to make sure the folder + .sock actually exists
+        socket_container_path = f"/home/tapis/runtime_files/_abaco_results_sockets/{worker_id}/{execution_id}"
+        Path(socket_container_path).mkdir(parents=True, exist_ok=True)
+        nfs = client.V1NFSVolumeSource(server=nfs_cluster_ip, path=f"/_abaco_results_sockets/{worker_id}/{execution_id}")
+        volumes.append(client.V1Volume(name='actors-nfs-sockets', nfs = nfs))
+        volume_mounts.append(client.V1VolumeMount(name="actors-nfs-sockets", mount_path="/_abaco_socket_folder", read_only=False))
+
 
         # the execution object was created by the controller, but we need to add the worker id to it now that we
         # know which worker will be working on the execution.
@@ -360,7 +374,7 @@ def subscribe(tenant,
             logger.info(f"worker exiting. worker_id: {worker_id}")
             raise e
 
-        # privileged dictates whether the actor container runs in privileged mode and if docker daemon is mounted.
+        # privileged dictates whether the actor container runs in privileged mode and if kubernetes daemon is mounted.
         privileged = False
         if type(actor['privileged']) == bool and actor['privileged']:
             privileged = True
@@ -404,7 +418,8 @@ def subscribe(tenant,
             environment['_abaco_access_token'] = token
         logger.info(f"Passing update environment: {environment}")
         logger.info(f"About to execute actor; worker_id: {worker_id}")
-        logger.info(f"Executed actor mounts: {mounts}")
+        logger.info(f"Adding to exec - volumes: {volumes};(worker {worker_id}; {execution_id})")
+        logger.info(f"Adding to exec - volume_mounts: {volume_mounts};(worker {worker_id}; {execution_id})")
         try:
             stats, logs, final_state, exit_code, start_time = execute_actor(actor_id,
                                                                             worker_id,
@@ -414,24 +429,30 @@ def subscribe(tenant,
                                                                             user,
                                                                             environment,
                                                                             privileged,
-                                                                            mounts,
+                                                                            [volumes, volume_mounts],
                                                                             leave_containers,
                                                                             fifo_container_path,
                                                                             socket_container_path,
                                                                             mem_limit,
                                                                             max_cpus,
                                                                             tenant)
-        except DockerStartContainerError as e:
-            logger.error("Worker {} got DockerStartContainerError: {} trying to start actor for execution {}."
-                         "Placing message back on queue.".format(worker_id, e, execution_id))
+        except KubernetesStartContainerError as e:
+            logger.error(f"Worker {worker_id} got KubernetesStartContainerError: {e} trying to start actor for "
+                         f"execution {execution_id}.")
+            # Delete the execution container when you get an error.
+            name=f'actors_exec_{actor_id}_{execution_id}'.replace('_', '-').lower()
+            try:
+                stop_container(name)
+            except Exception:
+                pass
             # if we failed to start the actor container, we leave the worker up and re-queue the original message
             msg_obj.nack(requeue=True)
             logger.debug('message requeued.')
             consecutive_errors += 1
             if consecutive_errors > MAX_WORKER_CONSECUTIVE_ERRORS:
-                logger.error("Worker {} failed to successfully start actor for execution {} {} consecutive times; "
-                             "Exception: {}. Putting the actor in error status and shutting "
-                             "down workers.".format(worker_id, execution_id, MAX_WORKER_CONSECUTIVE_ERRORS, e))
+                logger.error(f"Worker {worker_id} failed to successfully start actor for execution {execution_id} "
+                             f"{MAX_WORKER_CONSECUTIVE_ERRORS} consecutive times; Exception: {e}. Putting the actor "
+                             f"in error status and shutting down workers.")
                 Actor.set_status(actor_id, ERROR, f"Error executing container: {e}; w")
                 shutdown_workers(actor_id, delete_actor_ch=False)
                 Execution.update_status(actor_id, execution_id, ERROR)
@@ -440,12 +461,18 @@ def subscribe(tenant,
                 break
             else:
                 # sleep five seconds before getting a message again to give time for the compute
-                # node and/or docker health to recover
+                # node and/or kubernetes health to recover
                 time.sleep(5)
                 continue
-        except DockerStopContainerError as e:
-            logger.error("Worker {} was not able to stop actor for execution: {}; Exception: {}. "
-                         "Putting the actor in error status and shutting down workers.".format(worker_id, execution_id, e))
+        except KubernetesStopContainerError as e:
+            logger.error(f"Worker {worker_id} was not able to stop actor for execution: {execution_id}; Exception: "
+                         f"{e}. Putting the actor in error status and shutting down workers.")
+            # Delete the execution container when you get an error.
+            name=f'actors_exec_{actor_id}_{execution_id}'.replace('_', '-').lower()
+            try:
+                stop_container(name)
+            except Exception:
+                pass
             Actor.set_status(actor_id, ERROR, f"Error executing container: {e}")
             # since the error was with stopping the actor, we will consider this message "processed"; this choice
             # could be reconsidered/changed
@@ -456,9 +483,14 @@ def subscribe(tenant,
             time.sleep(60)
             break
         except Exception as e:
-            logger.error(f"Worker {worker_id} got an unexpected exception trying to run actor for execution: {execution_id}."
-                         "Putting the actor in error status and shutting down workers. "
-                         f"Exception: {e}; Exception type: {type(e)}")
+            logger.error(f"Worker {worker_id} got an unexpected exception trying to run actor for execution: {execution_id}; "
+                         f"Putting the actor in error status and shutting down workers. Exception: {e}; Exception type: {type(e)}")
+            # Delete the execution when you get an error.
+            name=f'actors_exec_{actor_id}_{execution_id}'.replace('_', '-').lower()
+            try:
+                stop_container(name)
+            except Exception:
+                pass
             # updated 2/2021 -- we no longer set the actor to ERROR state for unrecognized exceptions. Most of the time
             # these exceptions are due to internal system errors, such as not being able to talk eo RabbitMQ or getting
             # socket timeouts from docker. these are not the fault of the actor, and putting it (but not other actors
@@ -466,7 +498,7 @@ def subscribe(tenant,
             # actors not procssing messages until the user notices and intervenes.
             # # # # # # # Actor.set_status(actor_id, ERROR, "Error executing container: {}".format(e))
 
-            # the execute_actor function raises a DockerStartContainerError if it met an exception before starting the
+            # the execute_actor function raises a KubernetesStartContainerError if it met an exception before starting the
             # actor container; if the container was started, then another exception should be raised. Therefore,
             # we can assume here that the container was at least started and we can ack the message.
             msg_obj.ack()
@@ -480,16 +512,17 @@ def subscribe(tenant,
 
         # Add the logs to the execution before finalizing it -- otherwise, there is a race condition for clients
         # waiting on the execution to be COMPLETE and then immediately retrieving the logs.
-        try:
-            logger.debug("Checking for get_actor_log_ttl")
-            log_ex = Actor.get_actor_log_ttl(actor_id)
-            logger.debug(f"log ex is {log_ex}")
-            Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id, log_ex)
-            logger.debug(f"Successfully added execution logs of expiry {log_ex}.")
-        except Exception as e:
-            msg = "Got exception trying to set logs for exception {}; " \
-                  "Exception: {}; worker_id: {}".format(execution_id, e, worker_id)
-            logger.error(msg)
+        if logs:
+            try:
+                logger.debug("Checking for get_actor_log_ttl")
+                log_ex = Actor.get_actor_log_ttl(actor_id)
+                logger.debug(f"log ex is {log_ex}")
+                Execution.set_logs(execution_id, logs, actor_id, tenant, worker_id, log_ex)
+                logger.debug(f"Successfully added execution logs of expiry {log_ex}.")
+            except Exception as e:
+                msg = (f"Got exception trying to set logs for execution {execution_id}; "
+                    f"Exception: {e}; worker_id: {worker_id}")
+                logger.error(msg)
 
         logger.debug(f"container finished successfully; worker_id: {worker_id}")
         # Add the completed stats to the execution
@@ -504,8 +537,8 @@ def subscribe(tenant,
         except KeyError:
             # it is possible that this worker was sent a gracful shutdown command in the other thread
             # and that spawner has already removed this worker from the store.
-            logger.info("worker {} got unexpected key error trying to update its execution time. "
-                        "Worker better be shutting down! keep_running: {}".format(worker_id, globals.keep_running))
+            logger.info(f"worker {worker_id} got unexpected key error trying to update its execution time. "
+                        f"Worker better be shutting down! keep_running: {globals.keep_running}")
             if globals.keep_running:
                 logger.error("worker couldn't update's its execution time but keep_running is still true!")
 
@@ -600,7 +633,6 @@ if __name__ == '__main__':
     # call the main() function:
     try:
         os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
-        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
         main()
     except Exception as e:
         try:
