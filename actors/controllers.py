@@ -20,7 +20,7 @@ from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, 
     UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
     UPDATING_STORE, SHUTDOWN_REQUESTED
 from common.config import conf
-from errors import DAOError, ResourceError, PermissionsException, WorkerException
+from errors import DAOError, ResourceError, PermissionsException, WorkerException, AdapterMessageError
 from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
     get_config_permissions, set_permission, get_current_utc_time, set_config_permission, site, Adapter, AdapterServer, get_adapter_permissions, set_adapter_permission
 from mounts import get_all_mounts
@@ -2432,12 +2432,17 @@ class AdapterMessagesResource(Resource):
         except KeyError:
             logger.debug(f"did not find adapter: {adapter_id}.")
             raise ResourceError(f"No adapter found with id: {adapter_id}.", 404)
-        server = adapter['server']
-        networkaddy = adapter_servers_store[site()][f'{id}_{server[0]}','addresses']
-        result = requests.get(networkaddy)
+        server = adapter['servers']
+        networkaddy = adapter_servers_store[site()][f'{id}_{server[0]}','address']
+        try:
+            result = requests.get(networkaddy)
+            result.raise_for_status()
+        except Exception as e:
+            logger.debug(f'The get request gave an error {e}')
+            raise AdapterMessageError('Unable to communicate with the adapter server')
+        response = result.content
         logger.debug(f"messages found for actor: {id}.")
-        result.update(get_messages_hypermedia(adapter))
-        return ok(result)
+        return ok(response)
     
     def validate_post(self):
         logger.debug("validating message payload.")
@@ -2484,7 +2489,6 @@ class AdapterMessagesResource(Resource):
         return args
 
     def post(self, adapter_id):
-        start_timer = timeit.default_timer()
         def get_hypermedia(adapter, ser):
             return {'_links': {'self': f'{adapter.api_server}/v3/adapters/{adapter.id}/server/{ser}',
                                'owner': f'{adapter.api_server}/v3/oauth2/profiles/{adapter.owner}',
@@ -2519,7 +2523,7 @@ class AdapterMessagesResource(Resource):
         d['_abaco_adapter_revision'] = adapter.revision
         logger.debug(f"Final message dictionary: {d}")
         server = adapter['server']
-        networkaddy = adapter_servers_store[site()][f'{dbid}_{server[0]}','addresses']
+        networkaddy = adapter_servers_store[site()][f'{dbid}_{server[0]}','address']
         result = requests.post(networkaddy, headers=d, data=args['message'])
         
         return ok(result)

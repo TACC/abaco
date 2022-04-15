@@ -21,6 +21,8 @@ class WorkerException(BaseTapisError):
 class ExecutionException(BaseTapisError):
     pass
 
+class AdapterMessageError(BaseTapisError):
+    pass
 
 class PermissionsException(BaseTapisError):
     pass

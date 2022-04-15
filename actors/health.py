@@ -481,8 +481,6 @@ def main():
     logger.info(f"Found {len(ids)} actor(s). Now checking status.")
     for aid in ids:
         check_workers(aid, ttl)
-    for aid in adapterids:
-        check_servers(aid, ttl)
     tenants = get_tenants()
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects
