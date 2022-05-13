@@ -2285,23 +2285,35 @@ class AdapterResource(Resource):
 
         if adapter:
             # first set adapter status to SHUTTING_DOWN
-            adapter.set_status(id, 'RETIRED')
+            adapter.set_status(id, 'SHUTDOWN_REQUESTED')
             try:
                 servers_by_adapter = adapter_servers_store[site()].items({'adapter_id': id})
                 for server in servers_by_adapter:
-                    server.update_status[id,server[id],'SHUTDOWN_REQUESTED']
-                    del logs_store[site()][server['id']]
+                    AdapterServer.update_status(id, server['id'],'SHUTDOWN_REQUESTED')
             except KeyError as e:
                 logger.info(f"got KeyError {e} trying to retrieve adapter or servers with id {id}")
-        del adapters_store[site()][id]
-        logger.info(f"adapter {id} deleted from store.")
-        del adapter_permissions_store[site()][id]
-        logger.info(f"adapter {id} permissions deleted from store.")
-        del nonce_store[site()][id]
-        logger.info(f"adapter {id} nonces delete from nonce store.")
+            # wait up to 20 seconds for all servers to shutdown
+            idx = 0
+            shutdown = False
+            servers = None
+            while idx < 10 and not shutdown:
+                # get all workers in db:
+                try:
+                    servers = AdapterServer.get_servers(id)
+                except Exception as e:
+                    logger.debug(f"did not find servers for adapter: {adapter_id}; escaping.")
+                    shutdown = True
+                    break
+                if not servers:
+                    logger.debug(f"all server gone, escaping. idx: {idx}")
+                    shutdown = True
+                else:
+                    logger.debug(f"still some servers left; idx: {idx}; servers: {servers}")
+                    idx = idx + 1
+                    time.sleep(1)
+            logger.debug(f"out of sleep loop waiting for servers to shut down; final workers: {servers}")
         msg = 'adapter deleted successfully.'
         return ok(result=None, msg=msg)
-
     def put(self, adapter_id):
         logger.debug(f"top of PUT /adapters/{adapter_id}")
         dbid = g.db_id
@@ -2316,7 +2328,7 @@ class AdapterResource(Resource):
         previous_owner = adapter.owner
         previous_revision = adapter.revision
         args = self.validate_put(adapter)
-        logger.debug("PUT args validated successfully.")
+        logger.debug(f"PUT args validated successfully.")
         args['tenant'] = g.request_tenant_id
          # Checking for 'log_ex' input arg.
         if conf.web_case == 'camel':
@@ -2366,17 +2378,37 @@ class AdapterResource(Resource):
         args['mounts'] = get_all_mounts(args)
         args['last_update_time'] = get_current_utc_time()
         logger.debug(f"update args: {args}")
-        adapter = adapter(**args)
+        adapter = Adapter(**args)
 
         adapters_store[site()][adapter.db_id] = adapter.to_db()
 
         logger.info(f"updated adapter {adapter_id} stored in db.")
         if update_image:
             #prepare existing servers to shut down
-            servers_by_adapter = adapter_servers_store[site()].items({'adapter_id': id})
+            servers_by_adapter = AdapterServer.get_servers(dbid)
             for server in servers_by_adapter:
-                    server.update_status[id,server[id],'SHUTDOWN_REQUESTED']
-            
+                AdapterServer.update_status(dbid, server['id'],'SHUTDOWN_REQUESTED')
+            # wait up to 20 seconds for all servers to shutdown
+            logger.debug(f"start deleting the old servers for: {adapter_id}.")
+            idx = 0
+            shutdown = False
+            servers = None
+            while idx < 50 and not shutdown:
+                # get all workers in db:
+                try:
+                    servers = AdapterServer.get_servers(dbid)
+                except Exception as e:
+                    logger.debug(f"did not find servers for adapter: {adapter_id}; escaping.")
+                    shutdown = True
+                    break
+                if not servers:
+                    logger.debug(f"all server gone, escaping. idx: {idx}")
+                    shutdown = True
+                else:
+                    logger.debug(f"still some servers left; idx: {idx}; servers: {servers}")
+                    idx = idx + 1
+                    time.sleep(1)
+            logger.debug(f"out of sleep loop waiting for servers to shut down; final servers: {servers}")
 
             adapter.ensure_one_server()
         # put could have been issued by a user with
@@ -2424,8 +2456,8 @@ class AdapterResource(Resource):
 
 class AdapterMessagesResource(Resource):
     def get(self, adapter_id):
-        logger.debug(f"top of GET /actors/{adapter_id}/messages")
-        # check that actor exists
+        logger.debug(f"top of GET /adapters/{adapter_id}/messages")
+        # check that adapter exists
         id = g.db_id
         try:
             adapter = Adapter.from_db(adapters_store[site()][id])
@@ -2440,8 +2472,8 @@ class AdapterMessagesResource(Resource):
         except Exception as e:
             logger.debug(f'The get request gave an error {e}')
             raise AdapterMessageError('Unable to communicate with the adapter server')
-        response = result.content
-        logger.debug(f"messages found for actor: {id}.")
+        response = result.content.decode('utf8')
+        logger.debug(f"messages found for adapter: {id}. {response}")
         return ok(response)
     
     def validate_post(self):

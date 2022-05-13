@@ -311,7 +311,7 @@ def check_workers(actor_id, ttl):
             except Exception as e:
                 logger.critical(f'Error when checking worker container existence. e: {e}')
 
-def check_servers(adapter_id, ttl):
+def check_servers(adapter_id):
     """Check health of all servers for an adapter."""
     logger.info(f"Checking health for adapter: {adapter_id}")
     try:
@@ -479,8 +479,11 @@ def main():
     ids = get_actor_ids()
     adapterids = get_adapters_ids()
     logger.info(f"Found {len(ids)} actor(s). Now checking status.")
+    logger.info(f"Found {len(adapterids)} adapter(s). Now checking status.")
     for aid in ids:
         check_workers(aid, ttl)
+    for aid in adapterids:
+        check_servers(aid)
     tenants = get_tenants()
 
     # TODO - turning off the check_workers_store for now. unclear that removing worker objects

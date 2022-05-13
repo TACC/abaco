@@ -2513,15 +2513,6 @@ class AdapterServer(AbacoDAO):
         logger.info(f"server last_health_check_time updated. server_id: {server_id}")
 
     @classmethod
-    def get_servers(cls, adapter_id):
-        """Retrieve all servers for an adapter. Pass db_id as `adapter_id` parameter."""
-        try:
-            result = adapter_servers_store[site()].items({'adapter_id': adapter_id})            
-        except:
-            result = adapter_servers_store['tacc'].items({'adapter_id': adapter_id})            
-        return result
-
-    @classmethod
     def get_server(cls, adapter_id, server_id, site_id=None):
         """Retrieve a server from the servers store. Pass db_id as `adapter_id` parameter."""
         site_id = site_id or site()
