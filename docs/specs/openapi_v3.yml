@@ -35,9 +35,9 @@ paths:
     get:
       tags:
       - Actors
-      summary: listActors
+      summary: list_actors
       description: List summary of all actors owned by user
-      operationId: listActors
+      operationId: list_actors
       parameters:
       - name: limit
         in: query
@@ -63,9 +63,9 @@ paths:
     post:
       tags:
       - Actors
-      summary: createActor
+      summary: create_actor
       description: Register an actor
-      operationId: createActor
+      operationId: create_actor
       requestBody:
         required: true
         content:
@@ -88,9 +88,9 @@ paths:
     get:
       tags:
       - Actors
-      summary: getActor
+      summary: get_actor
       description: Get details of a specific actor by its id.
-      operationId: getActor
+      operationId: get_actor
       parameters:
       - name: actor_id
         in: path
@@ -112,9 +112,9 @@ paths:
     put:
       tags:
       - Actors
-      summary: updateActor
+      summary: update_actor
       description: Update an actor's definition.
-      operationId: updateActor
+      operationId: update_actor
       parameters:
       - name: actor_id
         in: path
@@ -142,9 +142,9 @@ paths:
     delete:
       tags:
       - Actors
-      summary: deleteActor
+      summary: delete_actor
       description: Permenantly delete an actor.
-      operationId: deleteActor
+      operationId: delete_actor
       parameters:
       - name: actor_id
         in: path
@@ -172,9 +172,9 @@ paths:
     get:
       tags:
       - Messages
-      summary: getMessages
+      summary: get_messages
       description: Get number of pending messages for an actor.
-      operationId: getMessages
+      operationId: get_messages
       parameters:
       - name: actor_id
         in: path
@@ -196,9 +196,9 @@ paths:
     delete:
       tags:
       - Messages
-      summary: deletePendingMessages
+      summary: delete_pending_messages
       description: Delete all pending messages actor's inbox.
-      operationId: deletePendingMessages
+      operationId: delete_pending_messages
       parameters:
       - name: actor_id
         in: path
@@ -224,9 +224,9 @@ paths:
     post:
       tags:
       - Messages
-      summary: sendMessage
+      summary: send_message
       description: Send an actor a string message
-      operationId: sendMessage
+      operationId: send_message
       parameters:
       - name: actor_id
         in: path
@@ -270,9 +270,9 @@ paths:
     post:
       tags:
       - Messages
-      summary: sendBinaryMessage
+      summary: send_binary_message
       description: Send an actor a binary message
-      operationId: sendBinaryMessage
+      operationId: send_binary_message
       parameters:
       - name: actor_id
         in: path
@@ -310,9 +310,9 @@ paths:
     post:
       tags:
       - Messages
-      summary: sendJSONMessage
+      summary: send_json_message
       description: Send an actor a JSON message
-      operationId: sendJSONMessage
+      operationId: send_json_message
       parameters:
       - name: actor_id
         in: path
@@ -349,9 +349,9 @@ paths:
     get:
       tags:
       - Executions
-      summary: listExecutions
+      summary: list_executions
       description: List executions for an actor.
-      operationId: listExecutions
+      operationId: list_executions
       parameters:
       - name: actor_id
         in: path
@@ -376,9 +376,9 @@ paths:
     get:
       tags:
       - Nonces
-      summary: listNonces
+      summary: list_nonces
       description: List nonces for an actor.
-      operationId: listNonces
+      operationId: list_nonces
       parameters:
       - name: actor_id
         in: path
@@ -401,9 +401,9 @@ paths:
     post:
       tags:
       - Nonces
-      summary: createNonce
+      summary: create_nonce
       description: Create a nonce for an actor.
-      operationId: createNonce
+      operationId: create_nonce
       parameters:
       - name: actor_id
         in: path
@@ -435,9 +435,9 @@ paths:
     get:
       tags:
       - Nonces
-      summary: getNonce
+      summary: get_nonce
       description: Get details about a nonce for an actor.
-      operationId: getNonce
+      operationId: get_nonce
       parameters:
       - name: actor_id
         in: path
@@ -465,9 +465,9 @@ paths:
     delete:
       tags:
       - Nonces
-      summary: deleteNonce
+      summary: delete_nonce
       description: Delete a nonce.
-      operationId: deleteNonce
+      operationId: delete_nonce
       parameters:
       - name: actor_id
         in: path
@@ -500,9 +500,9 @@ paths:
     get:
       tags:
       - State
-      summary: getState
+      summary: get_state
       description: Get state for an actor.
-      operationId: getState
+      operationId: get_state
       parameters:
       - name: actor_id
         in: path
@@ -526,9 +526,9 @@ paths:
     post:
       tags:
       - State
-      summary: updateState
+      summary: update_state
       description: Update state for an actor.
-      operationId: updateState
+      operationId: update_state
       parameters:
       - name: actor_id
         in: path
@@ -560,9 +560,9 @@ paths:
     get:
       tags:
       - Executions
-      summary: getExecution
+      summary: get_execution
       description: Get details about an execution.
-      operationId: getExecution
+      operationId: get_execution
       parameters:
       - name: actor_id
         in: path
@@ -592,9 +592,9 @@ paths:
     get:
       tags:
       - Executions
-      summary: getExecutionLogs
+      summary: get_execution_logs
       description: Get an execution's logs.
-      operationId: getExecutionLogs
+      operationId: get_execution_logs
       parameters:
       - name: actor_id
         in: path
@@ -625,9 +625,9 @@ paths:
       tags:
       - Actors
       - Executions
-      summary: Get an execution's result.
+      summary: get_execution_result
       description: Get an execution's result.
-      operationId: getExecutionResult
+      operationId: get_execution_result
       parameters:
       - name: actor_id
         in: path
@@ -655,9 +655,9 @@ paths:
     get:
       tags:
       - Permissions
-      summary: listPermissions
+      summary: list_permissions
       description: List permissions for an actor.
-      operationId: listPermissions
+      operationId: list_permissions
       parameters:
       - name: actor_id
         in: path
@@ -679,9 +679,9 @@ paths:
     post:
       tags:
       - Permissions
-      summary: updatePermissions
+      summary: update_permissions
       description: Add or update permissions for an actor.
-      operationId: updatePermissions
+      operationId: update_permissions
       parameters:
       - name: actor_id
         in: path
@@ -713,9 +713,9 @@ paths:
     get:
       tags:
       - Workers
-      summary: listWorkers
+      summary: list_workers
       description: List workers for an actor.
-      operationId: listWorkers
+      operationId: list_workers
       parameters:
       - name: actor_id
         in: path
@@ -739,9 +739,9 @@ paths:
     post:
       tags:
       - Workers
-      summary: manageWorkerPoolSize
+      summary: manage_worker_pool_size
       description: Manage number of workers in actor's worker pool. Pool size will not decrease as a result of this action.
-      operationId: manageWorkerPoolSize
+      operationId: manage_worker_pool_size
       parameters:
       - name: actor_id
         in: path
@@ -783,9 +783,9 @@ paths:
     get:
       tags:
       - Aliases
-      summary: listAliases
+      summary: list_aliases
       description: List all actor aliases available to user
-      operationId: listAliases
+      operationId: list_aliases
       parameters:
       - name: limit
         in: query
@@ -811,9 +811,9 @@ paths:
     post:
       tags:
       - Aliases
-      summary: createAlias
+      summary: create_alias
       description: Register an actor alias
-      operationId: createAlias
+      operationId: create_alias
       requestBody:
         required: true
         content:
@@ -836,9 +836,9 @@ paths:
     get:
       tags:
       - Aliases
-      summary: getAlias
+      summary: get_alias
       description: Get details of a specific actor alias.
-      operationId: getAlias
+      operationId: get_alias
       parameters:
       - name: alias
         in: path
@@ -860,9 +860,9 @@ paths:
     put:
       tags:
       - Aliases
-      summary: updateActorAlias
+      summary: update_actor_alias
       description: Update an alias definition.
-      operationId: updateActorAlias
+      operationId: update_actor_alias
       parameters:
       - name: alias
         in: path
@@ -890,9 +890,9 @@ paths:
     delete:
       tags:
       - Aliases
-      summary: deleteAlias
+      summary: delete_alias
       description: Permenantly delete an actor alias.
-      operationId: deleteAlias
+      operationId: delete_alias
       parameters:
       - name: alias
         in: path
@@ -920,9 +920,9 @@ paths:
     get:
       tags:
       - Search
-      summary: searchDatabase
+      summary: search_database
       description: Return db records that match query
-      operationId: searchDatabase
+      operationId: search_database
       parameters:
       - name: search_type
         in: path
@@ -1009,13 +1009,13 @@ components:
     ActorWorker:
       type: object
       properties:
-        chName:
+        ch_name:
           type: string
           description: Identifier for the worker channel; used to send management commands to the worker.
         cid:
           type: string
           description: The container id for the worker.
-        createTime:
+        create_time:
           type: string
           description: The time (UTC) the worker was created.
         id:
@@ -1024,10 +1024,10 @@ components:
         image:
           type: string
           description: The docker image for the actor assigned to the worker.
-        lastExecutionTime:
+        last_execution_time:
           type: string
           description: The last ime (UTC) the worker started an execution.
-        lastHealthCheckTime:
+        last_health_check_time:
           type: string
           description: The last ime (UTC) the worker responded to a health check.
         location:
@@ -1051,7 +1051,7 @@ components:
           type: boolean
           description: Whether this actor requires an OAuth token.
           default: False
-        defaultEnvironment:
+        default_environment:
           type: object
           description: The default environment variables and values for the actor.
         description:
@@ -1075,6 +1075,12 @@ components:
           description: Actor identifier of actor to link this actor's events too. May be an actor id or an alias. Cycles not permitted.
           nullable: true
           default: null
+        cron_schedule:
+          type: string
+          description: String of 'yyyy-mm-dd hh + <number> <unit of time>' format. Turns on cron feature for actor so that at the specified times the actor with execute with a generic static message.
+        cron_on:
+          type: boolean
+          description: Variable to turn on or off the cron schedule feature for the actor. 
       required: [image]
 
     Actor:
@@ -1083,19 +1089,19 @@ components:
         id:
           type: string
           description: The unique identifier of the actor.
-        createTime:
+        create_time:
           type: string
           description: Time (in UTC) the actor was created.
         image:
           type: string
           description: The Docker image associated with the actor.
-        defaultEnvironment:
+        default_environment:
           type: object
           description: The default environment variables and values for the actor.
         description:
           type: string
           description: User provided description of the actor.
-        lastUpdateTime:
+        last_update_time:
           type: string
           description: Time (in UTC) the actor was last updated.
         link:
@@ -1124,9 +1130,18 @@ components:
         status:
           type: string
           description: Current status of the actor.
-        statusMessage:
+        status_message:
           type: string
           description: Explanation of status.
+        cron_schedule:
+          type: string
+          description: String of 'yyyy-mm-dd hh + <number> <unit of time>' format. Turns on cron feature for actor so that at the specified times the actor with execute with a generic static message.
+        cron_on:
+          type: boolean
+          description: Variable to turn on or off the cron schedule feature for the actor.
+        cron_next_ex:
+          type: string
+          description: Next cron execution time for the actor. Only used when `cronOn` is set to True.
         type:
           type: string
           description: Return type (none, bin, json) for this actor. Default is none.
@@ -1162,7 +1177,7 @@ components:
         alias:
           type: string
           description: Actual alias for the actor; must be unique within a tenant.
-        actorId:
+        actor_id:
           type: string
           description: The id for the actor associated with this alias.
         owner:
@@ -1187,7 +1202,7 @@ components:
         alias:
           type: string
           description: Actual alias for the actor; must be unique within a tenant.
-        actorId:
+        actor_id:
           type: string
           description: The id for the actor associated with this alias.
 
@@ -1223,22 +1238,22 @@ components:
     ActorExecutionSummaries:
       type: object
       properties:
-        actorId:
+        actor_id:
           type: string
           description: the id of the actor
-        apiServer:
+        api_server:
           type: string
           description: the base URL for this Abaco instance.
         owner:
           type: string
           description: The user who owns the associated actor.
-        totalCpu:
+        total_cpu:
           type: integer
-        totalExecutions:
+        total_executions:
           type: integer
-        totalIo:
+        total_io:
           type: integer
-        totalRuntime:
+        total_runtime:
           type: integer
         executions:
           $ref: '#/components/schemas/ArrayOfExecutionSummaries'
@@ -1271,10 +1286,10 @@ components:
     ActorExecution:
       type: object
       properties:
-        actorId:
+        actor_id:
           type: string
           description: the id of the actor
-        apiServer:
+        api_server:
           type: string
           description: the base URL for this Abaco instance.
         owner:
@@ -1285,21 +1300,21 @@ components:
         id:
           type: string
           description: the id of the executions
-        startTime:
+        start_time:
           type: string
           description: the time the execution started.
         status:
           type: string
           enum: [SUBMITTED, RUNNING, COMPLETE]
           description: the status of the execution.
-        messageReceivedTime:
+        message_received_time:
           type: string
           description: the time the message was originally received by Abaco.
         io:
           type: integer
         runtime:
           type: integer
-        workerId:
+        worker_id:
           type: string
           description: the id of the Abaco worker that supervised the execution.
 
@@ -1341,7 +1356,7 @@ components:
           type: string
           enum: [READ, WRITE, EXECUTE]
           description: The permission level associated with the nonce.
-        maxUses:
+        max_uses:
           type: integer
           description: Max uses for the nonce; set to -1 for unlimited uses.
 
@@ -1355,22 +1370,22 @@ components:
           type: string
           enum: [READ, WRITE, EXECUTE]
           description: The permission level associated with the nonce.
-        maxUses:
+        max_uses:
           type: integer
           description: Max uses for the nonce; set to -1 for unlimited uses.
-        actorId:
+        actor_id:
           type: string
           description: the id of the actor
-        apiServer:
+        api_server:
           type: string
           description: the base URL for this Abaco instance.
         owner:
           type: string
           description: The user who owns the associated actor.
-        createTime:
+        create_time:
           type: string
           description: Time (in UTC) the nonce was created.
-        remainingUses:
+        remaining_uses:
           type: integer
           description: Number of uses remaining for the nonce; set to -1 for unlimited uses.
         roles:

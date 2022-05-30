@@ -1012,8 +1012,9 @@ def start_adapter_server(adapter_id,
 
     logger.debug(f"final adapter configs: {adapter_configs}")
     d['_adapter_configs'] = adapter_configs
-
-
+    d['_abaco_adapter_dbid'] = adapter_id
+    d['_abaco_container_repo'] = image
+    
     # initially set the global force_quit variable to False
     globals.force_quit = False
     # initial stats object, environment and binds

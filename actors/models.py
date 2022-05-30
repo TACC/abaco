@@ -78,12 +78,15 @@ def dict_to_camel(d):
     return d2
 
 def camel_to_under(value):
+    """
+    Convert all camel case  variables to underscores.
+    Ex: testVariableScore.eq: value -> test_variable_score.eq: value"""
     return re.sub(r'(?<!^)(?=[A-Z])', '_', value).lower()
 
 def dict_to_under(d):
-    """Convert all keys in a dictionary to camel case."""
+    """Convert all keys in a dictionary to underscores case."""
     d2 = {}
-    for k,v in d.items():
+    for k, v in d.items():
         k = k.split(".")
         k[0] = camel_to_under(k[0])
         k = ".".join(k)
@@ -200,7 +203,7 @@ class Search():
         # multiple of the same key, one value if not.
         # Checks each key given by the requests query parameters.
         for key, val in self.args.items():
-            # Ignores x-nonce and that for Abaco authentication, not search.
+            # Ignores x-nonce as that's for Abaco authentication, not search.
             if key == "x-nonce":
                 pass
             # Adds vals matched to 'search' to the 'search' string which will

@@ -34,6 +34,7 @@ from tapisservice.tapisflask.utils import RequestParser, ok
 from tapisservice.config import conf
 from tapisservice.logs import get_logger
 logger = get_logger(__name__)
+
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
 DEFAULT_SYNC_MAX_IDLE_TIME = 600 # defaults to 10*60 = 600 s = 10 min
@@ -2311,7 +2312,7 @@ class AdapterResource(Resource):
                     logger.debug(f"still some servers left; idx: {idx}; servers: {servers}")
                     idx = idx + 1
                     time.sleep(1)
-            logger.debug(f"out of sleep loop waiting for servers to shut down; final workers: {servers}")
+            logger.debug(f"out of sleep loop waiting for servers to shut down; final servers: {servers}")
         msg = 'adapter deleted successfully.'
         return ok(result=None, msg=msg)
     def put(self, adapter_id):
@@ -2378,9 +2379,6 @@ class AdapterResource(Resource):
         args['mounts'] = get_all_mounts(args)
         args['last_update_time'] = get_current_utc_time()
         logger.debug(f"update args: {args}")
-        adapter = Adapter(**args)
-
-        adapters_store[site()][adapter.db_id] = adapter.to_db()
 
         logger.info(f"updated adapter {adapter_id} stored in db.")
         if update_image:
@@ -2390,27 +2388,10 @@ class AdapterResource(Resource):
                 AdapterServer.update_status(dbid, server['id'],'SHUTDOWN_REQUESTED')
             # wait up to 20 seconds for all servers to shutdown
             logger.debug(f"start deleting the old servers for: {adapter_id}.")
-            idx = 0
-            shutdown = False
-            servers = None
-            while idx < 50 and not shutdown:
-                # get all workers in db:
-                try:
-                    servers = AdapterServer.get_servers(dbid)
-                except Exception as e:
-                    logger.debug(f"did not find servers for adapter: {adapter_id}; escaping.")
-                    shutdown = True
-                    break
-                if not servers:
-                    logger.debug(f"all server gone, escaping. idx: {idx}")
-                    shutdown = True
-                else:
-                    logger.debug(f"still some servers left; idx: {idx}; servers: {servers}")
-                    idx = idx + 1
-                    time.sleep(1)
-            logger.debug(f"out of sleep loop waiting for servers to shut down; final servers: {servers}")
-
-            adapter.ensure_one_server()
+            
+        adapter = Adapter(**args)
+        adapters_store[site()][adapter.db_id] = adapter.to_db()
+        adapter.ensure_one_server()
         # put could have been issued by a user with
         if not previous_owner == g.username:
             set_adapter_permission(g.username, adapter.db_id, UPDATE)
@@ -2456,7 +2437,7 @@ class AdapterResource(Resource):
 
 class AdapterMessagesResource(Resource):
     def get(self, adapter_id):
-        logger.debug(f"top of GET /adapters/{adapter_id}/messages")
+        logger.debug(f"top of GET /adapters/{adapter_id}/data")
         # check that adapter exists
         id = g.db_id
         logger.debug(f"adapter: {id}.")
@@ -2528,7 +2509,7 @@ class AdapterMessagesResource(Resource):
                                'owner': f'{adapter.api_server}/v3/oauth2/profiles/{adapter.owner}',
                                'messages': f'{adapter.api_server}/v3/adapters/{adapter.id}/messages'}, }
 
-        logger.debug(f"top of POST /adapters/{adapter_id}/messages.")
+        logger.debug(f"top of POST /adapters/{adapter_id}/data")
         dbid = g.db_id
         try:
             adapter = Adapter.from_db(adapters_store[site()][dbid])

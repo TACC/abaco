@@ -35,7 +35,9 @@ export maxErrors := 999
 endif
 
 # Gets all remote images and starts Abaco suite in daemon mode
-deploy:	
+deploy:
+	@printf "\n\n###--- Makefile using TAG: $$TAG ---###\n\n"                                                                                                                                                    
+	@sed -i 's/"version".*/"version": "$(TAG)",/g' config-local.json
 	@docker rmi abaco/core-v3:$$TAG
 	@docker pull abaco/core-v3:$$TAG
 	@docker-compose --project-name=abaco up -d
@@ -58,12 +60,12 @@ build-nginx:
 
 # Builds core locally and then runs with Abaco suite with that abaco/core-v3 image in daemon mode
 local-deploy: build-core build-nginx
-	sed -i 's/"version".*/"version": ":$(TAG)",/g' config-local.json
+	@printf "\n\n###--- Makefile using TAG: $$TAG ---###\n\n"                                                                                                                                                    
+	@sed -i 's/"version".*/"version": "$(TAG)",/g' config-local.json
 	@docker-compose --project-name=abaco up -d
 
 
-# Builds local everything and runs both camel case
-# and snake case tests.
+# Builds local everything and runs both camel case and snake case tests.
 # Can run specific test based on the 'test' environment variable
 # ex: export test=test/load_tests.py
 test:
@@ -77,12 +79,12 @@ test:
 
 
 # Builds local everything and performs testsuite for camel case.
+# Converts local-dev.conf back to snake case after test.
 # Can run specific test based on the 'test' environment variable
 # ex: export test=test/load_tests.py
 test-camel:
 	@echo "\n\nCamel Case Tests.\n"
 	@echo "Converting config file to camel case and launching Abaco Stack."
-	sed -i 's/"version".*/"version": ":$(TAG)",/g' config-local.json
 	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
 	make local-deploy
 	sleep $$docker_ready_wait 
@@ -99,14 +101,12 @@ test-adapter:
 	docker run -e TESTS=/home/tapis/tests/test_adapters.py -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=camel $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
 
 # Builds local everything and performs testsuite for snake case.
-# Converts local-dev.conf back to camel case after test.
 # Can run specific test based on the 'test' environment variable
 # ex: export test=test/load_tests.py
 test-snake:
 	@echo "\n\nSnake Case Tests.\n"
 	@echo "Converting config file to snake case and launching Abaco Stack."
-	sed -i 's/"version".*/"version": ":$(TAG)",/g' config-local.json
-	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
+	sed -i 's/"web_case".*/"web_case": "snake",/g' config-local.json
 	make local-deploy
 	sleep $$docker_ready_wait
 	docker run -e TESTS=/home/tapis/tests -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=snake $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG

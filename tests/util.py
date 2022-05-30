@@ -7,6 +7,8 @@ import time
 from tapipy.tapis import Tapis
 from tapisservice.tenants import TenantCache
 import subprocess
+from tapisservice.logs import get_logger
+logger = get_logger(__name__)
 
 # Need base_url as it's where we direct calls. But also need SK url for tapipy.
 base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
@@ -24,7 +26,7 @@ def get_service_tapis_client():
     resource_set = os.environ.get('resource_set', 'local')
     custom_spec_dict = os.environ.get('custom_spec_dict', None)
     download_latest_specs = os.environ.get('download_latest_specs', False)
-    # if there is no tenant_id, use the service_tenant_id and primary_site_admin_tenant_base_url configured for the service:
+    # if there is no tenant_id, use the service_tenant_id and primary_site_admin_tenant_base_url configured for the service:    
     t = Tapis(base_url=sk_url or base_url,
               tenant_id=tenant_id,
               username='abaco',
@@ -39,6 +41,7 @@ def get_service_tapis_client():
               tenants=TenantCache(),
               _tapis_set_x_headers_from_service=True)
     if not jwt:
+        logger.debug("tapis service client constructed, now getting tokens.")
         t.get_tokens()
     return t
 

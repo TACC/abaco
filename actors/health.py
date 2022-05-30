@@ -21,9 +21,9 @@ import codes
 from tapisservice.config import conf
 from tapisservice.logs import get_logger
 from docker_utils import rm_container, get_current_worker_containers, container_running, run_container_with_docker, get_current_server_containers
-from models import Actor, AdapterServer, Worker, is_hashid, get_current_utc_time, site
+from models import Actor, Adapter, AdapterServer, Worker, is_hashid, get_current_utc_time, site
 from channels import CommandChannel, WorkerChannel, ServerChannel
-from stores import actors_store, executions_store, workers_store, adapters_store, adapter_servers_store
+from stores import actors_store, executions_store, workers_store, adapters_store, adapter_servers_store, adapter_permissions_store
 from worker import shutdown_worker
 
 
@@ -324,6 +324,8 @@ def check_servers(adapter_id):
     logger.debug(f"host_id: {host_id}")
     server_containers = get_current_server_containers()
     logger.info(f"Health: server_containers for host_id {conf.spawner_host_id}: {server_containers}")
+    adapter = Adapter.from_db(adapters_store[site()][adapter_id])
+    adapter_status = adapter.get('status')
     for server in servers:
         server_id = server['id']
         server_status = server.get('status')
@@ -369,6 +371,11 @@ def check_servers(adapter_id):
                     hard_delete_server(adapter_id, server_id, reason_str='Worker container not found on proper host.')
             except Exception as e:
                 logger.critical(f'Error when checking server container existence. e: {e}')
+    if adapter_status == codes.SHUTDOWN_REQUESTED or adapter_status == codes.SHUTTING_DOWN:
+        del adapters_store[site()][id]
+        logger.info(f"adapter {id} deleted from store.")
+        del adapter_permissions_store[site()][id]
+        logger.info(f"adapter {id} permissions deleted from store.")
 
 def get_host_queues():
     """
