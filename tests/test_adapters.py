@@ -10,7 +10,7 @@ import time
 import requests
 import json
 
-from util import headers, base_url_ad, case, \
+from util import get_adapter_id, headers, base_url_ad, case, \
     response_format, basic_response_checks, get_actor_id, check_execution_details, \
     execute_actor, get_tenant, privileged_headers, regular_headers, \
     get_tapis_token_headers, alternative_tenant_headers, delete_actors, create_test_roles, wait_for_rabbit
@@ -36,11 +36,16 @@ def test_create_adapter(headers):
     assert result['id'] is not None
 
 def test_send_message(headers):
-    id=get_adapter_id
+    reeeee= get_adapter_id
     rsp = requests.get(f'http://localhost:5000/adapters/{reeeee}/data', headers=headers)
     result = basic_response_checks(rsp)
-    assert result['result'] == 'Hellow World'
+    assert result['result'] == '>Hello, World!'
 
+def test_send_message(headers):
+    reeeee= get_adapter_id
+    rsp = requests.post(f'http://localhost:5000/adapters/{reeeee}/data', headers=headers)
+    result = basic_response_checks(rsp)
+    assert result['result'] == '>Hello, World!'
 #delete
 
 

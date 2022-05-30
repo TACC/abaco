@@ -181,7 +181,7 @@ def get_adapter_id(headers, name='abaco_test_suite'):
     for k in result:
         if k.get('name') == name:
             return k.get('id')
-    # didn't find the test actor
+    # didn't find the test adapter
     assert False
 
 def delete_actors(headers):
