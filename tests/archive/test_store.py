@@ -21,7 +21,7 @@ import timeit
 sys.path.append(os.path.split(os.getcwd())[0])
 sys.path.append('/actors')
 
-from common.config import conf
+from tapisservice.config import conf
 from store import MongoStore
 
 store = 'mongo'

@@ -12,11 +12,11 @@ import jwt
 import requests
 
 from __init__ import t, Tenants
-from common.auth import authn_and_authz as flaskbase_az
-from common.logs import get_logger
+from tapisservice.tapisflask.auth import authn_and_authz as flaskbase_az
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 
-from common.config import conf
+from tapisservice.config import conf
 import codes
 from models import Actor, Adapter, Alias, Actor, ActorConfig, get_adapter_permissions, get_permissions, is_hashid, Nonce, get_config_permissions, permission_process
 
@@ -161,7 +161,7 @@ def get_user_sk_roles():
     logger.debug(f"Getting SK roles on tenant {g.request_tenant_id} and user {g.username}")
     start_timer = timeit.default_timer()
     try:
-        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.username)
+        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.username, _tapis_set_x_headers_from_service=True)
     except Exception as e:
         end_timer = timeit.default_timer()
         total = (end_timer - start_timer) * 1000

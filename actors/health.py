@@ -18,8 +18,8 @@ import channelpy
 
 from auth import get_tenants, get_tenant_verify
 import codes
-from common.config import conf
-from common.logs import get_logger
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 from docker_utils import rm_container, get_current_worker_containers, container_running, run_container_with_docker, get_current_server_containers
 from models import Actor, AdapterServer, Worker, is_hashid, get_current_utc_time, site
 from channels import CommandChannel, WorkerChannel, ServerChannel

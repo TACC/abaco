@@ -11,7 +11,6 @@ from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
 from flask import g, request, render_template, make_response, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
-from common.utils import RequestParser, ok
 from parse import parse
 
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
@@ -19,12 +18,11 @@ from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, W
 from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
     UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
     UPDATING_STORE, SHUTDOWN_REQUESTED
-from common.config import conf
+import codes
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, AdapterMessageError
 from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
     get_config_permissions, set_permission, get_current_utc_time, set_config_permission, site, Adapter, AdapterServer, get_adapter_permissions, set_adapter_permission
 from mounts import get_all_mounts
-import codes
 from stores import actors_store, alias_store, configs_store, configs_permissions_store, workers_store, \
     executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, adapters_store, adapter_servers_store, adapter_permissions_store, SITE_LIST
 from worker import shutdown_workers, shutdown_worker
@@ -32,7 +30,9 @@ import encrypt_utils
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
-from common.logs import get_logger
+from tapisservice.tapisflask.utils import RequestParser, ok
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
@@ -2459,6 +2459,7 @@ class AdapterMessagesResource(Resource):
         logger.debug(f"top of GET /adapters/{adapter_id}/messages")
         # check that adapter exists
         id = g.db_id
+        logger.debug(f"adapter: {id}.")
         try:
             adapter = Adapter.from_db(adapters_store[site()][id])
         except KeyError:
@@ -2467,6 +2468,7 @@ class AdapterMessagesResource(Resource):
         server = adapter['servers']
         networkaddy = adapter_servers_store[site()][f'{id}_{server[0]}','address']
         try:
+            logger.debug(f"address: {networkaddy}.")
             result = requests.get(networkaddy)
             result.raise_for_status()
         except Exception as e:

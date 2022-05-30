@@ -4,14 +4,14 @@ import os
 from pymongo import errors, TEXT
 
 from store import MongoStore
-from common.config import conf
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 from __init__ import t
 import subprocess
 import re
 import requests as r
 import time
 
-from common.logs import get_logger
 logger = get_logger(__name__)
 
 # Figure out which sites this deployment has to manage.
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 SITE_LIST = []
 tenant_object = t.tenant_cache.get_tenant_config(tenant_id=t.tenant_id)
 if tenant_object.site.primary:
-    for site_object in t.tenants.list_sites():
+    for site_object in t.tenants.list_sites(_tapis_set_x_headers_from_service=True):
         SITE_LIST.append(site_object.site_id)
 else:
     SITE_LIST = tenant_object.site_id

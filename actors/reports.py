@@ -19,7 +19,7 @@ from pymongo import MongoClient
 # Get mongo uri information from either config or manual entry.
 # Inputs are mongo user, pass, host, and port.
 try:
-    from common.config import conf
+    from tapisservice.config import conf
     mongo_user = urllib.parse.quote_plus(conf.admin_mongo_user)
     mongo_pass = urllib.parse.quote_plus(conf.admin_mongo_pass)
     mongo_host = conf.mongo_host

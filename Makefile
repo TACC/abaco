@@ -86,7 +86,17 @@ test-camel:
 	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
 	make local-deploy
 	sleep $$docker_ready_wait 
-	docker run -e TESTS=/home/tapis/tests -e case=camel $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
+	docker run -e TESTS=/home/tapis/tests -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=camel $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
+
+
+test-adapter:
+	@echo "\n\nCamel Case Tests.\n"
+	@echo "Converting config file to camel case and launching Abaco Stack."
+	sed -i 's/"version".*/"version": ":$(TAG)",/g' config-local.json
+	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
+	make local-deploy
+	sleep $$docker_ready_wait 
+	docker run -e TESTS=/home/tapis/tests/test_adapters.py -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=camel $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
 
 # Builds local everything and performs testsuite for snake case.
 # Converts local-dev.conf back to camel case after test.
@@ -99,7 +109,7 @@ test-snake:
 	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
 	make local-deploy
 	sleep $$docker_ready_wait
-	docker run -e TESTS=/home/tapis/tests -e case=snake $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
+	docker run -e TESTS=/home/tapis/tests -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=snake $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
 	@echo "Converting back to camel"
 	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
 

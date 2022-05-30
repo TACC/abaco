@@ -2,8 +2,7 @@
 from flask import Flask
 from flask_cors import CORS
 
-from common.utils import handle_error, TapisApi
-
+from tapisservice.tapisflask.utils import handle_error, TapisApi
 
 from controllers import ActorResource, AliasesResource, AliasResource, AliasNoncesResource, AliasNonceResource, \
     ActorStateResource, ActorsResource, \

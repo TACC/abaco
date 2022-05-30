@@ -1,7 +1,7 @@
 import requests
 import datetime
 
-from common.logs import get_logger
+from tapisservice.logs import get_logger
 from stores import actors_store
 from models import site
 

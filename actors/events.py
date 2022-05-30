@@ -21,7 +21,7 @@ from codes import SUBMITTED
 from channels import ActorMsgChannel, EventsChannel
 from models import Execution, site
 from stores import actors_store
-from common.logs import get_logger
+from tapisservice.logs import get_logger
 
 
 # Give permissions to Docker copied folders and files.

@@ -20,6 +20,11 @@
     "spawner_max_workers_per_actor"
   ],
   "properties": {
+    "python_framework_type": {
+      "type": "string",
+      "default": "flask",
+      "description": "The framework this service will use. e.g. Flask, Django, FastApi, etc."
+    },
     "mongo_host": {
       "type": "string",
       "description": "The url for the mongo instance."

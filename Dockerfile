@@ -2,7 +2,7 @@
 # Image: abaco/core-v3
 
 # inherit from the flaskbase iamge:
-FROM tapis/flaskbase:latest
+FROM tapis/flaskbase-plugins:latest
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api
 ENV PYTHONPATH .:*:actors:actors/*
@@ -21,7 +21,7 @@ RUN mkdir -p /home/tapis/runtime_files /home/tapis/runtime_files/_abaco_fifos /h
 RUN touch /home/tapis/config.json
 # create abaco.log file for logs
 RUN touch /home/tapis/runtime_files/logs/service.log
-RUN touch /home/tapis/runtime_files/logs/common.log
+RUN touch /home/tapis/runtime_files/logs/tapisservice.log
 # health_check and actors files.
 COPY actors /home/tapis/actors
 RUN chmod +x /home/tapis/actors/health_check.sh
@@ -34,7 +34,8 @@ RUN chmod +x /home/tapis/tests/entry.sh
 
 
 ## PACKAGE INITIALIZATION
-RUN apt-get update && apt-get install python3-dev g++ sudo -y
+RUN apt-get --allow-releaseinfo-change update                                                                                                                   
+RUN apt-get update && apt-get install python-dev g++ sudo -y 
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/actors/requirements.txt
 RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin

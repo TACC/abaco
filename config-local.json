@@ -4,6 +4,7 @@
     "service_tenant_id": "admin",
     "service_name": "abaco",
     "service_password": "",
+    "service_site_id": "tacc",
     "tenants": [
         "tacc",
         "dev",
@@ -13,8 +14,8 @@
     "log_file": "/home/tapis/runtime_files/logs/service.log",
     "log_level": "DEBUG",
     "log_filing_strategy": "split",
-    "common.auth_log_file": "/home/tapis/runtime_files/logs/common.log",
-    "common.log_log_file": "/home/tapis/runtime_files/logs/common.log",
+    "tapisservice.auth_log_file": "/home/tapis/runtime_files/logs/tapisservice.log",
+    "tapisservice.log_log_file": "/home/tapis/runtime_files/logs/tapisservice.log",
     "mongo_host": "mongo",
     "mongo_port": 27017,
     "mongo_replica_set": true,
@@ -92,8 +93,8 @@
         "actor_uid": 458981,
         "actor_gid": 816877,
         "global_mounts": [
-        "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
-        "$env{abaco_host_path}/runtime_files/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
+            "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
+            "$env{abaco_host_path}/runtime_files/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
         ]
     },
     "sd2e_tenant_object": {
@@ -101,7 +102,7 @@
     },
     "dev_tenant_object": {
         "global_mounts": [
-        "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro"
+            "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro"
         ]
     }
 }

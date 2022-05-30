@@ -5,8 +5,8 @@ import threading
 import time
 
 from flask import g
-from common.config import conf
-from common.logs import get_logger
+from tapisservice.config import conf
+from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 from stores import get_site_rabbitmq_uri
 

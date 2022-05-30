@@ -1,8 +1,9 @@
 """All exceptions thrown by the Abaco system"""
 import os
-from common.errors import BaseTapisError
 
-from common.config import conf
+from tapisservice.errors import BaseTapisError
+
+from tapisservice.config import conf
 
 TAG = os.environ.get('service_TAG') or conf.version
 
