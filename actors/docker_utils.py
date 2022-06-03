@@ -948,7 +948,8 @@ def start_adapter_server(adapter_id,
                   mounts=[],
                   mem_limit=None,
                   max_cpus=None,
-                  tenant=None):
+                  tenant=None,
+                  owner=None):
     """
     Creates and runs an adapter container and supervises the execution, collecting statistics about resource consumption
     from the Docker daemon.
@@ -1014,6 +1015,9 @@ def start_adapter_server(adapter_id,
     d['_adapter_configs'] = adapter_configs
     d['_abaco_adapter_dbid'] = adapter_id
     d['_abaco_container_repo'] = image
+    d['owner_id'] = owner
+    d['owner_tenant'] = tenant
+
     
     # initially set the global force_quit variable to False
     globals.force_quit = False

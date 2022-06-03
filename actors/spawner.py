@@ -155,6 +155,7 @@ class Spawner(object):
             image = cmd['image']
             revision = cmd['revision']
             tenant = cmd['tenant']
+            owner = cmd['owner']
             stop_existing = cmd.get('stop_existing', True)
         
         # if the worker was sent a delete request before spawner received this message to create the worker,
@@ -282,7 +283,7 @@ class Spawner(object):
 
             logger.debug(f"spawner attempting to start server; server_id: {server_id}")
             try:
-                addy = start_adapter_server(adapter_id, server_id, image, tenant=tenant) #this will create the server and return the network address to the server
+                addy = start_adapter_server(adapter_id, server_id, image, tenant=tenant, owner=owner) #this will create the server and return the network address to the server
             except Exception as e:
                 msg = f"Spawner got an exception from call to start_adapter_server. Exception:{e}"
                 logger.error(msg)

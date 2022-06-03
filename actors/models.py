@@ -2134,7 +2134,6 @@ class Adapter(AbacoDAO):
         ('privileged', 'optional', 'privileged', inputs.boolean, 'Whether this adapter runs in privileged mode.', False),
         ('mem_limit', 'optional', 'mem_limit', str, 'maximum amount of memory this adapter can use.', None),
         ('max_cpus', 'optional', 'max_cpus', int, 'Maximum number of CPUs (nanoCPUs) this adapter will have available to it.', None),
-        ('use_container_uid', 'optional', 'use_container_uid', inputs.boolean, 'Whether this adapter runs as the UID set in the container image.', False),
         ('default_environment', 'optional', 'default_environment', dict, 'A dictionary of default environmental variables and values.', {}),
         ('status', 'optional', 'status', str, 'Current status of the adapter.', SUBMITTED),
         ('status_message', 'optional', 'status_message', str, 'Explanation of status.', ''),
@@ -2158,7 +2157,7 @@ class Adapter(AbacoDAO):
         ('cron_schedule', 'optional', 'cron_schedule', str, 'yyyy-mm-dd hh + <number> <unit of time>', None),
         ('cron_next_ex', 'optional', 'cron_next_ex', str, 'The next cron execution yyyy-mm-dd hh', None),
 
-        ('servers', 'optional', 'servers', list, 'The server id and the network address for those servers', []),
+        ('servers', 'optional', 'servers', list, 'The list of servers for the adapter', []),
         ]
 
     SYNC_HINT = 'sync'
@@ -2270,6 +2269,7 @@ class Adapter(AbacoDAO):
                        server_id=server_id,
                        image=self.image,
                        revision=self.revision,
+                       owner=self.owner,
                        tenant=self.tenant,
                        site_id=site_id,
                        stop_existing=False)

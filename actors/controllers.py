@@ -2534,7 +2534,7 @@ class AdapterMessagesResource(Resource):
             d['_abaco_jwt_header_name'] = g.jwt_header_name
             logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
 
-        d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
+        d['Content-Type'] = args.get('_abaco_Content_Type', '')
         d['_abaco_adapter_revision'] = adapter.revision
         logger.debug(f"Final message dictionary: {d}")
         server = adapter['server']
