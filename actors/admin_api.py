@@ -32,7 +32,6 @@ api.add_resource(WorkerResource, '/actors/<string:actor_id>/workers/<string:work
 api.add_resource(AdminActorsResource, '/actors/admin')
 api.add_resource(AdminWorkersResource, '/actors/admin/workers')
 api.add_resource(AdminExecutionsResource, '/actors/admin/executions')
-api.add_resource(AdapterPermissionsResource, '/adapters/<string:identifier>/permissions')
 
 # web app
 @app.route('/admin/dashboard', methods=['POST', 'GET'])

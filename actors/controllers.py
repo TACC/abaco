@@ -2435,6 +2435,7 @@ class AdapterMessagesResource(Resource):
         except Exception as e:
             logger.debug(f'The get request gave an error {e}')
             raise AdapterMessageError('Unable to communicate with the adapter server')
+        logger.debug(f"{result.content}")
         response = result.content.decode('utf8')
         logger.debug(f"messages found for adapter: {id}. {response}")
         return ok(response)
@@ -2531,7 +2532,7 @@ class AdapterPermissionsResource(Resource):
     def get(self, identifier):
         is_config = False
        
-        logger.debug(f"top of GET /adapter/{identifier}/permissions.")
+        logger.debug(f"top of GET /adapters/{identifier}/permissions.")
         id = g.db_id
         # config permissions are stored in a separate store --
         try:
@@ -2560,7 +2561,7 @@ class AdapterPermissionsResource(Resource):
 
     def post(self, identifier):
         """Add new permissions for an object `identifier`."""
-        logger.debug(f"top of POST /adapter/{identifier}/permissions.")
+        logger.debug(f"top of POST /adapters/{identifier}/permissions.")
         dbid = g.db_id
         args = self.validate_post()
         logger.debug(f"POST permissions body validated for identifier: {dbid}.")

@@ -55,7 +55,7 @@ server {
     }
 
     location ~ /adapters/(.*)/permissions {
-        proxy_pass http://admin:5000/adapters/$1/permissions$is_args$args;
+        proxy_pass http://reg:5000/adapters/$1/permissions$is_args$args;
         proxy_set_header Host localhost:5000;
     }
 
