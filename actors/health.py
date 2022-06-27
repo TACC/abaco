@@ -319,7 +319,6 @@ def check_servers(adapter_id):
     except Exception as e:
         logger.error(f"Got exception trying to retrieve servers: {e}")
         return None
-    logger.debug(f"servers: {servers}")
     host_id = os.environ.get('SPAWNER_HOST_ID', conf.spawner_host_id)
     logger.debug(f"host_id: {host_id}")
     server_containers = get_current_server_containers()

@@ -955,7 +955,270 @@ paths:
                 allOf:
                   - $ref: '#/components/schemas/BasicResponse'
 
+  /v3/adapters:
+    get:
+      tags:
+      - Adapters
+      summary: list_adapters
+      description: List summary of all adapters owned by user
+      operationId: list_adapters
+      parameters:
+      - name: limit
+        in: query
+        description: limit the number of adapters returned.
+        schema:
+          type: integer
+      - name: offset
+        in: query
+        description: index (offset) to start list.
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/ArrayOfAdapters'
+    post:
+      tags:
+      - Adapters
+      summary: create_adapter
+      description: Register an adapter
+      operationId: create_adapter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewAdapter'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Adapter'
 
+  /v3/adapters/{adapter_id}:
+    get:
+      tags:
+      - Adapters
+      summary: get_adapter
+      description: Get details of a specific adapter by its id. This also includes all the servers that are associated to the adapter
+      operationId: get_adapter
+      parameters:
+      - name: adapter_id
+        in: path
+        description: Unique ID of the adapter
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+#                allOf:
+#                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Adapter'
+    put:
+      tags:
+      - Adapters
+      summary: update_adapter
+      description: Update an adapter's definition.
+      operationId: update_adapter
+      parameters:
+      - name: adapter_id
+        in: path
+        description: Unique ID of the adapter
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewAdapter'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+#                allOf:
+#                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/Adapter'
+    delete:
+      tags:
+      - Adapters
+      summary: delete_adapter
+      description: Permenantly delete an adapter.
+      operationId: delete_adapter
+      parameters:
+      - name: adapter_id
+        in: path
+        description: Unique ID of the adapter
+        required: true
+        schema:
+          type: string
+
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    type: string
+                    nullable: true
+                    enum: [null]
+
+
+  /v3/adapters/{adapter_id}/data:
+    get:
+      tags:
+      - Adapter Messages
+      summary: get_adapter_messages
+      description: send a get message to the server
+      operationId: get_adapter_messages
+      parameters:
+      - name: adapter_id
+        in: path
+        description: Unique ID of the adapter
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/AdapterMessages'
+                    
+    post:
+      tags:
+      - Adapter Messages
+      summary: send_adapter_message
+      description: Send an adapter a string message
+      operationId: send_adapter_message
+      parameters:
+      - name: adapter_id
+        in: path
+        description: Unique ID of the adapter
+        required: true
+        schema:
+          type: string
+      - name: _abaco_synchronous
+        in: query
+        description: Whether to use a synchronous execution
+        schema:
+          type: string
+          enum: [success, failure]
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JSONMessage'
+          application/octet-stream:
+            schema:
+              $ref: '#/components/schemas/BinaryMessage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Message'
+
+      responses:
+        '200':
+          description: Message receieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/MessageJsonResponse'
+
+  /v3/adapters/{adapter_id}/permissions:
+    get:
+      tags:
+      - Permissions
+      summary: list_adapter_permissions
+      description: List permissions for an adapter.
+      operationId: list_adapter_permissions
+      parameters:
+      - name: adapter_id
+        in: path
+        description: Unique ID of the adapter
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/AdapterPermissions'
+    post:
+      tags:
+      - Permissions
+      summary: update_adapter_permissions
+      description: Add or update permissions for an adapter.
+      operationId: update_adapter_permissions
+      parameters:
+      - name: adapter_id
+        in: path
+        description: Unique ID of the adapter
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdapterPermission'
+
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BasicResponse'
+                properties:
+                  result:
+                    $ref: '#/components/schemas/AdapterPermissions'
 components:
   securitySchemes:
     wso2jwtDevAuth:
@@ -1393,3 +1656,126 @@ components:
           items:
             type: string
           description: The roles associated with the nonce.
+    
+    NewAdapter:
+      type: object
+      properties:
+        image:
+          type: string
+          description: The Docker image associated with the adapter.
+        token:
+          type: boolean
+          description: Whether this adapter requires an OAuth token.
+          default: False
+        default_environment:
+          type: object
+          description: The default environment variables and values for the adapter.
+        description:
+          type: string
+          description: User provided description of the adapter.
+        link:
+          type: string
+          description: adapter identifier of adapter to link this adapter's events too. May be an adapter id or an alias. Cycles not permitted.
+          nullable: true
+          default: null
+        queue:
+          type: string
+          description: The command channel that this actor uses.
+          nullable: true
+          default: null
+      required: [image]
+
+    Adapter:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The unique identifier of the adapter.
+        create_time:
+          type: string
+          description: Time (in UTC) the adapter was created.
+        image:
+          type: string
+          description: The Docker image associated with the adapter.
+        default_environment:
+          type: object
+          description: The default environment variables and values for the adapter.
+        description:
+          type: string
+          description: User provided description of the adapter.
+        last_update_time:
+          type: string
+          description: Time (in UTC) the adapter was last updated.
+        link:
+          type: string
+          description: adapter identifier of adapter to link this adapter's events too. May be an adapter id or an alias. Cycles not permitted.
+        queue:
+          type: string
+          description: The command channel that this actor uses.
+        mounts:
+          $ref: '#/components/schemas/ArrayOfAdapterMounts'
+        owner:
+          type: string
+          description: The user who created this adapter.
+        token:
+          type: boolean
+          description: Whether this adapter requires an OAuth token.
+        status:
+          type: string
+          description: Current status of the adapter.
+        status_message:
+          type: string
+          description: Explanation of status.
+        servers:
+          type: string
+          description: The list of servers for the adapter'.
+
+    ArrayOfAdapters:
+      type: array
+      items:
+        $ref: '#/components/schemas/Adapter'
+
+    AdapterMount:
+      type: object
+      properties:
+        container_path:
+          type: string
+          description: Path within the adapter container for the mount.
+        host_path:
+          type: string
+          description: Path on the Abaco compute node for the mount.
+        mode:
+          type: string
+          enum: [ro, rw]
+          description: Mode for the mount (ro for read-only, rw for read-write).
+
+    ArrayOfAdapterMounts:
+      type: array
+      items:
+        $ref: '#/components/schemas/AdapterMount'
+
+
+    AdapterMessages:
+      type: object
+      properties:
+        messages:
+          type: integer
+
+
+    AdapterPermissions:
+      # type: array
+      # items:
+      #   $ref: '#/components/schemas/adapterPermission'
+      type: object
+      description: Key-value pairs where the key is the username and the value is the permission level.
+
+    AdapterPermission:
+      type: object
+      properties:
+        user:
+          type: string
+          description: The username associated with the permission.
+        level:
+          type: string
+          enum: [READ, EXECUTE, WRITE]
+          description: The level associated with the permission.

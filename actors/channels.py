@@ -206,13 +206,14 @@ class CommandChannel(BinaryTaskQueue):
 
         self.put(msg)
 
-    def put_adapter_cmd(self, adapter_id, server_id, image, revision, tenant, site_id, stop_existing=True):
+    def put_adapter_cmd(self, adapter_id, server_id, image, revision, tenant, site_id, owner, stop_existing=True):
         """Put a new command on the command channel."""
         msg = {'adapter_id': adapter_id,
                'server_id': server_id,
                'image': image,
                'revision': revision,
                'tenant': tenant,
+               'owner': owner,
                'site_id': site_id,
                'stop_existing': stop_existing}
 

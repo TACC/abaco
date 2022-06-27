@@ -85,7 +85,7 @@ def authn_and_authz():
         flaskbase_az(Tenants, check_nonce, authorization)
     else:
         # we use the flaskbase authn_and_authz function, passing in our authorization callback.
-        logger.debug("Config does now allow nonces, not using nonces.")
+        logger.debug("Config does not allow nonces, not using nonces.")
         flaskbase_az(Tenants, authorization)
 
 def required_level(request):

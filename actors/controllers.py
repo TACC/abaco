@@ -2293,26 +2293,6 @@ class AdapterResource(Resource):
                     AdapterServer.update_status(id, server['id'],'SHUTDOWN_REQUESTED')
             except KeyError as e:
                 logger.info(f"got KeyError {e} trying to retrieve adapter or servers with id {id}")
-            # wait up to 20 seconds for all servers to shutdown
-            idx = 0
-            shutdown = False
-            servers = None
-            while idx < 10 and not shutdown:
-                # get all workers in db:
-                try:
-                    servers = AdapterServer.get_servers(id)
-                except Exception as e:
-                    logger.debug(f"did not find servers for adapter: {adapter_id}; escaping.")
-                    shutdown = True
-                    break
-                if not servers:
-                    logger.debug(f"all server gone, escaping. idx: {idx}")
-                    shutdown = True
-                else:
-                    logger.debug(f"still some servers left; idx: {idx}; servers: {servers}")
-                    idx = idx + 1
-                    time.sleep(1)
-            logger.debug(f"out of sleep loop waiting for servers to shut down; final servers: {servers}")
         msg = 'adapter deleted successfully.'
         return ok(result=None, msg=msg)
     def put(self, adapter_id):

@@ -2458,7 +2458,7 @@ class AdapterServer(AbacoDAO):
 
     @classmethod
     def get_servers(cls, adapter_id):
-        """Retrieve all workers for an actor. Pass db_id as `actor_id` parameter."""
+        """Retrieve all servers for an adapter. Pass db_id as `actor_id` parameter."""
         start_timer = timeit.default_timer()
         try:
             result = adapter_servers_store[site()].items({'adapter_id': adapter_id})            

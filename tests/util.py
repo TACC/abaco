@@ -11,8 +11,7 @@ from tapisservice.logs import get_logger
 logger = get_logger(__name__)
 
 # Need base_url as it's where we direct calls. But also need SK url for tapipy.
-base_url = os.environ.get('base_url', 'http://172.17.0.1:8000')
-base_url_ad = os.environ.get('base_url', 'http://172.17.0.1:5000')
+base_url = os.environ.get('base_url', 'http://172.17.0.1:5000')
 case = os.environ.get('case', 'snake')
 testuser_tenant = os.environ.get('tenant', 'dev')
 
@@ -175,14 +174,12 @@ def get_actor_id(headers, name='abaco_test_suite'):
     assert False
 
 def get_adapter_id(headers, name='abaco_test_suite'):
-    url = f'{base_url_ad}/adapters'
+    url = f'{base_url}/adapters'
     rsp = requests.get(url, headers=headers)
     result = basic_response_checks(rsp)
     for k in result:
         if k.get('name') == name:
             return k.get('id')
-    # didn't find the test adapter
-    assert False
 
 def delete_actors(headers):
     url = f'{base_url}/actors'
