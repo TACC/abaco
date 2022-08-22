@@ -22,7 +22,8 @@ import errors
 from errors import DAOError, ResourceError, PermissionsException, WorkerException, ExecutionException
 
 from stores import actors_store, alias_store, executions_store, logs_store, nonce_store, \
-    permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store, adapters_store, adapter_servers_store, adapter_permissions_store
+    permissions_store, workers_store, abaco_metrics_store, configs_permissions_store, configs_store, \
+    adapters_store, adapter_servers_store, adapter_permissions_store, adapter_logs_store
 
 from tapisservice.tapisflask.utils import RequestParser
 from tapisservice.config import conf
@@ -156,7 +157,8 @@ class Search():
                       'workers': workers_store[site()],
                       'actors': actors_store[site()],
                       'logs': logs_store[site()],
-                      'adapters': adapters_store[site()]}
+                      'adapters': adapters_store[site()],
+                      'adapter_logs': adapter_logs_store[site()]}
         try:
             queried_store = store_dict[self.search_type]
         except KeyError:
@@ -433,6 +435,21 @@ class Search():
                 search_list[i].pop('api_server', None)
                 search_list[i].pop('tenant', None)
                 search_list[i].pop('db_id', None)
+
+        elif self.search_type == 'adapter_logs':
+            for i, result in enumerate(search_list):
+                try:
+                    api_server = result['api_server']
+                    owner = result['owner']
+                    id = result['id']
+                    search_list[i]['_links'] = {
+                        'self': f'{api_server}/v3/adapters/{id}',
+                        'owner': f'{api_server}/v3/oauth2/profiles/{owner}',
+                        'servers': f'{api_server}/v3/actors/{id}/servers'}
+                    search_list[i].pop('api_server')
+                except KeyError:
+                    pass
+                search_list[i].pop()
 
         # Does post processing on logs db searches.
         elif self.search_type == 'logs':

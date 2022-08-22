@@ -312,6 +312,7 @@ def mongo_index_initialization():
         workers_store[site].create_index([('$**', TEXT)])
         adapters_store[site].create_index([('$**', TEXT)])
         adapter_servers_store[site].create_index([('$**', TEXT)])
+        adapter_logs_store[site].create_index([('$**', TEXT)])
 
 
 if __name__ == "__main__":
@@ -331,6 +332,7 @@ actors_store = {}
 adapters_store = {}
 adapter_servers_store = {}
 adapter_permissions_store = {}
+adapter_logs_store = {}
 workers_store = {}
 nonce_store = {}
 alias_store = {}
@@ -376,6 +378,7 @@ for site in SITE_LIST:
     configs_permissions_store.update({site: site_config_store(db='configs_permissions_store')})
     adapters_store.update({site: site_config_store(db='adapters_store')})
     adapter_servers_store.update({site: site_config_store(db='adapter_servers_store')})
+    adapter_logs_store.update({site: site_config_store(db='adapter_logs_servers_store')})
     adapter_permissions_store.update({site: site_config_store(db='adapter_permissions_store')})
 
 if __name__ == "__main__":

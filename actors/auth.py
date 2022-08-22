@@ -345,9 +345,6 @@ def authorization():
             # first, only admins can create/update actors to be privileged, so check that:
             if request.method == 'POST' or request.method == 'PUT':
                 check_privileged()
-                # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
-                if 'workers' in request.url_rule.rule:
-                    raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
                 # POST to the messages endpoint requires EXECUTE
                 if 'messages' in request.url_rule.rule:
                     has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)

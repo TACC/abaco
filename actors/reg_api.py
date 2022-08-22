@@ -9,7 +9,7 @@ from controllers import ActorResource, AliasesResource, AliasResource, AliasNonc
     ActorExecutionsResource, ActorExecutionResource, ActorExecutionResultsResource, \
     ActorExecutionLogsResource, ActorNoncesResource, ActorNonceResource, \
     AbacoUtilizationResource, SearchResource, CronResource, ActorConfigResource, ActorConfigsResource, \
-    AdaptersResource, AdapterResource, AdapterMessagesResource, AdapterPermissionsResource
+    AdaptersResource, AdapterResource, AdapterMessagesResource, AdapterlogsResourse
 from auth import authn_and_authz
 from errors import errors
 
@@ -53,7 +53,7 @@ api.add_resource(ActorExecutionLogsResource, '/actors/<string:actor_id>/executio
 api.add_resource(AdaptersResource, '/adapters')
 api.add_resource(AdapterResource, '/adapters/<string:adapter_id>')
 api.add_resource(AdapterMessagesResource, '/adapters/<string:adapter_id>/data')
-
+api.add_resource(AdapterlogsResourse, '/adapters/logs')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)

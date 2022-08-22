@@ -1,4 +1,5 @@
 import datetime
+from email import parser
 from http import server
 import json
 import os
@@ -24,7 +25,8 @@ from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, A
     get_config_permissions, set_permission, get_current_utc_time, set_config_permission, site, Adapter, AdapterServer, get_adapter_permissions, set_adapter_permission
 from mounts import get_all_mounts
 from stores import actors_store, alias_store, configs_store, configs_permissions_store, workers_store, \
-    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, adapters_store, adapter_servers_store, adapter_permissions_store, SITE_LIST
+    executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, adapters_store, adapter_servers_store, adapter_permissions_store, SITE_LIST, \
+    adapter_logs_store
 from worker import shutdown_workers, shutdown_worker
 import encrypt_utils
 
@@ -2419,24 +2421,66 @@ class AdapterMessagesResource(Resource):
     def get(self, adapter_id):
         logger.debug(f"top of GET /adapters/{adapter_id}/data")
         # check that adapter exists
+        start_timer=timeit.default_timer()
         id = g.db_id
         logger.debug(f"adapter: {id}.")
         try:
             adapter = Adapter.from_db(adapters_store[site()][id])
+            got_adapter=timeit.default_timer()
         except KeyError:
             logger.debug(f"did not find adapter: {adapter_id}.")
             raise ResourceError(f"No adapter found with id: {adapter_id}.", 404)
         server = adapter['servers']
+        got_server=timeit.default_timer()
         networkaddy = adapter_servers_store[site()][f'{id}_{server[0]}','address']
+        got_address=timeit.default_timer()
+        d={}
+        parser = RequestParser()
+        parser.add_argument('message', type=str, required=False, help="The message to send to the adapter.")
+        args=parser.parse_args()
         try:
             logger.debug(f"address: {networkaddy}.")
-            result = requests.get(networkaddy)
+            for k, v in request.args.items():
+                if k == 'message':
+                    continue
+                d[k] = v
+            logger.debug(f"extra fields added to message from query parameters: {d}.")
+            if hasattr(g, 'username'):
+                d['_abaco_username'] = g.username
+                logger.debug(f"_abaco_username: {g.username} added to message.")
+            if hasattr(g, 'jwt_header_name'):
+                d['_abaco_jwt_header_name'] = g.jwt_header_name
+                logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
+
+            d['Content-Type'] = args.get('_abaco_Content_Type', '')
+            d['_abaco_adapter_revision'] = adapter.revision
+            got_headers=timeit.default_timer()
+            result = requests.get(networkaddy, headers=d)
+            got_response=timeit.default_timer()
             result.raise_for_status()
         except Exception as e:
             logger.debug(f'The get request gave an error {e}')
             raise AdapterMessageError('Unable to communicate with the adapter server')
         logger.debug(f"{result.content}")
         response = result.content.decode('utf8')
+        end_timer = timeit.default_timer()
+        time_data = {'adapter': id,
+                     'tenant': adapter.tenant,
+                     'total': (end_timer-start_timer) * -1000,
+                     'get_adapter': (start_timer-got_adapter) * -1000,
+                     'got_server': (got_adapter - got_server) * -1000,
+                     'got_address': (got_server - got_address) * -1000,
+                     'got_headers': (got_address - got_headers) * -1000,
+                     'got_response': (got_headers - got_response) * -1000,
+                     'got_decoded': (got_response - end_timer) * -1000
+                    }
+        try:
+            times=adapter_logs_store[site()][f'{id}']
+            times.append(time_data)
+            adapter_logs_store[site()][f'{id}']
+        except:
+            times=[time_data]
+            adapter_logs_store[site()][f'{id}']=times
         logger.debug(f"messages found for adapter: {id}. {response}")
         return ok(response)
     
@@ -2523,6 +2567,24 @@ class AdapterMessagesResource(Resource):
         result = requests.post(networkaddy, headers=d, data=args['message'])
         
         return ok(result)
+
+class AdapterlogsResourse(Resource):
+    
+    def get(self):
+        logger.debug("top of GET /adapterslogs")
+        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+            args_given = request.args
+            args_full = {}
+            args_full.update(args_given)
+            result = Search(args_full, 'adapter_logs', g.request_tenant_id, g.username).search()
+            return ok(result=result, msg="adapters search completed successfully.")
+        else:
+            adapters = []
+            for adapter_info in adapter_logs_store[site()].items():
+                if adapter_info['tenant'] == g.request_tenant_id:
+                    adapters.append(adapter_info)
+            logger.info("adapters logs retrieved.")
+            return ok(result=adapters, msg="adapters logs retrieved successfully.")
 
 class AdapterPermissionsResource(Resource):
     """This class handles permissions endpoints for all objects that need permissions.

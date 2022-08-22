@@ -126,6 +126,29 @@ services:
             - reg
         networks:
             - abaco
+    
+    admin:
+        image: abaco/core-v3:$TAG
+        volumes:
+            - ./config-local.json:/home/tapis/config.json
+            - ./abaco.log:/home/tapis/runtime_files/logs/service.log
+            - ./runtime_files/certs:/home/tapis/runtime_files/certs
+        ports:
+            - "5003:5000"
+        environment:
+            abaco_host_path: ${abaco_path}
+            server: gunicorn
+            api: admin
+            threads: 1
+            processes: 1
+            timeout: 120
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+        depends_on:
+            - mongo
+            - reg
+        networks:
+            - abaco
 
     spawner:
         image: abaco/core-v3:$TAG
