@@ -2464,9 +2464,7 @@ class AdapterMessagesResource(Resource):
         logger.debug(f"{result.content}")
         response = result.content.decode('utf8')
         end_timer = timeit.default_timer()
-        time_data = {'adapter': id,
-                     'tenant': adapter.tenant,
-                     'total': (end_timer-start_timer) * -1000,
+        time_data = {'total': (end_timer-start_timer) * 1000,
                      'get_adapter': (start_timer-got_adapter) * -1000,
                      'got_server': (got_adapter - got_server) * -1000,
                      'got_address': (got_server - got_address) * -1000,
@@ -2475,9 +2473,10 @@ class AdapterMessagesResource(Resource):
                      'got_decoded': (got_response - end_timer) * -1000
                     }
         try:
-            times=adapter_logs_store[site()][f'{id}']
+            times=adapter_logs_store[site()][f'{id}'][id]
+            logger.debug(f"times: {times}")
             times.append(time_data)
-            adapter_logs_store[site()][f'{id}']
+            adapter_logs_store[site()][f'{id}']=times
         except:
             times=[time_data]
             adapter_logs_store[site()][f'{id}']=times
@@ -2573,7 +2572,7 @@ class AdapterlogsResourse(Resource):
     def get(self, adapter_id):
         logger.debug(f"top of GET /adapters/{adapter_id}/logs")
         try:
-            adapter = adapter_logs_store[site()][g.db_id]
+            adapter = adapter_logs_store[site()][g.db_id][g.db_id]
         except KeyError:
             logger.debug(f"did not find adapter with id: {adapter_id}")
             raise ResourceError(
