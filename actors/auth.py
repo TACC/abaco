@@ -213,7 +213,8 @@ def authorization():
         or '/actors/utilization' in request.url_rule.rule \
         or '/actors/search/' in request.url_rule.rule \
         or request.url_rule.rule == '/adapters' \
-        or request.url_rule.rule == '/adapters/':
+        or request.url_rule.rule == '/adapters/' \
+        or request.url_rule.rule == '/adapters/logs':
         db_id = None
         logger.debug(f"setting db_id to None; rule: {request.url_rule.rule}")
     else:
@@ -496,6 +497,7 @@ def get_db_id():
     # the location of the actor identifier is different for aliases vs actor_id's.
     # for actors, it is in index 2:
     #     /actors/<actor_id>
+    #     /adapters/logs
     # for aliases, it is in index 3:
     #     /actors/aliases/<alias_id>
     idx = 2

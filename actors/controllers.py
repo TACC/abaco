@@ -2436,7 +2436,6 @@ class AdapterMessagesResource(Resource):
         got_address=timeit.default_timer()
         d={}
         parser = RequestParser()
-        parser.add_argument('message', type=str, required=False, help="The message to send to the adapter.")
         args=parser.parse_args()
         try:
             logger.debug(f"address: {networkaddy}.")
@@ -2453,7 +2452,8 @@ class AdapterMessagesResource(Resource):
                 logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
 
             d['Content-Type'] = args.get('_abaco_Content_Type', '')
-            d['_abaco_adapter_revision'] = adapter.revision
+            d['_abaco_adapter_revision'] = str(adapter.revision)
+            logger.debug(f"d: {d}")
             got_headers=timeit.default_timer()
             result = requests.get(networkaddy, headers=d)
             got_response=timeit.default_timer()
@@ -2560,7 +2560,7 @@ class AdapterMessagesResource(Resource):
             logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
 
         d['Content-Type'] = args.get('_abaco_Content_Type', '')
-        d['_abaco_adapter_revision'] = adapter.revision
+        d['_abaco_adapter_revision'] = str(adapter.revision)
         logger.debug(f"Final message dictionary: {d}")
         server = adapter['server']
         networkaddy = adapter_servers_store[site()][f'{dbid}_{server[0]}','address']
@@ -2570,21 +2570,16 @@ class AdapterMessagesResource(Resource):
 
 class AdapterlogsResourse(Resource):
     
-    def get(self):
-        logger.debug("top of GET /adapterslogs")
-        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
-            args_given = request.args
-            args_full = {}
-            args_full.update(args_given)
-            result = Search(args_full, 'adapter_logs', g.request_tenant_id, g.username).search()
-            return ok(result=result, msg="adapters search completed successfully.")
-        else:
-            adapters = []
-            for adapter_info in adapter_logs_store[site()].items():
-                if adapter_info['tenant'] == g.request_tenant_id:
-                    adapters.append(adapter_info)
-            logger.info("adapters logs retrieved.")
-            return ok(result=adapters, msg="adapters logs retrieved successfully.")
+    def get(self, adapter_id):
+        logger.debug(f"top of GET /adapters/{adapter_id}/logs")
+        try:
+            adapter = adapter_logs_store[site()][g.db_id]
+        except KeyError:
+            logger.debug(f"did not find adapter with id: {adapter_id}")
+            raise ResourceError(
+                f"No adapter found with identifier: {adapter_id}.", 404)
+        logger.debug(f"found adapter {adapter_id}")
+        return ok(result=adapter, msg="adapter logs retrieved successfully.")
 
 class AdapterPermissionsResource(Resource):
     """This class handles permissions endpoints for all objects that need permissions.
