@@ -1,0 +1,5 @@
+#!/bin/bash
+# Calls the up_abaco.yml file with ansible for all nodes named "compute*".
+
+ansible-playbook -f 100 -i $PWD/../inventory -l compute* ansible/up_abaco.yml
+ansible-playbook -f 100 -i $PWD/../inventory -l core* ansible/up_abaco_core.yml

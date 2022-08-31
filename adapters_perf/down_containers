@@ -1,0 +1,5 @@
+#!/bin/bash
+# Runs the down_abaco.yml file with ansible on any node named "compute*".
+
+ansible-playbook -f 100 -i $PWD/../inventory -l compute* ansible/down_containers.yml
+ansible-playbook -f 100 -i $PWD/../inventory -l core* ansible/down_containers.yml  

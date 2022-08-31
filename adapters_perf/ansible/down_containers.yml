@@ -1,0 +1,13 @@
+# Removes all Docker containers, thus getting rid of Abaco, allowing for a
+# clean state in cases of errors, issues, or wanting to be proper.
+---
+
+- hosts: all
+  become: true
+  tasks:
+  - name: docker compose down
+    become: yes
+    become_user: cc
+    shell: /usr/bin/docker rm -f `/usr/bin/docker ps -aq`
+    args:
+      chdir: /home/cc

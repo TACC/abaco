@@ -1,0 +1,93 @@
+# Sets up Abaco on given nodes. Just an docker-compose up after importing said
+# docker-compose-compute.yml file and abaco.conf file from ../abaco_files.
+# To change TAG, you must change the TAG in this file, but also in the local
+# abaco.conf file. For instance, both must read "DEV2" if you want things to
+# work.
+---
+
+- hosts: all
+  gather_facts: no
+  become: true
+  vars:
+    abaco_host_id: "{{  ansible_ssh_host.split('.')[3] }}"
+  tasks:
+  - name: Gather facts for first time
+    setup:
+  
+  - name: get the username running the deploy
+    become: false
+    local_action: command whoami
+    register: local_username
+
+  - name: get the homedir of the user running the deploy
+    become: false
+    local_action: command echo $HOME
+    register: local_homedir
+
+  - fail:
+      msg: "please do not run as root"
+    when: local_username.stdout == "root"
+
+  - name: set mydistribution
+    ansible.builtin.set_fact:
+      mydistribution: "{{ 'rhel' if (ansible_distribution == 'Red Hat Enterprise Linux') else (ansible_distribution | lower) }}"
+
+  - name: Add signing key
+    ansible.builtin.rpm_key:
+      key: "https://download.docker.com/linux/{{ mydistribution }}/gpg"
+      state: present
+
+  - name: Add repository into repo.d list
+    ansible.builtin.yum_repository:
+      name: docker
+      description: docker repository
+      baseurl: "https://download.docker.com/linux/{{ mydistribution }}/$releasever/$basearch/stable"
+      enabled: true
+      gpgcheck: true
+      gpgkey: "https://download.docker.com/linux/{{ mydistribution }}/gpg"
+
+  - name: Install Docker
+    ansible.builtin.yum:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+      state: latest
+      update_cache: true
+
+  - name: ensure docker is running
+    service: name=docker state=started enabled=yes
+
+  - name: Install docker-compose
+    become: yes
+    command: curl -L "https://github.com/docker/compose/releases/download/v2.6.1/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+
+  - name: Permissions for docker-compose
+    become: yes
+    command: chmod +x /usr/local/bin/docker-compose
+
+  - name: default.conf
+    template:
+      src: "{{local_homedir.stdout}}/abaco-adapters/baco_files/default.conf"
+      dest: /home/cc/default.conf
+      owner: cc
+  
+  - name: docker-compose-core.yml  
+    template:
+      src: "{{local_homedir.stdout}}/abaco-adapters/baco_files/docker-compose-core.yml"
+      dest: /home/cc/docker-compose-core.yml
+      owner: cc
+  
+  - name: Grant docker perms
+    become: yes
+    command: sudo setfacl --modify user:cc:rw /var/run/docker.sock
+
+  - name: docker compose up 
+    become: yes
+    become_user: cc
+    environment:
+      abaco_path: /home/cc
+      TAG: dev
+    shell: /usr/local/bin/docker-compose -f docker-compose-core.yml up -d
+    args:
+      chdir: /home/cc

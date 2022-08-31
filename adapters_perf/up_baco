@@ -1,0 +1,6 @@
+#!/bin/bash
+# Calls the up_baco.yml file with ansible for all nodes named "compute*".
+# Calls the up_baco_core.yml file with ansible for all nodes named "core*".
+
+ansible-playbook -f 100 -i $PWD/../inventory -l compute* ansible/up_baco.yml
+ansible-playbook -f 100 -i $PWD/../inventory -l core* ansible/up_baco_core.yml

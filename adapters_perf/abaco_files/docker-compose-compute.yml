@@ -1,0 +1,49 @@
+---
+version: "3.4"
+
+networks:
+    abaco:
+        driver: bridge
+
+
+services:
+
+    spawner:
+        image: nshresth/core-v3:dev
+        command: "python3 -u /home/tapis/actors/spawner.py"
+        volumes:
+            - ./config-local.json:/home/tapis/config.json
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./abaco.log:/home/tapis/runtime_file/logs/service.log
+            - ./runtime_file/certs:/home/tapis/runtime_file/certs
+        environment:
+            abaco_host_path: ${abaco_path}
+            _abaco_secret: 123
+            mongo_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+            queue: default
+        networks:
+            - abaco
+
+    health:
+        image: nshresth/core-v3:dev
+        command: /home/tapis/actors/health_check.sh
+        volumes:
+            - /:/host
+            - ./config-local.json:/home/tapis/config.json
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./abaco.log:/home/tapis/runtime_file/logs/service.log
+            - ./runtime_file/certs:/home/tapis/runtime_file/certs
+        environment:
+            abaco_host_path: ${abaco_path}
+            mongo_password:
+            TAS_ROLE_ACCT:
+            TAS_ROLE_PASS:
+            # add the following pair of credentials for each tenant wanting client generation
+            _abaco_DEV-DEVELOP_username: testotheruser
+            _abaco_DEV-DEVELOP_password: testotheruser
+            _abaco_DEV-STAGING_username: testotheruser
+            _abaco_DEV-STAGING_password: testotheruser
+        networks:
+            - abaco
