@@ -1865,6 +1865,7 @@ class MessagesResource(Resource):
         d['_abaco_actor_revision'] = actor.revision
         logger.debug(f"Final message dictionary: {d}")
         
+        
         before_ch_timer = timeit.default_timer()
         ch = ActorMsgChannel(actor_id=dbid)
         after_ch_timer = timeit.default_timer()
@@ -2450,8 +2451,6 @@ class AdapterMessagesResource(Resource):
             if hasattr(g, 'jwt_header_name'):
                 d['_abaco_jwt_header_name'] = g.jwt_header_name
                 logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
-
-            d['Content-Type'] = args.get('_abaco_Content_Type', '')
             d['_abaco_adapter_revision'] = str(adapter.revision)
             logger.debug(f"d: {d}")
             got_headers=timeit.default_timer()
