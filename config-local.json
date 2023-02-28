@@ -10,6 +10,7 @@
         "dev",
         "admin"
     ],
+    "dev_request_url": "http://nginx",
     "version": "dev",
     "kubernetes_namespace": "dev",
     "container_backend": "docker",

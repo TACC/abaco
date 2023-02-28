@@ -1,0 +1,41 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: actors-nfs-vol
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: actors-nfs-mkdirs
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: actors-nfs-vol
+        image: alpine:latest
+        command:
+        - sh
+        - -c
+        - |
+          mkdir -p /actorsnfs/_abaco_results_sockets
+          mkdir -p /actorsnfs/_abaco_fifos
+          chmod 777 /actorsnfs/_abaco_results_sockets /actorsnfs/_abaco_fifos
+        volumeMounts:
+        - name: actors-nfs-data
+          mountPath: /actorsnfs
+      volumes:
+      - name: actors-nfs-data
+        persistentVolumeClaim:
+          claimName: actors-nfs-vol
+
+

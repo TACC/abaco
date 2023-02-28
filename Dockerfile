@@ -2,11 +2,11 @@
 # Image: abaco/core-v3
 
 # inherit from the flaskbase iamge:
-FROM tapis/flaskbase-plugins:latest
+FROM tapis/flaskbase
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api
 ENV PYTHONPATH .:*:actors:actors/*
-
+WORKDIR /home/tapis
 
 ## PACKAGE INITIALIZATION
 COPY requirements.txt /home/tapis/

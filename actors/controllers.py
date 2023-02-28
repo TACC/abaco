@@ -506,10 +506,7 @@ class AliasResource(Resource):
 
     def validate_put(self):
         logger.debug("top of validate_put")
-        try:
-            data = request.get_json()
-        except:
-            data = None
+        data = request.get_json(silent=True)
         if data and 'alias' in data or 'alias' in request.form:
             logger.debug("found alias in the PUT.")
             raise DAOError("Invalid alias update description. The alias itself cannot be updated in a PUT request.")
@@ -1254,7 +1251,7 @@ class ActorStateResource(Resource):
         return ok(result=actor.display(), msg="State updated successfully.")
 
     def validate_post(self):
-        json_data = request.get_json()
+        json_data = request.get_json(silent=True)
         if not json_data:
             raise DAOError("Invalid actor state description: state must be JSON serializable.")
         return json_data
@@ -1349,10 +1346,7 @@ class ActorConfigResource(Resource):
 
     def validate_put(self):
         logger.debug("top of validate_put")
-        try:
-            data = request.get_json()
-        except:
-            data = None
+        data = request.get_json(silent=True)
         # if data and 'alias' in data or 'alias' in request.form:
         #     logger.debug("found alias in the PUT.")
         #     raise DAOError("Invalid alias update description. The alias itself cannot be updated in a PUT request.")
@@ -1766,7 +1760,7 @@ class MessagesResource(Resource):
                 args['message'] = request.get_data()
                 args['_abaco_Content_Type'] = 'application/octet-stream'
                 return args
-            json_data = request.get_json()
+            json_data = request.get_json(silent=True)
             if json_data:
                 logger.debug("message was JSON data.")
                 args['message'] = json_data

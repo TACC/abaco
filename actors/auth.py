@@ -173,8 +173,14 @@ def get_user_sk_roles():
     if total > 4000:
         logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
     roles_list = roles_obj.names
-    logger.debug(f"Roles received: {roles_list}")
-    g.roles = roles_list
+
+    # we now take all roles nad filter to abaco specific roles so we don't spam logs.
+    abaco_roles_list = []
+    for role in roles_list:
+        if "abaco" in role.lower():
+            abaco_roles_list.append(role)
+    logger.debug(f"Roles received: {abaco_roles_list}")
+    g.roles = abaco_roles_list
 
 
 def get_user_site_id():
@@ -241,6 +247,8 @@ def authorization():
     # all other requests require some kind of abaco role:
     # THIS IS NO LONGER TRUE. Only rules are admin and privileged.
 
+    has_pem = False
+    
     logger.debug(f"request.path: {request.path}")
 
     # the admin role when JWT auth is configured:
@@ -341,15 +349,23 @@ def authorization():
                 # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
                 if 'workers' in request.url_rule.rule:
                     raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
-                # POST to the messages endpoint requires EXECUTE
-                if 'messages' in request.url_rule.rule:
-                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)
-                # otherwise, we require UPDATE
-                else:
-                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                try:
+                    # POST to the messages endpoint requires EXECUTE
+                    if 'messages' in request.url_rule.rule:
+                        has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)
+                    # otherwise, we require UPDATE
+                    else:
+                        has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                except Exception as e:
+                    msg = f"error checking permissions {e}"
+                    logger.critical(msg)
+                    raise Exception(msg)
+
     if not has_pem:
         logger.info("NOT allowing request.")
-        raise PermissionsException(f"Not authorized -- you do not have access to this {noun}.")
+        msg = f"Not authorized -- you do not have access to this {noun}."
+        logger.info(msg)
+        raise PermissionsException(msg)
 
 
 def check_privileged():
@@ -358,7 +374,7 @@ def check_privileged():
     # admins have access to all actors:
     if g.admin:
         return True
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
         data = request.form
     # various APIs (e.g., the state api) allow an arbitrary JSON serializable objects which won't have a get method:
@@ -574,7 +590,7 @@ def get_tenants():
 def tenant_can_use_tas(tenant):
     """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
     the TACC IdP"""
-    if tenant in ['DESIGNSAFE', 'SD2E', 'TACC', 'tacc', 'A2CPS']:
+    if tenant.upper() in ['DESIGNSAFE', 'SD2E', 'TACC', 'A2CPS']:
         return True
     # all other tenants use some other IdP so username will not be a TAS account:
     return False

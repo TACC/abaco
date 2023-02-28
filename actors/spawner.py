@@ -11,10 +11,6 @@ from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER,
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
 from tapisservice.config import conf
 from tapisservice.logs import get_logger
-import docker_utils
-from docker_utils import DockerError
-import kubernetes_utils
-from kubernetes_utils import KubernetesError
 from errors import WorkerException
 from models import Actor, Worker, site
 from stores import actors_store, workers_store
@@ -28,6 +24,11 @@ from health import get_worker
 os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
 if conf.container_backend == 'docker':
     os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+    import docker_utils
+    from docker_utils import DockerError
+if conf.container_backend == 'kubernetes':
+    import kubernetes_utils
+    from kubernetes_utils import KubernetesError
 
 logger = get_logger(__name__)
 
