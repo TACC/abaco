@@ -32,10 +32,10 @@ NC=\033[0m
 # default: "dev"
 export TAG := dev
 
-# DAEMON to use containers. Either minikube daemon or regular local daemon
+# BACKEND to use containers. Either minikube backend or regular local backend
 # options: "minikube" | "docker"
 # default: "minikube"
-export DAEMON := minikube
+export BACKEND := docker
 
 # IMG_SOURCE to get images from, either locally built or remotely pulled
 # options: "local" | "remote"
@@ -76,7 +76,7 @@ endif
 ifdef api_ready_wait_time
 export api_ready_wait_time := $(api_ready_wait_time)
 else
-export api_ready_wait_time := 15
+export api_ready_wait_time := 10
 endif
 
 ifdef maxErrors
@@ -96,21 +96,21 @@ help:
 	| column -t  -s '###'
 
 
-# Gets all remote images and starts kgservice in daemon mode
+# Gets all remote images and starts abaco in backend mode
 #: Deploy service
 up: vars build
 	@echo "Makefile: $(GREEN)up$(NC)"
 
-ifeq ($(DAEMON),docker)
-	@echo "  🌎 : Using daemon: $(LCYAN)docker$(NC)"
+ifeq ($(BACKEND),docker)
+	@echo "  🌎 : Using backend: $(LCYAN)docker$(NC)"
 	@echo "  🔨 : Changing some parts of config-local.json."
 	@sed -i 's/"version".*/"version": "$(TAG)",/g' config-local.json
 	@echo "  🔥 : Running docker-compose up."
 	@echo ""
 	@docker-compose --project-name=abaco up -d
 
-else ifeq ($(DAEMON),minikube)
-	@echo "  🌎 : Using daemon: $(LCYAN)minikube$(NC)"
+else ifeq ($(BACKEND),minikube)
+	@echo "  🌎 : Using backend: $(LCYAN)minikube$(NC)"
 	@echo "  🔍 : Looking to run ./burnup in deployment folder."
 	rm -rf kube-deployment; mkdir kube-deployment; cp -r kube-template/* kube-deployment;
 	cd kube-deployment
@@ -132,24 +132,133 @@ endif
 	echo ""
 
 
+# Builds core locally and sets to correct tag. This should take priority over DockerHub images
+#: Build core image
+build: vars
+	@echo "Makefile: $(GREEN)build$(NC)"
+	@echo "  🔨 : Running image build for core-v3, prometheus, and nginx."
+
+ifeq ($(BACKEND),minikube)
+	$(MAKE) build-minikube
+else ifeq ($(BACKEND),docker)
+	$(MAKE) build-docker
+endif
+
+
+build-docker: vars
+	@echo "Makefile: $(GREEN)build$(NC)"
+	@echo "  🔨 : Running image build for core-v3, prometheus, and nginx."
+
+	@echo "  🌎 : Using backend: $(LCYAN)docker$(NC)"
+	@echo ""
+	docker build -t $(SERVICE_NAME)/core-v3:$$TAG ./
+	@echo ""
+	docker build -t $(SERVICE_NAME)/prom:$$TAG images/prometheus/.
+	@echo ""
+	docker build -t $(SERVICE_NAME)/nginx:$$TAG images/nginx/.
+	@echo ""
+
+
+build-minikube: vars
+	@echo "Makefile: $(GREEN)build$(NC)"
+	@echo "  🔨 : Running image build for core-v3, prometheus, and nginx."
+
+	@echo "  🌎 : Using backend: $(LCYAN)minikube$(NC)"
+	@echo ""
+	minikube image build -t $(SERVICE_NAME)/core-v3:$$TAG ./
+	minikube image build -t $(SERVICE_NAME)/prom:$$TAG images/prometheus/.
+	minikube image build -t $(SERVICE_NAME)/nginx:$$TAG images/nginx/.
+	@echo ""
+
+
+#: Pull core image
+pull:
+	@echo "Makefile: $(GREEN)pull$(NC)"
+	@echo "Not yet implemented"
+
+# Ends all active k8 containers needed for kgservice
+# This kills any workers on the "kgservice_kgservice" network.
+# In order to work on any network, the script needs to someone get network from the docker-compose.yml
+#: Delete service
+down:
+	@echo "Makefile: $(GREEN)down$(NC)"
+
+ifeq ($(BACKEND),docker)
+	@echo "  🌎 : Using backend: $(LCYAN)docker$(NC)"
+	@echo "  🔥 : Deleting all containers with abaco_abaco network + docker-compose down."
+	@echo ""
+	@docker kill `docker network inspect abaco_abaco --format '{{range $$k, $$v := .Containers}}{{printf "%s\n" $$k}}{{end}}'` 2>/dev/null || true
+	@docker-compose down
+else ifeq ($(BACKEND),minikube)
+	@echo "  🌎 : Using backend: $(LCYAN)minikube$(NC)"
+	@echo "  🔍 : Looking to run ./burndown in deployment folder."
+	if [ -d "kube-deployment" ]; then
+		echo "  🎉 : Found kube-deployment folder. Using burndown."
+		cd kube-deployment
+		echo "  🔥 : Running burndown."
+		echo ""
+		./burndown
+	else
+		echo "  ✔️  : No kube-deployment folder, nothing to burndown."
+	fi
+endif
+
+
 # Builds local everything and runs both camel case and snake case tests.
+# Converts local-dev.conf back to snake case after test.
 # Can run specific test based on the 'test' environment variable
 # ex: export test=test/load_tests.py
-#: Deploy service + run tests
-test:
-	@echo "TEST IS WIP. ONLY K8 right now."
+#: Run tests, expects Abaco to already be running.
+test: build-docker
 	@echo "Makefile: $(GREEN)test-snake$(NC)"
+
+ifeq ($(BACKEND),docker)
+	$(MAKE) test-docker
+else ifeq ($(BACKEND),minikube)
+	$(MAKE) test-minikube
+endif
+
+test-docker:
+	@echo "  🌎 : Using backend: $(LCYAN)docker$(NC)"
 	@echo "  🐍 : Ensuring snake-case in config-local.json"
 	@sed -i 's/"web_case".*/"web_case": "snake",/g' config-local.json	
-	@echo "  ⏳ : Waiting 15 seconds to ensure Abaco is ready first"
-	#sleep $$api_ready_wait_time
-	@echo "  📝  : Starting Snake Case Tests"
+	@echo "  ⏳ : Waiting $(api_ready_wait_time) seconds to ensure Abaco is ready first"
+	sleep $$api_ready_wait_time
+	@echo "  📝 : Starting Snake Case Tests"
 	@echo ""
+
 	docker run \
 	-e TESTS=/home/tapis/tests \
 	-e case=snake \
 	-e maxErrors=$$maxErrors \
-	-e base_url=http://192.168.49.2:30570/v3/ \
+	-e base_url=http://nginx \
+	-e _called_from_within_test=True \
+	-v /:/host \
+	-v $$abaco_path/config-local.json:/home/tapis/config.json \
+	-v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log \
+	--entrypoint=/home/tapis/tests/entry.sh \
+	--rm \
+	$$interactive \
+	--network=abaco_abaco \
+	abaco/core-v3:$$TAG
+#--add-host=host.docker.internal:host-gateway \
+#	--network=abaco_abaco \
+
+#	--net=host \
+
+test-minikube:
+	@echo "  🌎 : Using backend: $(LCYAN)minikube$(NC)"
+	@echo "  🐍 : Ensuring snake-case in config-local.json"
+	@sed -i 's/"web_case".*/"web_case": "snake",/g' config-local.json	
+	@echo "  ⏳ : Waiting $(api_ready_wait_time) seconds to ensure Abaco is ready first"
+	@echo "  📝 : Starting Snake Case Tests"
+	@echo ""
+
+	docker run \
+	-e TESTS=/home/tapis/tests \
+	-e case=snake \
+	-e maxErrors=$$maxErrors \
+	-e base_url=http://192.168.49.2:30570/v3 \
 	-e _called_from_within_test=True \
 	-v /:/host \
 	-v $$abaco_path/config-local.json:/home/tapis/config.json \
@@ -159,8 +268,7 @@ test:
 	--net=host \
 	$$interactive \
 	abaco/core-v3:$$TAG
-#--add-host=host.docker.internal:host-gateway \
-#--network=abaco_abaco \
+
 
 test-remote:
 	docker run \
@@ -180,81 +288,28 @@ test-remote:
 
 
 
-# Builds core locally and sets to correct tag. This should take priority over DockerHub images
-#: Build core image
-build: vars
-	@echo "Makefile: $(GREEN)build$(NC)"
-	@echo "  🔨 : Running image build for core-v3, prometheus, and nginx."
-
-ifeq ($(DAEMON),minikube)
-	@echo "  🌎 : Using daemon: $(LCYAN)minikube$(NC)"
-	@echo ""
-	minikube image build -t $(SERVICE_NAME)/core-v3:$$TAG ./
-	minikube image build -t $(SERVICE_NAME)/prom:$$TAG images/prometheus/.
-	minikube image build -t $(SERVICE_NAME)/nginx:$$TAG images/nginx/.
-
-else ifeq ($(DAEMON),docker)
-	@echo "  🌎 : Using daemon: $(LCYAN)docker$(NC)"
-	@echo ""
-	docker build -t $(SERVICE_NAME)/core-v3:$$TAG ./
-	docker build -t $(SERVICE_NAME)/prom:$$TAG images/prometheus/.
-	docker build -t $(SERVICE_NAME)/nginx:$$TAG images/nginx/.
-
-endif
-	@echo ""
-
-
-#: Pull core image
-pull:
-	@echo "Makefile: $(GREEN)pull$(NC)"
-	@echo "Not yet implemented"
-
-
-# Ends all active k8 containers needed for kgservice
-# This kills any workers on the "kgservice_kgservice" network.
-# In order to work on any network, the script needs to someone get network from the docker-compose.yml
-#: Delete service
-down:
-	@echo "Makefile: $(GREEN)down$(NC)"
-
-ifeq ($(DAEMON),docker)
-	@echo "  🌎 : Using daemon: $(LCYAN)docker$(NC)"
-	@echo "  🔥 : Deleting all containers with abaco_abaco network + docker-compose down."
-	@echo ""
-	@docker kill `docker network inspect abaco_abaco --format '{{range $$k, $$v := .Containers}}{{printf "%s\n" $$k}}{{end}}'` 2>/dev/null || true
-	@docker-compose down
-
-else ifeq ($(DAEMON),minikube)
-	@echo "  🌎 : Using daemon: $(LCYAN)minikube$(NC)"
-	@echo "  🔍 : Looking to run ./burndown in deployment folder."
-	if [ -d "kube-deployment" ]; then
-		echo "  🎉 : Found kube-deployment folder. Using burndown."
-		cd kube-deployment
-		echo "  🔥 : Running burndown."
-		echo ""
-		./burndown
-	else
-		echo "  ✔️  : No kube-deployment folder, nothing to burndown."
-	fi
-
-endif
-	@echo ""
-
+test-camel:
+	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
+	make local-deploy
+	sleep $$api_ready_wait_time
+	docker run -e TESTS=/home/tapis/tests -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=camel $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
+	@echo "Converting back to snake"
+	sed -i 's/"web_case".*/"web_case": "snake",/g' config-local.json
 
 # Cleans directory. Notably deletes the kube-deployment folder if it exists
 #: Delete service + folders
 clean: down
 	@echo "Makefile: $(GREEN)clean$(NC)"
 
-ifeq ($(DAEMON),docker)
-	@echo "  🌎 : Using daemon: $(LCYAN)docker$(NC)"
+ifeq ($(BACKEND),docker)
+	@echo "  🌎 : Using backend: $(LCYAN)docker$(NC)"
 	@echo "  🧹 : docker-compose down - rmi, deleting orphans, deleting volumes."
 	@echo ""
-	@docker-compose down --remove-orphans -v all 
+	@docker-compose down --remove-orphans -v
 
-else ifeq ($(DAEMON),minikube)
-	@echo "  🌎 : Using daemon: $(LCYAN)minikube$(NC)"
-	echo "  🔍 : Looking to delete kube-deployment folder."
+else ifeq ($(BACKEND),minikube)
+	@echo "  🌎 : Using backend: $(LCYAN)minikube$(NC)"
+	@echo "  🔍 : Looking to delete kube-deployment folder."
 	if [ -d "kube-deployment" ]; then
 		rm -rf kube-deployment
 		echo "  🧹 : kube-deployment folder deleted."
@@ -278,11 +333,11 @@ vars:
 	echo "  ℹ️  interactive:    $(LCYAN)$(interactive)$(NC)"
 	echo "  ℹ️  abaco_path:     $(LCYAN)$(abaco_path)$(NC)"
 
-ifeq ($(filter $(DAEMON),minikube docker),)
-	echo "  ❌ daemon:         $(RED)DAEMON must be one of ['minikube', 'docker']$(NC)"
+ifeq ($(filter $(BACKEND),minikube docker),)
+	echo "  ❌ backend:         $(RED)BACKEND must be one of ['minikube', 'docker']$(NC)"
 	exit 1
 else
-	echo "  ℹ️  daemon:         $(LCYAN)$(DAEMON)$(NC)"
+	echo "  ℹ️  backend:         $(LCYAN)$(BACKEND)$(NC)"
 endif
 
 ifeq ($(filter $(IMG_SOURCE),local remote),)
@@ -311,8 +366,7 @@ nuke:
 
 
 
-
-
+### Archived targets.
 # Builds a few sample Docker images
 samples:
 	@docker build -t abaco_test -f samples/abaco_test/Dockerfile samples/abaco_test
@@ -331,35 +385,3 @@ all-samples:
 # Builds testsuite
 build-testsuite:
 	@echo "build-testsuite deprecated; tests now packaged in the abaco/core image."
-
-
-
-
-# Builds local everything and performs testsuite for camel case.
-# Converts local-dev.conf back to snake case after test.
-# Can run specific test based on the 'test' environment variable
-# ex: export test=test/load_tests.py
-test-came2l:
-	@echo "\n\nCamel Case Tests.\n"
-	@echo "Converting config file to camel case and launching Abaco Stack."
-	sed -i 's/"web_case".*/"web_case": "camel",/g' config-local.json
-	make local-deploy
-	sleep $$api_ready_wait_time
-	docker run -e TESTS=/home/tapis/tests -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=camel $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
-	@echo "Converting back to snake"
-	sed -i 's/"web_case".*/"web_case": "snake",/g' config-local.json
-
-
-# Builds local everything and performs testsuite for snake case.
-# Can run specific test based on the 'test' environment variable
-# ex: export test=test/load_tests.py
-test-sn2ake:
-	@echo "\n\nSnake Case Tests.\n"
-	@echo "Converting config file to snake case and launching Abaco Stack."
-	sed -i 's/"web_case".*/"web_case": "snake",/g' config-local.json
-	make local-deploy
-	sleep $$api_ready_wait_time
-	docker run -e TESTS=/home/tapis/tests -v $$abaco_path/abaco.log:/home/tapis/runtime_files/logs/service.log -e case=snake $$interactive -e maxErrors=$$maxErrors --entrypoint=/home/tapis/tests/entry.sh --network=abaco_abaco -e base_url=http://nginx -e _called_from_within_test=True -v /:/host -v $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/core-v3:$$TAG
-
-test-remote:
-	docker run $$interactive -e TESTS=/home/tapis/tests -e base_url=http://master.staging.tapis.io/v3/ -e maxErrors=$$maxErrors -e _called_from_within_test=True  -e case=camel -e abaco_host_path=$$abaco_path -v /:/host $$abaco_path/config-local.json:/home/tapis/config.json --rm abaco/testsuite:$$TAG
