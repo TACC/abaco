@@ -4,4 +4,4 @@
 
 # tests is an environment variable set in the makefile and defaults to 'tests' to run the entire folder.
 # edit to 'tests/test_actors.py' or something else to only run specific test.
-pytest --maxfail $maxErrors --ignore=tests/util.py --ignore=tests/entry.sh --ignore-glob=tests/archive/* $TESTS
+pytest --rootdir=/home/tapis/tests --maxfail $maxErrors $TESTS

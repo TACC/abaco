@@ -79,10 +79,13 @@ def test_run_as_executor_actor(nshresth_header, jstubbs_header):
 # Check if useContaineruid and runAsexecutor can both simultaneously be turned on.
 def test_use_and_run(privileged_headers):
     url = f'{base_url}/actors'
-    if case == 'snake':
-        use_container_uid = 'use_container_uid'
-        run_as_exec = 'run_as_executor'
-    else:
+    use_container_uid = 'use_container_uid'
+    run_as_exec = 'run_as_executor'
+    print(case)
+    print()
+    print(os.environ)
+    print()
+    if case == 'camel':
         use_container_uid = 'useContainerUid'
         run_as_exec = 'runAsExecutor'
 
@@ -94,9 +97,8 @@ def test_use_and_run(privileged_headers):
 # Check if the user is in TAS
 def test_run_as_not_tas(headers):
     url = f'{base_url}/actors'
-    if case == 'snake':
-        run_as_exec = 'run_as_executor'
-    else:
+    run_as_exec = 'run_as_executor'
+    if case == 'camel':
         run_as_exec = 'runAsExecutor'
 
     data = {'image': 'nshresth/abacotest:1.0', run_as_exec: True}
