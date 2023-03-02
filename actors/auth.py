@@ -149,29 +149,29 @@ def check_nonce():
         nonce = Nonce.get_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id)
     else:
         nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
-    g.username = nonce.owner
+    g.request_username = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = [nonce.roles]
-    logger.debug(f"setting g.request_tenant_id: {g.request_tenant_id}; g.username: {g.username}")
+    logger.debug(f"setting g.request_tenant_id: {g.request_tenant_id}; g.request_username: {g.request_username}")
 
 
 def get_user_sk_roles():
     """
     """
-    logger.debug(f"Getting SK roles on tenant {g.request_tenant_id} and user {g.username}")
+    logger.debug(f"Getting SK roles on tenant {g.request_tenant_id} and user {g.request_username}")
     start_timer = timeit.default_timer()
     try:
-        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.username, _tapis_set_x_headers_from_service=True)
+        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.request_username, _tapis_set_x_headers_from_service=True)
     except Exception as e:
         end_timer = timeit.default_timer()
         total = (end_timer - start_timer) * 1000
         if total > 4000:
-            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
+            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.request_username}, tenant: {g.request_tenant_id}")
         raise e
     end_timer = timeit.default_timer()
     total = (end_timer - start_timer) * 1000
     if total > 4000:
-        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
+        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.request_username}, tenant: {g.request_tenant_id}")
     roles_list = roles_obj.names
 
     # we now take all roles nad filter to abaco specific roles so we don't spam logs.
@@ -292,10 +292,10 @@ def authorization():
         config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.READ)
+            has_pem = check_config_permissions(user=g.request_username, config_id=config_id, level=codes.READ)
             # all other requests require UPDATE access
         elif request.method in ['DELETE', 'POST', 'PUT']:
-            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE)
+            has_pem = check_config_permissions(user=g.request_username, config_id=config_id, level=codes.UPDATE)
         if not has_pem:
             raise PermissionsException("You do not have sufficient access to this actor config.")
 
@@ -315,32 +315,32 @@ def authorization():
         if 'nonce' in request.url_rule.rule:
             noun = 'alias and actor'
             # logger.debug("checking user {} has permissions for "
-            #              "alias: {} and actor: {}".format(g.username, alias_id, db_id))
+            #              "alias: {} and actor: {}".format(g.request_username, alias_id, db_id))
             if request.method == 'GET':
                 # GET requests require READ access
 
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
-                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.READ)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.READ)
+                has_pem = has_pem and check_permissions(user=g.request_username, identifier=db_id, level=codes.READ)
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
-                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.UPDATE)
+                has_pem = has_pem and check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE)
 
         # otherwise, this is a request to manage the alias itself; only requires permissions on the alias
         else:
             if request.method == 'GET':
                 # GET requests require READ access
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.READ)
                 # all other requests require UPDATE access
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.UPDATE)
     else:
         # all other checks are based on actor-id:
         noun = 'actor'
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.READ)
+            has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.READ)
         elif request.method == 'DELETE':
-            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+            has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE)
         else:
             logger.debug(f"URL rule in request: {request.url_rule.rule}")
             # first, only admins can create/update actors to be privileged, so check that:
@@ -352,10 +352,10 @@ def authorization():
                 try:
                     # POST to the messages endpoint requires EXECUTE
                     if 'messages' in request.url_rule.rule:
-                        has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)
+                        has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.EXECUTE)
                     # otherwise, we require UPDATE
                     else:
-                        has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                        has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE)
                 except Exception as e:
                     msg = f"error checking permissions {e}"
                     logger.critical(msg)
