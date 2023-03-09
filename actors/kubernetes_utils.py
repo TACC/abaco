@@ -16,7 +16,6 @@ logger = get_logger(__name__)
 from channels import ExecutionResultsChannel
 from tapisservice.config import conf
 from codes import BUSY, READY, RUNNING, CREATING_CONTAINER
-import encrypt_utils
 import globals
 from models import Actor, Execution, get_current_utc_time, display_time, site, ActorConfig
 from stores import workers_store, alias_store, configs_store
@@ -423,6 +422,11 @@ def execute_actor(actor_id,
         logger.debug('checking for secrets')
         try:
             if config['is_secret']:
+                if not conf.get("web_apim_public_key"):
+                    mes = ("Got exception using actor config object. Config was set to is_secret. But conf.web_apim_public_key is not set",
+                           "Please let a system admin know. More than likely the conf was set, but is now not set.")
+                    logger.info(mes)
+                    raise Exception(mes)
                 value = encrypt_utils.decrypt(config['value'])
                 actor_configs[config['name']] = value
             else:

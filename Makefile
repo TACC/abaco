@@ -53,7 +53,7 @@ export NAMESPACE := default
 export SERVICE_NAME := abaco
 
 # SERVICE_PASS to use throughout. Must be filled.
-export SERVICE_PASS := password
+export SERVICE_PASS := ***REMOVED***
 
 # DEV_TOOLS bool. Whether or not to start jupyter + mount kg_service folder in pods (main).
 # options: "false" | "true"

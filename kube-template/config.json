@@ -56,7 +56,6 @@
   "web_access_control": "jwt",
   "web_user_role": "Internal/everyone",
   "web_accept_nonce": true,
-  "web_apim_public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCUp/oV1vWc8/TkQSiAvTousMzOM4asB2iltr2QKozni5aVFu818MpOLZIr8LMnTzWllJvvaA5RAAdpbECb+48FjbBe0hseUdN5HpwvnH/DW8ZccGvk53I6Orq7hLCv1ZHtuOCokghz/ATrhyPq+QktMfXnRS4HrKGJTzxaCcU7OQIDAQAB",
   "web_show_traceback": false,
   "web_log_ex": 43200,
   "web_max_log_length": 1000000,

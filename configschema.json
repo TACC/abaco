@@ -172,10 +172,6 @@
       "type": "string",
       "description": "The name of the tenant when not using JWT."
     },
-    "web_apim_public_key": {
-      "type": "string",
-      "description": "Public key for the apim instance when deployed behind apim (jwt access control)"
-    },
     "web_show_traceback": {
       "type": "boolean",
       "description": "Whether the web apps return a stacktrace or a nice JSON object on an APIException.",

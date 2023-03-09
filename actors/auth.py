@@ -56,13 +56,6 @@ def get_api_server(tenant_name):
         return 'https://vdj-agave-api.tacc.utexas.edu'
     return 'http://172.17.0.1:8000'
 
-def get_pub_key():
-    pub_key = conf.web_apim_public_key
-    return RSA.importKey(base64.b64decode(pub_key))
-
-
-PUB_KEY = get_pub_key()
-
 TOKEN_RE = re.compile('Bearer (.+)')
 
 WORLD_USER = 'ABACO_WORLD'

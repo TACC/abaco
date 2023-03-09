@@ -1317,6 +1317,11 @@ class ActorConfigsResource(Resource):
 
         args['tenant'] = g.request_tenant_id
         if args.get('isSecret') or args.get('is_secret'):
+            if not conf.get("web_apim_public_key"):
+                mes = ("Got exception using is_secret config arg. Actors instance has not set",
+                       "conf.web_apim_public_key. Please let a system admin now if you'd like the feature.")
+                logger.info(mes)
+                raise DAOError(mes)
             args['value'] = encrypt_utils.encrypt(args.get('value'))
         logger.debug("config post args validated")
         # create the ActorConfig object with the args --
@@ -1409,6 +1414,11 @@ class ActorConfigResource(Resource):
         args['tenant'] = config_obj.tenant
         args['name'] = config_obj.name
         if args.get('isSecret') or args.get('is_secret'):
+            if not conf.get("web_apim_public_key"):
+                mes = ("Got exception using is_secret config arg. Actors instance has not set",
+                       "conf.web_apim_public_key. Please let a system admin now if you'd like the feature.")
+                logger.info(mes)
+                raise DAOError(mes)
             args['value'] = encrypt_utils.encrypt(args.get('value'))
         logger.debug(f"Instantiating actor config object. args: {args}")
         new_config_obj = ActorConfig(**args)
