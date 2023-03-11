@@ -242,6 +242,9 @@ def mongo_initialization():
             repl_config['config']['members'][0]['host'] = primary_hostname
             mongo_client.admin.command("replSetReconfig", repl_config['config'], force=True)
             msg = f"Mongo replica set config successfully changed to hostname: {primary_hostname}"
+            logger.debug(msg)
+            # A bit of a wait must happen before change takes place.
+            time.sleep(5)
         except Exception as e:
             msg = f"Error while ensuring replica set host was correct. e: {e}"
             logger.critical(msg)
