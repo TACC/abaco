@@ -28,7 +28,6 @@ if conf.container_backend == 'docker':
     from docker_utils import DockerError
 if conf.container_backend == 'kubernetes':
     import kubernetes_utils
-    from kubernetes_utils import KubernetesError
 
 logger = get_logger(__name__)
 
@@ -274,8 +273,8 @@ class Spawner(object):
                         api_server
                     )
                     logger.debug(f'finished run k8 worker; worker dict: {worker_dict}')
-            except (DockerError, KubernetesError) as e:
-                logger.error(f"Spawner got a container exception from run_worker; backend: {self.container.backend}; Exception: {e}")
+            except Exception as e:
+                logger.error(f"Spawner got a container exception from run_worker; backend: {self.container_backend}; Exception: {e}")
                 if 'read timeout' in e.message:
                     logger.info(f"Exception was a read timeout; trying run_worker again; backend {self.container_backend}")
                     time.sleep(5)
@@ -370,8 +369,8 @@ class Spawner(object):
             try:
                 self.kill_worker(actor_id, worker_id, site_id)
                 logger.info(f"Spawner just killed worker {actor_id}_{worker_id} in error_out_actor")
-            except DockerError as e:
-                logger.info(f"Received DockerError trying to kill worker: {worker_id}. Exception: {e}")
+            except Exception as e:
+                logger.info(f"Received Exception trying to kill worker: {worker_id}. Exception: {e}")
                 logger.info("Spawner will continue on since this is exception processing.")
 
     def kill_worker(self, actor_id, worker_id, site_id=None):

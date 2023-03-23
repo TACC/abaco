@@ -31,7 +31,6 @@ subjects:
   namespace: default
 - kind: ServiceAccount
   name: actors-serviceaccount
-  namespace: dev
 roleRef:
   kind: ClusterRole
   name: actors-role
