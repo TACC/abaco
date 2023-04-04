@@ -422,8 +422,8 @@ def execute_actor(actor_id,
         logger.debug('checking for secrets')
         try:
             if config['is_secret']:
-                if not conf.get("web_apim_public_key"):
-                    mes = ("Got exception using actor config object. Config was set to is_secret. But conf.web_apim_public_key is not set",
+                if not conf.get("web_encryption_key"):
+                    mes = ("Got exception using actor config object. Config was set to is_secret. But conf.web_encryption_key is not set",
                            "Please let a system admin know. More than likely the conf was set, but is now not set.")
                     logger.info(mes)
                     raise Exception(mes)
