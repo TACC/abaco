@@ -46,7 +46,7 @@ def shutdown_worker(actor_id, worker_id, delete_actor_ch=True):
     try:
         Worker.update_worker_status(actor_id, worker_id, SHUTDOWN_REQUESTED)
     except Exception as e:
-        logger.error(f"worker got exception trying to update status to SHUTODWN_REQUESTED. actor_id: {actor_id};"
+        logger.error(f"worker got exception trying to update status to SHUTDOWN_REQUESTED. actor_id: {actor_id};"
                      f"worker_id: {worker_id}; exception: {e}")
     ch = WorkerChannel(worker_id=worker_id)
     if not delete_actor_ch:

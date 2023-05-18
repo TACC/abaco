@@ -49,7 +49,7 @@ export NAMESPACE := default
 
 # SERVICE_NAME to use throughout. Changes deployment folder. Have to modify here too.
 # options: "whatever"
-# default: "actors"
+# default: "abaco"
 export SERVICE_NAME := abaco
 
 # SERVICE_PASS to use throughout. Must be filled.
