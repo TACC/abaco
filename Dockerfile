@@ -45,8 +45,7 @@ COPY docs/specs/openapi_v3.yml /home/tapis/service/resources/openapi_v3.yml
 COPY actors /home/tapis/actors
 # Some more permissions
 RUN echo "tapis ALL=NOPASSWD: /home/tapis/actors/folder_permissions.sh" >> /etc/sudoers
-RUN chmod +x /home/tapis/actors/folder_permissions.sh
-RUN chmod +x /home/tapis/actors/health_check.sh
+RUN chmod +x /home/tapis/actors/health_check.sh /home/tapis/actors/metrics_cron_check.sh /home/tapis/actors/folder_permissions.sh
 # Permission finalization
 RUN chown -R tapis:tapis /home/tapis
 
