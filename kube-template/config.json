@@ -1,0 +1,89 @@
+{
+  "server": "dev",
+  "primary_site_admin_tenant_base_url": "https://admin.develop.tapis.io",
+  "service_tenant_id": "admin",
+  "service_name": "abaco",
+  "service_site_id": "tacc",
+  "container_backend": "kubernetes",
+  "service_password": "$env{SERVICE_PASSWORD}",
+  "tenants": [
+    "dev",
+    "tacc"
+  ],
+  "version": "MAKEFILE_TAG",
+  "log_file": "",
+  "log_level": "DEBUG",
+  "log_filing_strategy": "combined",
+  "common.auth_log_file": "/home/tapis/runtime_files/logs/common.log",
+  "common.log_log_file": "/home/tapis/runtime_files/logs/common.log",
+  "admin_mongo_user": "admin",
+  "admin_mongo_pass": "$env{MONGO_PASSWORD}",
+  "mongo_host": "actors-mongo",
+  "mongo_port": 27017,
+  "mongo_tls": false,
+  "mongo_replica_set": true,
+  "admin_rabbitmq_user": "admin",
+  "admin_rabbitmq_pass": "$env{RABBITMQ_PASSWORD}",
+  "rabbit_uri": "amqp://actors-rabbit:5672",
+  "rabbit_dash_host": "actors-rabbit-dash",
+  "spawner_abaco_conf_host_path": "$env{abaco_host_path}/config-local.json",
+  "spawner_host_id": 0,
+  "spawner_host_queues": [
+    "default",
+    "special"
+  ],
+  "spawner_host_ip": "172.17.0.1",
+  "spawner_max_cmd_length": 12,
+  "spawner_max_workers_per_host": 75,
+  "spawner_max_workers_per_actor": 6,
+  "spawner_docker_network": "develop_abaco",
+  "docker_dd": "unix://var/run/docker.sock",
+  "worker_init_count": 1,
+  "worker_autoscaling": true,
+  "worker_max_run_time": -1,
+  "worker_max_cpus": 1000000000,
+  "worker_worker_ttl": 86400,
+  "worker_sync_max_idle_time": 600,
+  "worker_auto_remove": true,
+  "worker_privileged_mounts": [
+    "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
+    "$env{abaco_host_path}/runtime_files/data2:/home/tapis/runtime_files/_abaco_data2:rw"
+  ],
+  "worker_leave_containers": false,
+  "worker_socket_paths": "$env{abaco_host_path}/runtime_files/_abaco_results_sockets:/home/tapis/runtime_files/_abaco_results_sockets",
+  "worker_fifo_paths": "$env{abaco_host_path}/runtime_files/_abaco_fifos:/home/tapis/runtime_files/_abaco_fifos",
+  "web_encryption_key": "5WXGUKgcN-r0-s5bO81ZZL2Mr1v6hFgkocjEydJQ-TM=",
+  "web_access_control": "jwt",
+  "web_user_role": "Internal/everyone",
+  "web_accept_nonce": true,
+  "web_show_traceback": false,
+  "web_log_ex": 43200,
+  "web_max_log_length": 1000000,
+  "web_case": "snake",
+  "web_max_content_length": 500000000,
+  "web_all_queues": [
+    "default",
+    "special"
+  ],
+  "site_id": "tacc",
+  "global_site_object": {
+    "web_log_ex": 43200,
+    "site_mongo_pass": "THISIsAtemP0raryPASs!",
+    "site_rabbitmq_pass": "rEplac3meUSingSKplz!"
+  },
+  "tacc_site_object": {
+    "site_mongo_pass": "THISIsAtemP0raryPASs!",
+    "site_rabbitmq_pass": "rEplac3meUSingSKplz!"
+  },
+  "global_tenant_object": {        
+    "log_ex": 43200,
+    "log_ex_limit": 86400,
+    "use_tas_uid": false,
+    "default_token": false,
+    "generate_clients": true,
+    "global_mounts": [        
+      "$env{abaco_host_path}/runtime_files/data1:/home/tapis/runtime_files/_abaco_data1:ro",
+      "$env{abaco_host_path}/runtime_files/data2/{tenant_id}/{username}:/home/tapis/runtime_files/_abaco_data2:rw"
+    ]
+  }
+}

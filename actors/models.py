@@ -760,6 +760,7 @@ class Actor(AbacoDAO):
         ('max_cpus', 'optional', 'max_cpus', int, 'Maximum number of CPUs (nanoCPUs) this actor will have available to it.', None),
         ('use_container_uid', 'optional', 'use_container_uid', inputs.boolean, 'Whether this actor runs as the UID set in the container image.', False),
         ('default_environment', 'optional', 'default_environment', dict, 'A dictionary of default environmental variables and values.', {}),
+
         ('status', 'optional', 'status', str, 'Current status of the actor.', SUBMITTED),
         ('status_message', 'optional', 'status_message', str, 'Explanation of status.', ''),
         ('executions', 'optional', 'executions', dict, 'Executions for this actor.', {}),
@@ -2163,7 +2164,7 @@ class ActorConfig(AbacoDAO):
         ('actors', 'required', 'actors', str, 'List of actor IDs or aliases that should get this config/secret.', []),
     ] # take both ids and aliases and figure out which one it is
      # they need write access on actor or alias
-    # delete of aliases/ids needs to delete from configs
+    # delete of aliases/ids needs to TRUNCATE configs
 
     # the following nouns cannot be used for an alias as they
     RESERVED_WORDS = ['executions', 'nonces', 'logs', 'messages', 'adapters', 'admin', 'utilization']

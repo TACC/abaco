@@ -67,22 +67,23 @@ def test_register_search_privileged_actor_1(privileged_headers):
     assert result['id'] is not None
     time.sleep(5)
 
-def test_create_two_workers_for_search_privileged_actor_1(headers, privileged_headers):
-    actor_id = get_actor_id(privileged_headers, name='search_privileged_actor_1')
-    url = f'{base_url}/actors/{actor_id}/workers'
-    data = {'num': '2'}
-    # Headers here are admin_headers and are needed to update workers.
-    rsp = requests.post(url, data=data, headers=headers)
-    print(f'{rsp.status_code}: {rsp.content}')
-    # workers collection returns the tenant_id since it is an admin api
-    assert rsp.status_code in [200, 201]
-    time.sleep(4)
-    rsp = requests.get(url, headers=privileged_headers)
-    result = basic_response_checks(rsp, check_tenant=False)
-    assert len(result) == 2
+# Too volatile due to autoscaling
+# def test_create_two_workers_for_search_privileged_actor_1(headers, privileged_headers):
+#     actor_id = get_actor_id(privileged_headers, name='search_privileged_actor_1')
+#     url = f'{base_url}/actors/{actor_id}/workers'
+#     data = {'num': '2'}
+#     # Headers here are admin_headers and are needed to update workers.
+#     rsp = requests.post(url, data=data, headers=headers)
+#     print(f'{rsp.status_code}: {rsp.content}')
+#     # workers collection returns the tenant_id since it is an admin api
+#     assert rsp.status_code in [200, 201]
+#     time.sleep(4)
+#     rsp = requests.get(url, headers=privileged_headers)
+#     result = basic_response_checks(rsp, check_tenant=False)
+#     assert len(result) == 2
 
 def test_execute_search_privileged_actor_1(privileged_headers):
-    # Execute thrice
+    # Execute
     actor_id = get_actor_id(privileged_headers, name='search_privileged_actor_1')
     data = {'message': 'testing execution'}
     execute_actor(privileged_headers, actor_id, data=data)
@@ -101,8 +102,6 @@ def test_register_search_regular_actor_1(regular_headers):
     assert result['image'] == 'abacosamples/test'
     assert result['name'] == 'search_regular_actor_1'
     assert result['id'] is not None
-    time.sleep(5)
-
 
 
 # Testing

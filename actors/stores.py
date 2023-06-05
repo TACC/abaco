@@ -242,6 +242,9 @@ def mongo_initialization():
             repl_config['config']['members'][0]['host'] = primary_hostname
             mongo_client.admin.command("replSetReconfig", repl_config['config'], force=True)
             msg = f"Mongo replica set config successfully changed to hostname: {primary_hostname}"
+            logger.debug(msg)
+            # A bit of a wait must happen before change takes place.
+            time.sleep(5)
         except Exception as e:
             msg = f"Error while ensuring replica set host was correct. e: {e}"
             logger.critical(msg)
@@ -311,6 +314,16 @@ def mongo_index_initialization():
         actors_store[site].create_index([('$**', TEXT)])
         workers_store[site].create_index([('$**', TEXT)])
 
+def role_initialization():
+    """
+    Creating roles at reg startup so that we can insure they always exist and that they're in all tenants from now on.
+    """
+    tenants = conf.tenants or []
+    for tenant in tenants:
+        t.sk.createRole(roleTenant=tenant, roleName='abaco_admin', description='Admin role in Abaco.', _tapis_set_x_headers_from_service=True)
+        t.sk.createRole(roleTenant=tenant, roleName='abaco_privileged', description='Privileged role in Abaco.', _tapis_set_x_headers_from_service=True)
+        t.sk.grantRole(tenant=tenant, roleName='abaco_admin', user='abaco', _tapis_set_x_headers_from_service=True)
+        t.sk.grantRole(tenant=tenant, roleName='abaco_admin', user='streams', _tapis_set_x_headers_from_service=True)
 
 if __name__ == "__main__":
     # Rabbit and Mongo only go through init on primary site.
@@ -374,3 +387,4 @@ if __name__ == "__main__":
     # Mongo indexes only go through init on primary site.
     # Needs to be here as it needs to happen after store dictionary creation.
     mongo_index_initialization()
+    role_initialization()
