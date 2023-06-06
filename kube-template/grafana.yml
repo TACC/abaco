@@ -1,0 +1,22 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actors-grafana
+spec:
+  selector:
+    matchLabels:
+      app: actors-grafana
+  template:
+    metadata:
+      labels:
+        app: actors-grafana
+    spec:
+      containers:
+      - name: actors-grafana
+        image: grafana/grafana
+        ports:
+        - name: grafana
+          containerPort: 3000
+
+# TODO config

@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test
+spec:
+  selector:
+    matchLabels:
+      app: test
+  template:
+    metadata:
+      labels:
+        app: test
+    spec:
+      containers:
+      - name: test
+        image: abaco/core-v3:latest
+        volumeMounts:
+        - name: actors-nfs-vol
+          mountPath: /binks
+      volumes:
+      - name: actors-nfs-vol
+        nfs: 
+          server: 10.110.141.153
+          path: /_abaco_fifos/wgK6weYokVELB/Mbol13lVJzK6a

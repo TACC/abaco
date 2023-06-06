@@ -1,0 +1,31 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actors-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: actors-prometheus
+  template:
+    metadata:
+      labels:
+        app: actors-prometheus
+    spec:
+      containers:
+      - name: actors-prometheus
+        image: abaco/prom:dev
+        ports:
+        - name: prometheus
+          containerPort: 9090
+        volumeMounts:
+          - name: actors-prometheus-config
+            mountPath: /etc/prometheus/prometheus.yml
+            subPath: prometheus
+      volumes:
+      - name: actors-prometheus-config
+        configMap:
+          name: actors-prometheus-config
+          items:
+          - key: prometheus
+            path: prometheus

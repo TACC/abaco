@@ -1,0 +1,38 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: actors-rabbitmq-vol02
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: rbd-new
+  resources:
+    requests:
+      storage: 20Gi
+
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chown-actors-rabbitmq-pvc
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: chown-actors-rabbitmq-volume
+        image: alpine:latest
+        command:
+        - chown
+        - -R
+        - 999:999
+        - /var/lib/rabbitmq
+        volumeMounts:
+        - name: actors-rabbitmq-data
+          mountPath: /var/lib/rabbitmq
+      volumes:
+      - name: actors-rabbitmq-data
+        persistentVolumeClaim:
+          claimName: actors-rabbitmq-vol02

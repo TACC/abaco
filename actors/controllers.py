@@ -60,7 +60,7 @@ class SearchResource(Resource):
         Does a broad search with args and search_type passed to this resource.
         """
         args = request.args
-        result = Search(args, search_type, g.request_tenant_id, g.username).search()
+        result = Search(args, search_type, g.request_tenant_id, g.request_username).search()
         return ok(result=result, msg="Search completed successfully.")
 
 
@@ -474,13 +474,13 @@ class AliasesResource(Resource):
             raise ResourceError(
                 f"No actor found with id: {actor_id}.", 404)
         # update 10/2019: check that use has UPDATE permission on the actor -
-        if not check_permissions(user=g.username, identifier=dbid, level=codes.UPDATE):
+        if not check_permissions(user=g.request_username, identifier=dbid, level=codes.UPDATE):
             raise PermissionsException(f"Not authorized -- you do not have access to {actor_id}.")
 
         # supply "provided" fields:
         args['tenant'] = g.request_tenant_id
         args['db_id'] = dbid
-        args['owner'] = g.username
+        args['owner'] = g.request_username
         args['alias_id'] = Alias.generate_alias_id(g.request_tenant_id, args['alias'])
         args['api_server'] = g.api_server
         logger.debug(f"Instantiating alias object. args: {args}")
@@ -488,7 +488,7 @@ class AliasesResource(Resource):
         logger.debug(f"Alias object instantiated; checking for uniqueness and creating alias. alias: {alias}")
         alias.check_and_create_alias()
         logger.info(f"alias added for actor: {dbid}.")
-        set_permission(g.username, alias.alias_id, UPDATE)
+        set_permission(g.request_username, alias.alias_id, UPDATE)
         return ok(result=alias.display(), msg="Actor alias created successfully.")
 
 class AliasResource(Resource):
@@ -506,10 +506,7 @@ class AliasResource(Resource):
 
     def validate_put(self):
         logger.debug("top of validate_put")
-        try:
-            data = request.get_json()
-        except:
-            data = None
+        data = request.get_json(silent=True)
         if data and 'alias' in data or 'alias' in request.form:
             logger.debug("found alias in the PUT.")
             raise DAOError("Invalid alias update description. The alias itself cannot be updated in a PUT request.")
@@ -541,7 +538,7 @@ class AliasResource(Resource):
             actor_id = args.get('actorId')
         dbid = Actor.get_dbid(g.request_tenant_id, actor_id)
         # update 10/2019: check that use has UPDATE permission on the actor -
-        if not check_permissions(user=g.username, identifier=dbid, level=codes.UPDATE, roles=g.roles):
+        if not check_permissions(user=g.request_username, identifier=dbid, level=codes.UPDATE, roles=g.roles):
             raise PermissionsException(f"Not authorized -- you do not have UPDATE "
                                        f"access to the actor you want to associate with this alias.")
         logger.debug(f"dbid: {dbid}")
@@ -557,7 +554,7 @@ class AliasResource(Resource):
         logger.debug(f"Alias object instantiated; updating alias in alias_store. alias: {new_alias_obj}")
         alias_store[site()][alias_id] = new_alias_obj
         logger.info(f"alias updated for actor: {dbid}.")
-        set_permission(g.username, new_alias_obj.alias_id, UPDATE)
+        set_permission(g.request_username, new_alias_obj.alias_id, UPDATE)
         return ok(result=new_alias_obj.display(), msg="Actor alias updated successfully.")
 
     def delete(self, alias):
@@ -573,7 +570,7 @@ class AliasResource(Resource):
         # update 10/2019: check that use has UPDATE permission on the actor -
         # TODO - check: do we want to require UPDATE on the actor to delete the alias? Seems like UPDATE
         #               on the alias iteself should be sufficient...
-        # if not check_permissions(user=g.username, identifier=alias.db_id, level=codes.UPDATE):
+        # if not check_permissions(user=g.request_username, identifier=alias.db_id, level=codes.UPDATE):
         #     raise PermissionsException(f"Not authorized -- you do not have UPDATE "
         #                                f"access to the actor associated with this alias.")
         try:
@@ -621,7 +618,7 @@ class AliasNoncesResource(Resource):
         args['tenant'] = g.request_tenant_id
         args['api_server'] = g.api_server
         args['alias'] = alias_id
-        args['owner'] = g.username
+        args['owner'] = g.request_username
         args['roles'] = g.roles
 
         # create and store the nonce:
@@ -770,7 +767,7 @@ def validate_link(args):
         logger.info(f"{msg}; exception: {e}")
         raise DAOError(msg)
     try:
-        check_permissions(g.username, link_dbid, EXECUTE)
+        check_permissions(g.request_username, link_dbid, EXECUTE)
     except Exception as e:
         logger.info("Got exception trying to check permissions for actor link. "
                     f"Exception: {e}; link: {link_dbid}")
@@ -818,14 +815,14 @@ class ActorsResource(Resource):
             args_given = request.args
             args_full = {}
             args_full.update(args_given)
-            result = Search(args_full, 'actors', g.request_tenant_id, g.username).search()
+            result = Search(args_full, 'actors', g.request_tenant_id, g.request_username).search()
             return ok(result=result, msg="Actors search completed successfully.")
         else:
             actors = []
             for actor_info in actors_store[site()].items():
                 if actor_info['tenant'] == g.request_tenant_id:
                     actor = Actor.from_db(actor_info)
-                    if check_permissions(g.username, actor.db_id, READ):
+                    if check_permissions(g.request_username, actor.db_id, READ):
                         actors.append(actor.display())
             logger.info("actors retrieved.")
             return ok(result=actors, msg="Actors retrieved successfully.")
@@ -857,7 +854,7 @@ class ActorsResource(Resource):
                 msg = e.data.get('message')
             else:
                 msg = f'{msg}: {e}'
-            logger.debug(f"Validate post - invalid actor description: {msg}")
+            logger.debug(f"Validate post - invalid actor description: {msg}, e:{e}")
             raise DAOError(f"Invalid actor description: {msg}")
         return args
 
@@ -869,7 +866,7 @@ class ActorsResource(Resource):
         args['tenant'] = g.request_tenant_id
         args['api_server'] = g.api_server
         args['revision'] = 1
-        args['owner'] = g.username
+        args['owner'] = g.request_username
 
         # There are two options for the uid and gid to run in within the container. 1) the UID and GID to use
         # are computed by Abaco based on various configuration for the Abaco instance and tenant (such as
@@ -891,7 +888,7 @@ class ActorsResource(Resource):
                 raise DAOError("run_as_executor isn't supported for your tenant")
         if not use_container_uid:
             logger.debug("use_container_uid was false. looking up uid and gid...")
-            uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.request_tenant_id)
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.request_username, g.request_tenant_id)
             logger.debug(f"got uid: {uid}, gid: {gid}, home_dir: {home_dir} from get_().")
             if uid:
                 args['uid'] = uid
@@ -965,8 +962,8 @@ class ActorsResource(Resource):
         if num_init_workers > 0:
             actor.ensure_one_worker()
         logger.debug("ensure_one_worker() called")
-        set_permission(g.username, actor.db_id, UPDATE)
-        logger.debug(f"UPDATE permission added to user: {g.username}")
+        set_permission(g.request_username, actor.db_id, UPDATE)
+        logger.debug(f"UPDATE permission added to user: {g.request_username}")
         return ok(result=actor.display(), msg="Actor created successfully.", request=request)
 
 
@@ -1010,7 +1007,7 @@ class ActorResource(Resource):
         shutdown = False
         workers = None
         while idx < 20 and not shutdown:
-            # get all workers in db:
+            # get all workers in db for actor:
             try:
                 workers = Worker.get_workers(id)
             except WorkerException as e:
@@ -1148,7 +1145,7 @@ class ActorResource(Resource):
                 raise DAOError("Cannot set both use_container_uid and run_as_executor as true")
                  
         if not use_container_uid:
-            uid, gid, home_dir = get_uid_gid_homedir(args, g.username, g.request_tenant_id)
+            uid, gid, home_dir = get_uid_gid_homedir(args, g.request_username, g.request_tenant_id)
             if uid:
                 args['uid'] = uid
             if gid:
@@ -1178,8 +1175,8 @@ class ActorResource(Resource):
             ch.close()
             logger.debug("put new command on command channel to update actor.")
         # put could have been issued by a user with
-        if not previous_owner == g.username:
-            set_permission(g.username, actor.db_id, UPDATE)
+        if not previous_owner == g.request_username:
+            set_permission(g.request_username, actor.db_id, UPDATE)
         return ok(result=actor.display(),
                   msg="Actor updated successfully.")
 
@@ -1254,7 +1251,7 @@ class ActorStateResource(Resource):
         return ok(result=actor.display(), msg="State updated successfully.")
 
     def validate_post(self):
-        json_data = request.get_json()
+        json_data = request.get_json(silent=True)
         if not json_data:
             raise DAOError("Invalid actor state description: state must be JSON serializable.")
         return json_data
@@ -1316,10 +1313,15 @@ class ActorConfigsResource(Resource):
                 except KeyError:
                     raise ResourceError(f"No actor or alias found with id: {a}.", 404)
             # also check that user has update access to actor --
-            check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
+            check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
 
         args['tenant'] = g.request_tenant_id
         if args.get('isSecret') or args.get('is_secret'):
+            if not conf.get("web_encryption_key"):
+                mes = ("Got exception using is_secret config arg. Actors instance has not set",
+                       "conf.web_encryption_key. Please let a system admin now if you'd like the feature.")
+                logger.info(mes)
+                raise DAOError(mes)
             args['value'] = encrypt_utils.encrypt(args.get('value'))
         logger.debug("config post args validated")
         # create the ActorConfig object with the args --
@@ -1330,7 +1332,7 @@ class ActorConfigsResource(Resource):
         config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=actor_config.name)
         configs_store[site()][config_id] = actor_config.to_db()
         # set permissions for this config
-        set_config_permission(g.username, config_id, UPDATE)
+        set_config_permission(g.request_username, config_id, UPDATE)
         return ok(result=actor_config.display(), msg="Actor config created successfully.")
 
 
@@ -1349,10 +1351,7 @@ class ActorConfigResource(Resource):
 
     def validate_put(self):
         logger.debug("top of validate_put")
-        try:
-            data = request.get_json()
-        except:
-            data = None
+        data = request.get_json(silent=True)
         # if data and 'alias' in data or 'alias' in request.form:
         #     logger.debug("found alias in the PUT.")
         #     raise DAOError("Invalid alias update description. The alias itself cannot be updated in a PUT request.")
@@ -1380,7 +1379,7 @@ class ActorConfigResource(Resource):
             raise ResourceError(f"No config found: {config_name}.", 404)
         logger.debug(f"found config {config_obj}")
         args = self.validate_put()
-        if not check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+        if not check_config_permissions(user=g.request_username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
             raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
 
         # Check that the actor ids correspond to real actors or aliases and that the user
@@ -1409,12 +1408,17 @@ class ActorConfigResource(Resource):
                 except KeyError:
                     raise ResourceError(f"No actor or alias found with id: {a}.", 404)
             # also check that user has update access to actor --
-            check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
+            check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE, roles=g.roles)
 
         # supply "provided" fields:
         args['tenant'] = config_obj.tenant
         args['name'] = config_obj.name
         if args.get('isSecret') or args.get('is_secret'):
+            if not conf.get("web_encryption_key"):
+                mes = ("Got exception using is_secret config arg. Actors instance has not set",
+                       "conf.web_encryption_key. Please let a system admin now if you'd like the feature.")
+                logger.info(mes)
+                raise DAOError(mes)
             args['value'] = encrypt_utils.encrypt(args.get('value'))
         logger.debug(f"Instantiating actor config object. args: {args}")
         new_config_obj = ActorConfig(**args)
@@ -1437,7 +1441,7 @@ class ActorConfigResource(Resource):
             raise ResourceError(f"No config found with name: {config_name}.", 404)
 
         # check that the user has update access to the config
-        if not check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
+        if not check_config_permissions(user=g.request_username, config_id=config_id, level=codes.UPDATE, roles=g.roles):
             raise PermissionsException(f"Not authorized -- you do not have UPDATE access to this actor config.")
 
         # delete the config and associated permissions
@@ -1459,7 +1463,7 @@ class ActorExecutionsResource(Resource):
             args_given = request.args
             args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}'}
             args_full.update(args_given)
-            result = Search(args_full, 'executions', g.request_tenant_id, g.username).search()
+            result = Search(args_full, 'executions', g.request_tenant_id, g.request_username).search()
             return ok(result=result, msg="Executions search completed successfully.")
         else:
             dbid = g.db_id
@@ -1535,7 +1539,7 @@ class ActorNoncesResource(Resource):
         args['tenant'] = g.request_tenant_id
         args['api_server'] = g.api_server
         args['db_id'] = dbid
-        args['owner'] = g.username
+        args['owner'] = g.request_username
         args['roles'] = g.roles
 
         # create and store the nonce:
@@ -1674,7 +1678,7 @@ class ActorExecutionLogsResource(Resource):
             args_given = request.args
             args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}', '_id': execution_id}
             args_full.update(args_given)
-            result = Search(args_full, 'logs', g.request_tenant_id, g.username).search()
+            result = Search(args_full, 'logs', g.request_tenant_id, g.request_username).search()
             return ok(result=result, msg="Log search completed successfully.")
         else:
             dbid = g.db_id
@@ -1766,7 +1770,7 @@ class MessagesResource(Resource):
                 args['message'] = request.get_data()
                 args['_abaco_Content_Type'] = 'application/octet-stream'
                 return args
-            json_data = request.get_json()
+            json_data = request.get_json(silent=True)
             if json_data:
                 logger.debug("message was JSON data.")
                 args['message'] = json_data
@@ -1832,8 +1836,8 @@ class MessagesResource(Resource):
             if box_len > 3:
                 raise ResourceError("Cannot issue synchronous execution when actor message queue > 0.")
         if hasattr(g, 'username'):
-            d['_abaco_username'] = g.username
-            logger.debug(f"_abaco_username: {g.username} added to message.")
+            d['_abaco_username'] = g.request_username
+            logger.debug(f"_abaco_username: {g.request_username} added to message.")
         if hasattr(g, 'jwt_header_name'):
             d['_abaco_jwt_header_name'] = g.jwt_header_name
             logger.debug(f"abaco_jwt_header_name: {g.jwt_header_name} added to message.")
@@ -1841,12 +1845,12 @@ class MessagesResource(Resource):
         before_exc_timer = timeit.default_timer()
         if actors_store[site()][dbid]["run_as_executor"]:
             #get the uid and gid from the executor
-            uid, gid, homedir = get_uid_gid_homedir(actor_id, g.username, g.tenant_id)
+            uid, gid, homedir = get_uid_gid_homedir(actor_id, g.request_username, g.tenant_id)
             exc = Execution.add_execution(dbid, {'cpu': 0,
                                                 'io': 0,
                                                 'runtime': 0,
                                                 'status': SUBMITTED,
-                                                'executor': g.username,
+                                                'executor': g.request_username,
                                                 'executor_uid': uid,               #this is the uid and gid of the executor not the owner which is needed if the actor is ran as an executor
                                                 'executor_gid': gid})
         else:
@@ -1854,7 +1858,7 @@ class MessagesResource(Resource):
                                                 'io': 0,
                                                 'runtime': 0,
                                                 'status': SUBMITTED,
-                                                'executor': g.username})
+                                                'executor': g.request_username})
         after_exc_timer = timeit.default_timer()
         logger.info(f"Execution {exc} added for actor {actor_id}")
         d['_abaco_execution_id'] = exc
@@ -1981,7 +1985,7 @@ class WorkersResource(Resource):
             args_given = request.args
             args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}'}
             args_full.update(args_given)
-            result = Search(args_full, 'workers', g.request_tenant_id, g.username).search()
+            result = Search(args_full, 'workers', g.request_tenant_id, g.request_username).search()
             return ok(result=result, msg="Workers search completed successfully.")
         else:
             dbid = g.db_id

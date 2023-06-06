@@ -1,0 +1,72 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: actors-admin
+spec:
+  selector:
+    matchLabels:
+      app: actors-admin
+  template:
+    metadata:
+      labels:
+        app: actors-admin
+    spec:
+      containers:
+      - name: actors-admin
+        imagePullPolicy: Never
+        image: abaco/core-v3:MAKEFILE_TAG
+        ports:
+        - name: flask
+          containerPort: 5000
+        envFrom:
+        - configMapRef:
+            name: actors-environment-vars
+        env:
+        - name: api
+          value: "admin"
+        - name: server
+          value: "gunicorn"
+        - name: abaco_host_path
+          valueFrom:
+            configMapKeyRef:
+              name: actors-environment-vars
+              key: abaco_host_path
+        - name: _abaco_secret
+          valueFrom:
+            configMapKeyRef:
+              name: actors-environment-vars
+              key: _abaco_secret
+        - name: TAS_ROLE_ACCT
+          valueFrom:
+            configMapKeyRef:
+              name: actors-environment-vars
+              key: TAS_ROLE_ACCT
+        - name: TAS_ROLE_PASS
+          valueFrom:
+            configMapKeyRef:
+              name: actors-environment-vars
+              key: TAS_ROLE_PASS
+        - name: SERVICE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tapis-abaco-secrets
+              key: service-password
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tapis-abaco-secrets
+              key: mongo-password
+        - name: RABBITMQ_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tapis-abaco-secrets
+              key: rabbitmq-password
+        volumeMounts:
+        - name: actors-config
+          mountPath: /home/tapis/config.json
+          subPath: config.json
+      volumes:
+      - name: actors-config
+        configMap: 
+          name: actors-config  

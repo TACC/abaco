@@ -1,0 +1,38 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: actors-mongo-vol02
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: rbd-new
+  resources:
+    requests:
+      storage: 40Gi
+
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chown-actors-mongo-pvc
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: chown-actors-mongo-volume
+        image: alpine:latest
+        command:
+        - chown
+        - -R
+        - 999:999
+        - /data/db
+        volumeMounts:
+        - name: actors-mongo-data
+          mountPath: /data/db
+      volumes:
+      - name: actors-mongo-data
+        persistentVolumeClaim:
+          claimName: actors-mongo-vol02

@@ -1,4 +1,0 @@
-pycrypto==2.6.1
-PyJWT==0.2.3
-agavepy==0.4.0
-Django==1.11.2

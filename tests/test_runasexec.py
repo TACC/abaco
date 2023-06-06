@@ -21,7 +21,11 @@ from util import headers, base_url, case, \
 def test_run_as_executor_actor(nshresth_header, jstubbs_header):
     # Registering the actor
     url = f'{base_url}/actors'
-    data = {'image': 'nshresth/abacotest:1.0', 'runAsExecutor': True}
+    if case == 'snake':
+        run_as_exec = 'run_as_executor'
+    else:
+        run_as_exec = 'runAsExecutor'
+    data = {'image': 'nshresth/abacotest:1.0', run_as_exec: True}
     rsp = requests.post(url, data=data, headers=nshresth_header)
     result = basic_response_checks(rsp)
     assert 'description' in result
@@ -29,10 +33,7 @@ def test_run_as_executor_actor(nshresth_header, jstubbs_header):
     assert result['owner'] == 'nshresth'
     assert result['image'] == 'nshresth/abacotest:1.0'
     assert result['id'] is not None
-    if case == 'snake':
-        assert result['run_as_executor'] == True
-    else:
-        assert result['runAsExecutor'] == True
+    assert result[run_as_exec] == True
 	
     # Updating the permission for the actor
     actorId = result['id']
@@ -78,21 +79,32 @@ def test_run_as_executor_actor(nshresth_header, jstubbs_header):
 # Check if useContaineruid and runAsexecutor can both simultaneously be turned on.
 def test_use_and_run(privileged_headers):
     url = f'{base_url}/actors'
-    data = {'image': 'nshresth/abacotest:1.0', 'runAsExecutor': True, 'useContainerUid': True}
+    use_container_uid = 'use_container_uid'
+    run_as_exec = 'run_as_executor'
+    print(case)
+    print()
+    print(os.environ)
+    print()
+    if case == 'camel':
+        use_container_uid = 'useContainerUid'
+        run_as_exec = 'runAsExecutor'
+
+    data = {'image': 'nshresth/abacotest:1.0', run_as_exec: True, use_container_uid: True}
     rsp = requests.post(url, data=data, headers=privileged_headers)
     data = json.loads(rsp.content.decode('utf-8'))
-    if case == 'snake':
-        assert data['message'] == "Cannot set both use_container_uid and run_as_executor as true"
-    else:
-        assert data['message'] == "Cannot set both useContainerUid and runAsExecutor as true"
+    assert data['message'] == f"Cannot set both {use_container_uid} and {run_as_exec} as true"
 
 # Check if the user is in TAS
 def test_run_as_not_tas(headers):
-   url = f'{base_url}/actors'
-   data = {'image': 'nshresth/abacotest:1.0', 'runAsExecutor': True}
-   rsp = requests.post(url, data=data, headers=headers)
-   data = json.loads(rsp.content.decode('utf-8'))
-   assert data['message'] == "run_as_executor isn't supported for your tenant"
+    url = f'{base_url}/actors'
+    run_as_exec = 'run_as_executor'
+    if case == 'camel':
+        run_as_exec = 'runAsExecutor'
+
+    data = {'image': 'nshresth/abacotest:1.0', run_as_exec: True}
+    rsp = requests.post(url, data=data, headers=headers)
+    data = json.loads(rsp.content.decode('utf-8'))
+    assert data['message'] == "run_as_executor isn't supported for your tenant"
 
 # Clean up
 def test_delete_actors(headers, nshresth_header, jstubbs_header, privileged_headers):

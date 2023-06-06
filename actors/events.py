@@ -21,6 +21,7 @@ from codes import SUBMITTED
 from channels import ActorMsgChannel, EventsChannel
 from models import Execution, site
 from stores import actors_store
+from tapisservice.config import conf
 from tapisservice.logs import get_logger
 
 
@@ -28,7 +29,13 @@ from tapisservice.logs import get_logger
 # Have to do this as we are running as Tapis user, not root.
 # This script requires no permissions.
 os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
-os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+if conf.container_backend == 'docker':
+    os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+    import docker_utils
+    from docker_utils import DockerError
+if conf.container_backend == 'kubernetes':
+    import kubernetes_utils
+    from kubernetes_utils import KubernetesError
 
 logger = get_logger(__name__)
 

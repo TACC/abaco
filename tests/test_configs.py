@@ -54,10 +54,10 @@ def test_register_actor_default_env(headers):
 def test_register_config(headers):
     actor_id = get_actor_id(headers)
     url = f'{base_url}/actors/configs'
-    data={"image": "abacosamples/test",
-          "name": "the_config",
-          "value": "my value",
-          "actors": actor_id}
+    data = {"image": "abacosamples/test",
+            "name": "the_config",
+            "value": "my value",
+            "actors": actor_id}
     if case == 'snake':
         data['is_secret'] = False
     else:

@@ -536,7 +536,7 @@ def get_container_user(actor, execution_id, actor_id):
         if not uid:
             user = None
         elif not gid:
-            user = uid
+            user = f'{uid}:{uid}'
         else:
             user = f'{uid}:{gid}'
         return user
@@ -567,7 +567,7 @@ def main():
     api_server = os.environ.get('api_server', None)
     client_secret = os.environ.get('client_secret', None)
 
-    logger.info(f"Top of main() for worker: {worker_id}, image: {image}; revision: {revision}"
+    logger.info(f"Top of main() for worker: {worker_id}, image: {image}; revision: {revision} "
                 f"actor_id: {actor_id}; client_id:{client_id}; tenant: {tenant}; api_server: {api_server}")
     spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
 

@@ -56,13 +56,6 @@ def get_api_server(tenant_name):
         return 'https://vdj-agave-api.tacc.utexas.edu'
     return 'http://172.17.0.1:8000'
 
-def get_pub_key():
-    pub_key = conf.web_apim_public_key
-    return RSA.importKey(base64.b64decode(pub_key))
-
-
-PUB_KEY = get_pub_key()
-
 TOKEN_RE = re.compile('Bearer (.+)')
 
 WORLD_USER = 'ABACO_WORLD'
@@ -149,32 +142,38 @@ def check_nonce():
         nonce = Nonce.get_nonce(actor_id=actor_id, alias=None, nonce_id=nonce_id)
     else:
         nonce = Nonce.get_nonce(actor_id=None, alias=alias_id, nonce_id=nonce_id)
-    g.username = nonce.owner
+    g.request_username = nonce.owner
     # update roles data with that stored on the nonce:
     g.roles = [nonce.roles]
-    logger.debug(f"setting g.request_tenant_id: {g.request_tenant_id}; g.username: {g.username}")
+    logger.debug(f"setting g.request_tenant_id: {g.request_tenant_id}; g.request_username: {g.request_username}")
 
 
 def get_user_sk_roles():
     """
     """
-    logger.debug(f"Getting SK roles on tenant {g.request_tenant_id} and user {g.username}")
+    logger.debug(f"Getting SK roles on tenant {g.request_tenant_id} and user {g.request_username}")
     start_timer = timeit.default_timer()
     try:
-        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.username, _tapis_set_x_headers_from_service=True)
+        roles_obj = t.sk.getUserRoles(tenant=g.request_tenant_id, user=g.request_username, _tapis_set_x_headers_from_service=True)
     except Exception as e:
         end_timer = timeit.default_timer()
         total = (end_timer - start_timer) * 1000
         if total > 4000:
-            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
+            logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.request_username}, tenant: {g.request_tenant_id}")
         raise e
     end_timer = timeit.default_timer()
     total = (end_timer - start_timer) * 1000
     if total > 4000:
-        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.username}, tenant: {g.request_tenant_id}")
+        logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.request_username}, tenant: {g.request_tenant_id}")
     roles_list = roles_obj.names
-    logger.debug(f"Roles received: {roles_list}")
-    g.roles = roles_list
+
+    # we now take all roles nad filter to abaco specific roles so we don't spam logs.
+    abaco_roles_list = []
+    for role in roles_list:
+        if "abaco" in role.lower():
+            abaco_roles_list.append(role)
+    logger.debug(f"Roles received: {abaco_roles_list}")
+    g.roles = abaco_roles_list
 
 
 def get_user_site_id():
@@ -241,6 +240,8 @@ def authorization():
     # all other requests require some kind of abaco role:
     # THIS IS NO LONGER TRUE. Only rules are admin and privileged.
 
+    has_pem = False
+    
     logger.debug(f"request.path: {request.path}")
 
     # the admin role when JWT auth is configured:
@@ -284,10 +285,10 @@ def authorization():
         config_id = ActorConfig.get_config_db_key(tenant_id=g.request_tenant_id, name=config_name)
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.READ)
+            has_pem = check_config_permissions(user=g.request_username, config_id=config_id, level=codes.READ)
             # all other requests require UPDATE access
         elif request.method in ['DELETE', 'POST', 'PUT']:
-            has_pem = check_config_permissions(user=g.username, config_id=config_id, level=codes.UPDATE)
+            has_pem = check_config_permissions(user=g.request_username, config_id=config_id, level=codes.UPDATE)
         if not has_pem:
             raise PermissionsException("You do not have sufficient access to this actor config.")
 
@@ -307,32 +308,32 @@ def authorization():
         if 'nonce' in request.url_rule.rule:
             noun = 'alias and actor'
             # logger.debug("checking user {} has permissions for "
-            #              "alias: {} and actor: {}".format(g.username, alias_id, db_id))
+            #              "alias: {} and actor: {}".format(g.request_username, alias_id, db_id))
             if request.method == 'GET':
                 # GET requests require READ access
 
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
-                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.READ)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.READ)
+                has_pem = has_pem and check_permissions(user=g.request_username, identifier=db_id, level=codes.READ)
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
-                has_pem = has_pem and check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.UPDATE)
+                has_pem = has_pem and check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE)
 
         # otherwise, this is a request to manage the alias itself; only requires permissions on the alias
         else:
             if request.method == 'GET':
                 # GET requests require READ access
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.READ)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.READ)
                 # all other requests require UPDATE access
             elif request.method in ['DELETE', 'POST', 'PUT']:
-                has_pem = check_permissions(user=g.username, identifier=alias_id, level=codes.UPDATE)
+                has_pem = check_permissions(user=g.request_username, identifier=alias_id, level=codes.UPDATE)
     else:
         # all other checks are based on actor-id:
         noun = 'actor'
         if request.method == 'GET':
             # GET requests require READ access
-            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.READ)
+            has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.READ)
         elif request.method == 'DELETE':
-            has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+            has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE)
         else:
             logger.debug(f"URL rule in request: {request.url_rule.rule}")
             # first, only admins can create/update actors to be privileged, so check that:
@@ -341,15 +342,23 @@ def authorization():
                 # only admins have access to the workers endpoint, and if we are here, the user is not an admin:
                 if 'workers' in request.url_rule.rule:
                     raise PermissionsException("Not authorized -- only admins are authorized to update workers.")
-                # POST to the messages endpoint requires EXECUTE
-                if 'messages' in request.url_rule.rule:
-                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.EXECUTE)
-                # otherwise, we require UPDATE
-                else:
-                    has_pem = check_permissions(user=g.username, identifier=db_id, level=codes.UPDATE)
+                try:
+                    # POST to the messages endpoint requires EXECUTE
+                    if 'messages' in request.url_rule.rule:
+                        has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.EXECUTE)
+                    # otherwise, we require UPDATE
+                    else:
+                        has_pem = check_permissions(user=g.request_username, identifier=db_id, level=codes.UPDATE)
+                except Exception as e:
+                    msg = f"error checking permissions {e}"
+                    logger.critical(msg)
+                    raise Exception(msg)
+
     if not has_pem:
         logger.info("NOT allowing request.")
-        raise PermissionsException(f"Not authorized -- you do not have access to this {noun}.")
+        msg = f"Not authorized -- you do not have access to this {noun}."
+        logger.info(msg)
+        raise PermissionsException(msg)
 
 
 def check_privileged():
@@ -358,7 +367,7 @@ def check_privileged():
     # admins have access to all actors:
     if g.admin:
         return True
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data:
         data = request.form
     # various APIs (e.g., the state api) allow an arbitrary JSON serializable objects which won't have a get method:
@@ -574,7 +583,7 @@ def get_tenants():
 def tenant_can_use_tas(tenant):
     """Return whether a tenant can use TAS for uid/gid resolution. This is equivalent to whether the tenant uses
     the TACC IdP"""
-    if tenant in ['DESIGNSAFE', 'SD2E', 'TACC', 'tacc', 'A2CPS']:
+    if tenant.upper() in ['DESIGNSAFE', 'SD2E', 'TACC', 'A2CPS']:
         return True
     # all other tenants use some other IdP so username will not be a TAS account:
     return False

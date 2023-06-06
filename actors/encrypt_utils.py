@@ -1,8 +1,11 @@
 from cryptography.fernet import Fernet
 from tapisservice.config import conf
 
+# Attempt to get the encryption key from the config file.
+# If it's not there, we'll error out on calls attempting to encrypt/decrypt.
 key = conf.get('web_encryption_key')
-f = Fernet(key.encode())
+if key:
+    f = Fernet(key.encode())
 
 # Encrypt the string 'value' passed in.
 def encrypt(value):

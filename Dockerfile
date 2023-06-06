@@ -2,11 +2,11 @@
 # Image: abaco/core-v3
 
 # inherit from the flaskbase iamge:
-FROM tapis/flaskbase-plugins:latest
+FROM tapis/flaskbase
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API actors-api
 ENV PYTHONPATH .:*:actors:actors/*
-
+WORKDIR /home/tapis
 
 ## PACKAGE INITIALIZATION
 COPY requirements.txt /home/tapis/
@@ -14,7 +14,7 @@ COPY requirements.txt /home/tapis/
 RUN apt-get update && apt-get install python3-dev g++ sudo -y
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/requirements.txt
-# rabbitmqadmin download for tests
+# rabbitmqadmin download for rabbit init
 RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
 RUN chmod +x rabbitmqadmin
 
@@ -45,8 +45,7 @@ COPY docs/specs/openapi_v3.yml /home/tapis/service/resources/openapi_v3.yml
 COPY actors /home/tapis/actors
 # Some more permissions
 RUN echo "tapis ALL=NOPASSWD: /home/tapis/actors/folder_permissions.sh" >> /etc/sudoers
-RUN chmod +x /home/tapis/actors/folder_permissions.sh
-RUN chmod +x /home/tapis/actors/health_check.sh
+RUN chmod +x /home/tapis/actors/health_check.sh /home/tapis/actors/metrics_cron_check.sh /home/tapis/actors/folder_permissions.sh
 # Permission finalization
 RUN chown -R tapis:tapis /home/tapis
 

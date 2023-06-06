@@ -69,4 +69,6 @@ passwords.yml
 abaco.log
 tests/.DS_Store
 .DS_Store
-/runtime_files/*
+runtime_files/*
+
+kube-deployment/*
