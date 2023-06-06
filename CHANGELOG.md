@@ -1,6 +1,23 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.3.1 - 2023-06-06
+
+### Breaking Changes:
+
+- No Change.
+
+### New features:
+
+- No Change.
+
+### Bug fixes:
+
+- Health changes to fix hanging DB workers left in SHUTTING_DOWN (we weren't running health checks on workers with an actor_id that does not exist).
+- Health changes to fix worker containers existing without a db record. This edit improves the already existing healthcheck to be more broad.
+- Autoscaling/Cron are now called by sh and not prometheus. Slimming down deployment and simplifying logic. API logic had the tendency to "clog".
+
+
 ## 1.3.0 - 2023-03-09
 
 ### Breaking Changes:
