@@ -84,11 +84,8 @@ class CronResource(Resource):
                     #increments the cron_next_ex so the actor is executed when it is next expected
                     actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex_past(actor, actor_id)
                     logger.debug("Now Cron_next_ex is in the present or future")
-                    #if cron_next_ex is in the present than the actor is executed and cron is updated
-                    if self.cron_execution_datetime(actor) == "now":
-                        self.actor_exec(actor,actor_id)
-                    else:
-                        logger.debug("now is not the time")
+                    # We execute once as we skipped some crons, afterwards cron will run as normal.
+                    self.actor_exec(actor,actor_id)
                 else:
                     logger.debug("now is not the time")
             except:
