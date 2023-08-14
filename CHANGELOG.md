@@ -1,6 +1,37 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.9.4 - 2023-08-14
+### Added
+- No change.
+
+### Changed
+- Backported v3 cron updates. Was missing a fix for missed cron times, causing issues.
+
+### Removed
+- Backported v3 prometheus removal, now autoscaling and cron are ran via shell script. Prom no longer needed.
+
+
+## 1.9.3 - 2021-10-19
+### Added
+- No change.
+
+### Changed
+- Fixed health check on worker liveliness which was causing oauth client deletion before execution completed in some cases.
+
+### Removed
+- No change.
+
+## 1.9.2 - 2021-10-04
+### Added
+- No change.
+
+### Changed
+- Fix for autoscaling where READY workers weren't being picked up by the autoscaling logic as "pending".
+
+### Removed
+- No change.
+
 
 ## 1.9.1 - 2021-09-23
 ### Added
