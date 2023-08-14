@@ -23,7 +23,7 @@ import codes
 from config import Config
 from docker_utils import rm_container, DockerError, container_running, run_container_with_docker
 from models import Actor, Worker, is_hashid, get_current_utc_time
-from channels import ClientsChannel, CommandChannel, WorkerChannel
+from channels import ActorMsgChannel, ClientsChannel, CommandChannel, WorkerChannel
 from stores import actors_store, clients_store, executions_store, workers_store
 from worker import shutdown_worker
 
@@ -38,6 +38,7 @@ logger = get_logger(__name__)
 # max executions allowed in a mongo document; if the total executions for a given actor exceeds this number,
 # the health process will place
 MAX_EXECUTIONS_PER_MONGO_DOC = 25000
+
 
 def get_actor_ids():
     """Returns the list of actor ids currently registered."""
@@ -57,7 +58,7 @@ def get_worker(wid):
     """
     worker = workers_store.items({'id': wid})
     if worker:
-        return worker
+        return worker[0]
     return None
 
 def clean_up_socket_dirs():
@@ -140,7 +141,10 @@ def clean_up_apim_clients(tenant):
             continue
         # we know this client came from a worker, so we need to check to see if the worker is still active;
         # first check if the worker even exists; if it does, the id will be the client name:
-        worker = get_worker(name)
+        try:
+            worker = get_worker(name)
+        except:
+            worker = None
         if not worker:
             logger.info("no worker associated with id: {}; deleting client.".format(name))
             delete_client(ag, name)
@@ -310,6 +314,7 @@ def check_workers(actor_id, ttl):
             if worker_create_t <  get_current_utc_time() - datetime.timedelta(minutes=5):
                 hard_delete_worker(actor_id, worker_id, reason_str='Worker did not have a host_id and had '
                                                                    'old create_time field.')
+            continue
 
         # ignore workers on different hosts because this health agent cannot interact with the
         # docker daemon responsible for the worker container..

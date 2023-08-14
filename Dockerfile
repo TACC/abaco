@@ -17,15 +17,9 @@ ENV threads=3
 # ----
 
 ADD actors /actors
-RUN chmod +x /actors/health_check.sh
-
 ADD tests /tests
-RUN chmod +x /tests/entry.sh
-
-
 ADD entry.sh /entry.sh
-RUN chmod +x /entry.sh
-
+RUN chmod +x /actors/health_check.sh /tests/entry.sh /entry.sh /actors/metrics_cron_check.sh
 EXPOSE 5000
 
 CMD ["./entry.sh"]

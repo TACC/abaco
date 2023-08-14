@@ -18,7 +18,9 @@ from parse import parse
 
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from codes import SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel
+from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
+    UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
+    UPDATING_STORE, SHUTDOWN_REQUESTED
 from config import Config
 from errors import DAOError, ResourceError, PermissionsException, WorkerException
 from models import dict_to_camel, display_time, is_hashid, Actor, ActorConfig, Alias, Execution, ExecutionsSummary, Nonce, Worker, Search, get_permissions, \
@@ -38,6 +40,7 @@ from agaveflask.logs import get_logger
 logger = get_logger(__name__)
 CONTENT_TYPE_LATEST = str('text/plain; version=0.0.4; charset=utf-8')
 PROMETHEUS_URL = 'http://172.17.0.1:9090'
+DEFAULT_SYNC_MAX_IDLE_TIME = 600 # defaults to 10*60 = 600 s = 10 min
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
@@ -68,7 +71,7 @@ class SearchResource(Resource):
 
 class CronResource(Resource):
     def get(self):
-        logger.debug("HERE I AM IN GET /cron")
+        logger.debug("top of GET /cron")
         actor_ids = [actor['db_id'] for actor in actors_store.items()]
         logger.debug(f"actor ids are {actor_ids}")
         # Loop through all actor ids to check for cron schedules
@@ -78,34 +81,17 @@ class CronResource(Resource):
             logger.debug(f"cron_on equals {actor.get('cron_on')} for actor {actor_id}")
             try:
                 # Check if next execution == UTC current time
-                if self.cron_execution_datetime(actor):
-                    # Check if cron switch is on
-                    if actor.get('cron_on'):
-                        d = {}
-                        logger.debug("the current time is the same as the next cron scheduled, adding execution")
-                        # Execute actor
-                        before_exc_time = timeit.default_timer()
-                        exc = Execution.add_execution(actor_id, {'cpu': 0,
-                                                'io': 0,
-                                                'runtime': 0,
-                                                'status': codes.SUBMITTED,
-                                                'executor': 'cron'})
-                        logger.debug("execution has been added, now making message")
-                        # Create & add message to the queue 
-                        d['Time_msg_queued'] = before_exc_time
-                        d['_abaco_execution_id'] = exc
-                        d['_abaco_Content_Type'] = 'str'
-                        d['_abaco_actor_revision'] = actor.get('revision')
-                        d['_abaco_api_server'] = actor.get('api_server')
-                        ch = ActorMsgChannel(actor_id=actor_id)
-                        ch.put_msg(message="This is your cron execution", d=d)
-                        ch.close()
-                        logger.debug("Message added to actor inbox. id: {}.".format(actor_id))
-                        # Update the actor's next execution
-                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
-                    else:
-                        logger.debug("Actor's cron is not activated, but next execution will be incremented")
-                        actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+                if self.cron_execution_datetime(actor) == "now":
+                    #executes the actor and cron is updated
+                    self.actor_exec(actor,actor_id)
+                elif self.cron_execution_datetime(actor) == "past":
+                    logger.debug("Cron_next_ex was in the past")
+                    #increments the cron_next_ex so the actor is executed when it is next expected
+                    actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex_past(actor, actor_id)
+                    logger.debug("Now Cron_next_ex is in the present or future")
+                    #if cron_next_ex is in the present than the actor is executed and cron is updated
+                    # Previously we would increment next_ex and wait for next pass. Now we increment and run once.
+                    self.actor_exec(actor,actor_id)
                 else:
                     logger.debug("now is not the time")
             except:
@@ -127,133 +113,151 @@ class CronResource(Resource):
         logger.debug(f"cron execution is {cron_execution}")
         # Return true/false comparing now with the next cron execution
         logger.debug(f"does cron == now? {cron_execution == now}")
-        return cron_execution == now
+        if cron_execution == now:
+            return "now"
+        elif cron_execution < now:
+            return "past"
+        else:
+            return "future"
+
+    def actor_exec(self, actor, actor_id):
+        # Check if cron switch is on
+        logger.debug("inside actor_exec method")
+        if actor.get('cron_on'):
+            d = {}
+            logger.debug("the current time is the same as the next cron scheduled, adding execution")
+            # Execute actor
+            before_exc_time = timeit.default_timer()
+            exc = Execution.add_execution(actor_id, {'cpu': 0,
+                                                     'io': 0,
+                                                     'runtime': 0,
+                                                     'status': codes.SUBMITTED,
+                                                     'executor': 'cron'})
+            logger.debug("execution has been added, now making message")
+            # Create & add message to the queue 
+            d['Time_msg_queued'] = before_exc_time
+            d['_abaco_execution_id'] = exc
+            d['_abaco_Content_Type'] = 'str'
+            d['_abaco_actor_revision'] = actor.get('revision')
+            ch = ActorMsgChannel(actor_id=actor_id)
+            ch.put_msg(message="This is your cron execution", d=d)
+            ch.close()
+            logger.debug(f"Message added to actor inbox. id: {actor_id}.")
+            # Update the actor's next execution
+            actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
+        else:
+            logger.debug("Actor's cron is not activated, but next execution will be incremented")
+            actors_store[actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
 
 
 class MetricsResource(Resource):
     def get(self):
         logger.debug("AUTOSCALER initiating new run --------")
-        do_autoscaling = True
         enable_autoscaling = Config.get('workers', 'autoscaling')
         if hasattr(enable_autoscaling, 'lower'):
             if not enable_autoscaling.lower() == 'true':
                 logger.debug("Autoscaler turned off in Abaco configuration; exiting.")
-                do_autoscaling = False
+                return Response("Autoscaler disabled in Abaco.")
         else:
             logger.debug("No autoscaler configuration found; exiting.")
-            do_autoscaling = False
-        try:
-            actor_ids, inbox_lengths, cmd_length = self.get_metrics()
-        except Exception as e:
-            logger.error(f"MetricsResource got exception from get_metrics(); e: {e}."
-                         f"Responding without running check_metrics."
-                         f"Autoscaling is broken!!!!!!")
-            return Response("Unhandled exception in get_metrics of MetricsResource!")
-        if len(actor_ids) == 0:
-            do_autoscaling = False
-        if not do_autoscaling:
-            logger.debug("AUTOSCALER run complete --------")
-            return
-        try:
-            self.check_metrics(actor_ids, inbox_lengths, cmd_length)
-        except Exception as e:
-            logger.error(f"MetricsResource got exception from check_metrics(); e: {e}."
-                         f"Responding with an error."
-                         f"Autoscaling is likely broken!!!")
-            return Response("Unhandled exception in check_metrics MetricsResource!")
+            return Response("No autoscaler configuration found in Abaco.")
 
-        # self.add_workers(actor_ids)
+        # autoscaler does not manage stateful actors or actors in ERROR or SHUTTING_DOWN status:
+        actor_ids = [actor['db_id'] for actor in actors_store.items()
+            if actor.get('stateless')
+            and not actor.get('status') == ERROR
+            and not actor.get('status') == SHUTTING_DOWN]
+        # iterate over each actor and check how many pending message it has:
+        for actor_id in actor_ids:
+            try:
+                ch = ActorMsgChannel(actor_id=actor_id)
+                inbox_length = len(ch._queue._queue)
+            except Exception as e:
+                logger.error("Exception connecting to ActorMsgChannel: {}".format(e))
+                # if we get an exception, move on to the next actor
+                continue
+            if inbox_length == 0:
+                self.check_for_scale_down(actor_id)
+            else:
+                self.check_for_scale_up(actor_id, inbox_length)
         logger.debug("AUTOSCALER run complete --------")
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
-    def get_metrics(self):
-        logger.debug("top of get_metrics")
-        actor_ids = [actor['db_id'] for actor in actors_store.items()
-            if actor.get('stateless')
-            and not actor.get('status') == 'ERROR'
-            and not actor.get('status') == SHUTTING_DOWN]
-        logger.debug(f"autoscaler found {len(actor_ids)} actors.")
-        if len(actor_ids) == 0:
-            return [], {}, None
+    def check_for_scale_down(self, actor_id):
+        logger.debug(f"top of check_for_scale_down for actor_id: {actor_id}")
+        # if the actor is a sync actor, we need to look for the existence of 1 worker that is not
+        is_sync_actor = Actor.is_sync_actor(actor_id)
+        viable_workers = workers_store.items({'actor_id': actor_id, 'status' : {'$nin': ['ERROR',
+                                                                                         'SHUTTING_DOWN',
+                                                                                         'SHUTDOWN_REQUESTED']}})
+        ready_workers = [w for w in viable_workers if w['status'] == 'READY']
+        if is_sync_actor:
+            try:
+                sync_max_idle_time = int(Config.get('workers', 'sync_max_idle_time'))
+            except Exception as e:
+                logger.error(f"Got exception trying to read sync_max_idle_time from config; e:{e}")
+                sync_max_idle_time = DEFAULT_SYNC_MAX_IDLE_TIME
+            # if all the viable workers are ready workers, we need to save one ready worker because it is a sync
+            # actor. however, if some viable worker is not ready, we can save that one and therefore shutdown all
+            # ready workers.
+            if len(ready_workers) == len(viable_workers):
+                # iterate through the ready workers and see if any of them are within the sync ttl
+                worker_idx_to_save = -1
+                best_worker_ttl = sync_max_idle_time
+                for idx, worker in enumerate(ready_workers):
+                    last_worker_activity_time = worker.get('last_execution_time') or worker.get('create_time') or 0
+                    # this worker is a candidate to be saved
+                    if datetime.datetime.now() - last_worker_activity_time < sync_max_idle_time:
+                        if datetime.datetime.now() - last_worker_activity_time < best_worker_ttl:
+                            # we just found a worker with a more recent activity, so update:
+                            worker_idx_to_save = idx
+                            best_worker_ttl = datetime.datetime.now() - last_worker_activity_time
+                if worker_idx_to_save >= 0:
+                    ready_workers.pop(worker_idx_to_save)
+        for worker in ready_workers:
+            logger.info(f"autoscaler stopping worker {worker['id']} for actor {actor_id}")
+            shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
+
+    def check_for_scale_up(self, actor_id, inbox_length):
+        logger.debug(f"top of check_for_scale_up; actor_id: {actor_id}; inbox_length: {inbox_length}")
+        actor = actors_store.get(actor_id)
+        channel_name = actor.get('queue') or 'default'
+        ch = CommandChannel(name=channel_name)
+        cmd_length = len(ch._queue._queue)
         try:
-            # Create a gauge for each actor id
-            actor_ids, inbox_lengths, cmd_length = metrics_utils.create_gauges(actor_ids)
-            # return the actor_ids so we can use them again for check_metrics
-            return actor_ids, inbox_lengths, cmd_length
+            max_cmd_length = int(Config.get('spawner', 'max_cmd_length'))
         except Exception as e:
-            logger.info("Got exception in call to create_gauges; skipping autoscaler; e: {}".format(e))
-            return [], {}, None
+            logger.info(f"Autoscaler got exception trying to compute the max_cmd_lenght; using 10. E"
+                        f"xception: {e}")
+            max_cmd_length = 10
 
-    def check_metrics(self, actor_ids, inbox_lengths, cmd_length):
-        logger.debug("top of check_metrics")
-        for actor_id in actor_ids:
-            current_message_count = 0
-            try:
-                current_message_count = inbox_lengths[actor_id]
-            except KeyError as e:
-                logger.info("Got KeyError trying to get current_message_count. Exception: {}".format(e))
-                # don't try to process the actor any further
-                continue
-            except Exception as e:
-                logger.error(f"Uncaught exception in check_metrics; e: {e}")
-                # don't try to process the actor any further
-                continue
-            workers = Worker.get_workers(actor_id)
-            current_workers = len(workers)
-            logger.debug(f"actor {actor_id}; Current message count: {current_message_count}; "
-                         f"Current workers: {current_workers}")
-
-            # If this actor has a custom max_workers, use that. Otherwise use default.
-            actor = actors_store[actor_id]
-            max_workers = None
-            if actor.get('max_workers'):
-                try:
-                    max_workers = int(actor['max_workers'])
-                except Exception as e:
-                    logger.error("max_workers defined for actor_id {} but could not cast to int. "
-                                 "Exception: {}".format(actor_id, e))
-            if not max_workers:
-                try:
-                    conf = Config.get('spawner', 'max_workers_per_actor')
-                    max_workers = int(conf)
-                except Exception as e:
-                    logger.error("Unable to get/cast max_workers_per_actor config ({}) to int. "
-                                 "Exception: {}".format(conf, e))
-                    max_workers = 1
-            logger.debug(f"actor: {actor_id}; Max workers: {max_workers}")
-            # Add an additional worker if message count reaches a given number
-            try:
-                if metrics_utils.allow_autoscaling(max_workers, current_workers, cmd_length):
-                    if current_message_count >= 1:
-                        channel = metrics_utils.scale_up(actor_id)
-                        if channel == 'default':
-                            cmd_length = cmd_length + 1
-                else:
-                    # todo -- this is not necessarily true... the actor's current workers could just be
-                    # at the max workers for this actor.
-                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
-                if current_message_count == 0:
-                    logger.debug("current message count was 0; checking whether to scale down...")
-                    # first check if this is a "sync" actor
-                    is_sync_actor = False
-                    try:
-                        hints = list(actor.get("hints"))
-                    except:
-                        hints = []
-                    for hint in hints:
-                        if hint == Actor.SYNC_HINT:
-                            is_sync_actor = True
-                            break
-                    logger.debug(f"actor {actor_id} was a SYNC actor (T/F): {is_sync_actor}.")
-                    metrics_utils.scale_down(actor_id, is_sync_actor)
-                    logger.debug("autoscaler returned from scale_down() call.")
-                else:
-                    logger.warning('METRICS - COMMAND QUEUE is getting full. Skipping autoscale.')
-            except Exception as e:
-                logger.debug("METRICS - ANOTHER ERROR: {} - {} - {}".format(type(e), e, e.args))
-
-    def test_metrics(self):
-        logger.debug("METRICS TESTING")
+        if cmd_length > max_cmd_length:
+            logger.warning(f"Will NOT scale up actor {actor_id}: Current cmd_length ({cmd_length}) is greater "
+                           f"than ({max_cmd_length}) for the {channel_name} command channel.")
+            return False
+        # if the actor has more pending messages than it has pending workers, and the total number of workers the actor
+        # has is less than the max number of workers per actor, then we scale up.
+        workers = workers_store.items({'actor_id': actor_id, 'status' : {'$nin': [ERROR,
+                                                                                  SHUTTING_DOWN,
+                                                                                  SHUTDOWN_REQUESTED]}})
+        pending_workers = [w for w in workers if w['status'] in [READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE,
+                                                                 CREATING_CONTAINER, UPDATING_STORE]]
+        max_workers = Actor.get_max_workers_for_actor(actor_id)
+        if inbox_length - len(pending_workers) > 0 and len(workers) < max_workers:
+            tenant, aid = actor_id.split('_')
+            worker_id = Worker.request_worker(tenant=tenant, actor_id=actor_id)
+            logger.info("New worker id: {}".format(worker_id))
+            ch = CommandChannel(name=channel_name)
+            ch.put_cmd(actor_id=actor.db_id,
+                       worker_id=worker_id,
+                       image=actor.image,
+                       revision=actor.revision,
+                       tenant=tenant,
+                       stop_existing=False)
+            ch.close()
+            logger.info(f'autoscaler added worker successfully for actor {actor_id}; new worker id: {worker_id}')
+        else:
+            logger.debug(f"autoscaler not adding worker for actor {actor_id}")
 
 
 class AdminActorsResource(Resource):
@@ -282,6 +286,7 @@ class AdminActorsResource(Resource):
         except Exception as e:
             logger.critical(f'LOOK AT ME: {e}')
         return ok(result=actors, msg="Actors retrieved successfully.")
+
 
 class AdminWorkersResource(Resource):
     def get(self):
@@ -396,7 +401,16 @@ class AdminExecutionsResource(Resource):
             result['summary']['total_execution_io_all'] += actor_io
             result['summary']['total_execution_cpu_all'] += actor_cpu
 
-        result['summary']['total_actors_all'] += abaco_metrics_store['stats', 'actor_total']
+        # Get total actors from abaco_metrics_store (stats are stored on a daily basis)
+        total_actors = 0
+        for stat_doc in abaco_metrics_store.items():
+            try:
+                total_actors += stat_doc['actor_total']
+            except KeyError as e:
+                # Stat docs created daily, so some days there might not be stats in them
+                continue
+
+        result['summary']['total_actors_all'] += total_actors
         result['summary']['total_actors_existing'] += len(actors_store)
 
         for actor_stat in actor_stats.values():
@@ -769,11 +783,18 @@ class AbacoUtilizationResource(Resource):
     def get(self):
         logger.debug("top of GET /actors/utilization")
         num_current_actors = len(actors_store)
-        num_actors = abaco_metrics_store['stats', 'actor_total']
         num_workers = len(workers_store)
+        # Get total actors from abaco_metrics_store (stats are stored on a daily basis)
+        total_actors = 0
+        for stat_doc in abaco_metrics_store.items():
+            try:
+                total_actors += stat_doc['actor_total']
+            except KeyError as e:
+                # Stat docs created daily, so some days there might not be stats in them
+                continue
         ch = CommandChannel()
         result = {'currentActors': num_current_actors,
-                  'totalActors': num_actors,
+                  'totalActors': total_actors,
                   'workers': num_workers,
                   'commandQueue': len(ch._queue._queue)
                   }
@@ -910,7 +931,7 @@ class ActorsResource(Resource):
         # Change function
         actors_store.add_if_empty([actor.db_id], actor)
         abaco_metrics_store.full_update(
-            {'_id': 'stats'},
+            {'_id': f'{datetime.date.today()}-stats'},
             {'$inc': {'actor_total': 1},
              '$addToSet': {'actor_dbids': actor.db_id}},
              upsert=True)

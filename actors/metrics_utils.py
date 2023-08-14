@@ -26,6 +26,11 @@ command_gauge = Gauge(
     'Number of messages currently in this command channel',
     ['name'])
 
+#####################
+# NOTE: This module has been deprecated and is no longer used by the Abaco runtime.
+# ###################
+
+
 def create_gauges(actor_ids):
     """
     Creates a Prometheus gauge for each actor id. The gauge is used to track the number of
@@ -183,7 +188,7 @@ def allow_autoscaling(max_workers, num_workers, cmd_length):
         logger.debug(f'Will NOT scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
         return False
 
-    logger.debug(f'Will scale up: num_workers ({num_workers}) was >= max_workers ({max_workers})')
+    logger.debug(f'Will scale up: num_workers ({num_workers}) was <= max_workers ({max_workers})')
     return True
 
 def scale_up(actor_id):
@@ -222,7 +227,7 @@ def scale_down(actor_id, is_sync_actor=False):
     :return:
     """
     logger.debug(f"top of scale_down for actor_id: {actor_id}")
-    # we retrieve the current workers again as we will need the entire worker ojects (not just the number).
+    # we retrieve the current workers again as we will need the entire worker objects (not just the number).
     workers = Worker.get_workers(actor_id)
     logger.debug(f'scale_down number of workers: {len(workers)}')
     try:

@@ -32,3 +32,5 @@ api.add_resource(CronResource, '/cron')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
+
+######### This is no longer used. Now using `metrics_cron_check.sh` for metrics and cron

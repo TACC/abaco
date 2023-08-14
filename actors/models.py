@@ -838,6 +838,61 @@ class Actor(AbacoDAO):
         logger.debug(f"returning {time}")
         return time  
 
+    #this function assumes that cron_next_ex is in the past, due to some failure
+    # this function updates cron_next_ex, so the actor starts getting executed at the same times that it
+    # would execute if the cron never failed; it also prints all the times the cron failed to execute when it
+    # was suppose to in the logger
+    @classmethod
+    def set_next_ex_past(cls, actor, actor_id):
+            logger.debug("In set_next_ex_past")
+            # Parse cron into [datetime, increment, unit of time]
+            cron = actor['cron_schedule']
+            cron_parsed = parse("{} + {} {}", cron)
+            time_increment = int(cron_parsed.fixed[1])
+            unit_time = cron_parsed.fixed[2]
+            logger.debug(f"cron_parsed[1] is {time_increment}")
+            # Parse the cron_next_ex into another list of the form [year, month, day, hour]
+            cron_next_ex = actor['cron_next_ex']
+            cron_nextex_parsed = parse("{}-{}-{} {}", cron_next_ex)
+            # Create a datetime object from the cron_next_ex_parsed list
+            cron_datetime = datetime.datetime(int(cron_nextex_parsed[0]), int(cron_nextex_parsed[1]), \
+                int(cron_nextex_parsed[2]), int(cron_nextex_parsed[3]))
+            # Create a datetime object for current time
+            now = datetime.datetime.utcnow()
+            now = datetime.datetime(now.year, now.month, now.day, now.hour)
+            #initialize certain variables to report when Cron failed
+            timeswherecronfailed=[]
+            # Logic for incrementing the next execution, whether unit of time is months, weeks, days, or hours
+            # we use a while loop
+            if unit_time == "month" or unit_time == "months":
+                while cron_datetime<now:                                                        #while cron_next_ex is less than now
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)                                       #recording when cron failed
+                    cron_datetime = cron_datetime + relativedelta(months=+time_increment)       #increment the cron_next_ex value by time increment
+            elif unit_time == "week" or unit_time == "weeks":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(weeks=time_increment)
+            elif unit_time == "day" or unit_time == "days":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(days=time_increment)
+            elif unit_time == "hour" or unit_time == "hours":
+                while cron_datetime<now:
+                    new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+                    timeswherecronfailed.append(new_cron)
+                    cron_datetime = cron_datetime + datetime.timedelta(hours=time_increment)
+            else:
+                # The unit of time is not supported, turn off cron or else it will continue to execute
+                logger.debug("This unit of time is not supported, please choose either hours, days, weeks, or months")
+                actors_store[actor_id, 'cron_on'] = False
+            new_cron = f"{cron_datetime.year}-{cron_datetime.month}-{cron_datetime.day} {cron_datetime.hour}"
+            logger.debug("The cron failed to execute the actor at")
+            logger.debug(timeswherecronfailed)
+            return new_cron
+
     @classmethod
     def set_cron(cls, cron):
         # Method checks for the 'now' alias and also checks that the cron sent in has not passed yet
@@ -1022,6 +1077,49 @@ class Actor(AbacoDAO):
                              "actor_id: {}; status: {}; exception: {}".format(actor_id, status, e))
         if status_message:
             actors_store[actor_id, 'status_message'] = status_message
+
+    @classmethod
+    def is_sync_actor(cls, actor_id):
+        """
+        Determine whether an actor is a "sync" actor based on the official hint.
+        :param actor_id:
+        :return:
+        """
+        actor = actors_store.get(actor_id)
+        is_sync_actor = False
+        try:
+            hints = list(actor.get("hints"))
+        except:
+            hints = []
+        for hint in hints:
+            if hint == Actor.SYNC_HINT:
+                is_sync_actor = True
+                break
+        return is_sync_actor
+
+    @classmethod
+    def get_max_workers_for_actor(cls, actor_id):
+        """
+        Get the max number of workers for an actor
+        :param actor_id:
+        :return:
+        """
+        max_workers = 0
+        actor = actors_store.get(actor_id)
+        if actor.get('max_workers'):
+            try:
+                max_workers = int(actor['max_workers'])
+            except Exception as e:
+                logger.error("max_workers defined for actor_id {} but could not cast to int. "
+                             "Exception: {}".format(actor_id, e))
+        if not max_workers:
+            try:
+                conf = Config.get('spawner', 'max_workers_per_actor')
+                max_workers = int(conf)
+            except Exception as e:
+                logger.error(f"Unable to get/cast max_workers_per_actor config to int. Exception: {e}")
+                max_workers = 1
+        return max_workers
 
 
 class Alias(AbacoDAO):
@@ -1397,7 +1495,7 @@ class Execution(AbacoDAO):
         
         executions_store[f'{actor_id}_{execution.id}'] = execution
         abaco_metrics_store.full_update(
-            {'_id': 'stats'},
+            {'_id': f'{datetime.date.today()}-stats'},
             {'$inc': {'executions_total': 1},
              '$addToSet': {'execution_dbids': f'{actor_id}_{execution.id}'}},
              upsert=True)
@@ -1784,7 +1882,7 @@ class Worker(AbacoDAO):
         else:
             val = workers_store[f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store.full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
@@ -1812,7 +1910,7 @@ class Worker(AbacoDAO):
             # method.
             workers_store[f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store.full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)
@@ -1820,7 +1918,7 @@ class Worker(AbacoDAO):
         except KeyError:
             workers_store.add_if_empty([f'{actor_id}_{worker_id}'], worker)
             abaco_metrics_store.full_update(
-                {'_id': 'stats'},
+                {'_id': f'{datetime.date.today()}-stats'},
                 {'$inc': {'worker_total': 1},
                  '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
                 upsert=True)

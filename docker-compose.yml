@@ -202,43 +202,9 @@ services:
         networks:
             - abaco
 
-
-    prometheus:
-        # build: ./prometheus
-        image: abaco/prom:$TAG
-        volumes:
-            - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-            - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
-        command:
-          - '--config.file=/etc/prometheus/prometheus.yml'
-        #   - '-storage.local.path=/prometheus'
-        ports:
-            - 9090:9090
-        networks:
-            - abaco
-        depends_on:
-            - mongo
-
-    grafana:
-        image: grafana/grafana
-        user: "104"
-        depends_on:
-            - prometheus
-            - mongo
-        ports:
-            - 3000:3000
-        volumes:
-            - grafana_data:/var/lib/grafana
-            - ./prometheus/grafana/provisioning/:/etc/grafana/provisioning/
-        env_file:
-            - ./prometheus/grafana/config.monitoring
-        networks:
-            - abaco
-        restart: always
-
-
     metrics:
         image: abaco/core:$TAG
+        command: "/actors/metrics_cron_check.sh"
         networks:
             - abaco
         volumes:
@@ -254,7 +220,4 @@ services:
             TAS_ROLE_PASS:
         depends_on:
             - mongo
-            - prometheus
-
-volumes:
-    grafana_data: {}
+ 
