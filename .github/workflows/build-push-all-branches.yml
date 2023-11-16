@@ -1,0 +1,49 @@
+### Set Up by: Christian Garcia (TACC)
+### Release-* methodology originally authored by Nathan Freeman (TACC) here:
+### https://github.com/tapis-project/tapis-workflows/blob/prod/.github/workflows/ci.yml#L59
+# Description. This Github action runs when there are new commits to dev-v3, prod-v3, or v3-release-*.
+# The action logs into Docker with the Github action environment secrets `DOCKERHUB_USERNAME`
+# and `DOCKERHUB_TOKEN`.
+# The action pulls the repo and builds the abaco/core-v3 image and uses branch name as the
+# docker tag. In instance of `v3-release-1.2.0`, sed will delete `v3-release-`, leaving `1.2.0`.
+# If branch = prod-v3, tag becomes `latest` so latest is also built.
+#
+# NOVEMBER 16th:
+#   DOCKERHUB_USERNAME: username for cgarcia
+#   DOCKERHUB_TOKEN: token for cgarcia
+
+name: Build & Push - All Branches
+on:
+  push:
+    branches: [ dev-v3, prod-v3, v3-release-* ]
+  pull_request:
+    branches: [ dev-v3, prod-v3, v3-release-* ]
+  workflow_dispatch:
+
+jobs:
+  build-and-push-images:
+    runs-on: ubuntu-latest
+    environment: docker
+    steps:
+      - name: Get tag name from branch. SED removes `v3-release-`; replaces `prod-v3` with `latest`.
+        id: get_tag_name
+        shell: bash
+        run: echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/latest/g' | sed 's/v3-release-//g')" >> $GITHUB_OUTPUT
+        
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker
+        uses: docker/login-action@v2
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        
+      - name: Build & push tagged Docker backend image
+        uses: docker/build-push-action@v3
+        with:
+          push: true
+          tags: abaco/core-v3:${{ steps.get_tag_name.outputs.tag_name }}
