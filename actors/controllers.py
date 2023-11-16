@@ -815,14 +815,27 @@ class ActorsResource(Resource):
             result = Search(args_full, 'actors', g.request_tenant_id, g.request_username).search()
             return ok(result=result, msg="Actors search completed successfully.")
         else:
-            actors = []
-            for actor_info in actors_store[site()].items():
-                if actor_info['tenant'] == g.request_tenant_id:
-                    actor = Actor.from_db(actor_info)
-                    if check_permissions(g.request_username, actor.db_id, READ):
-                        actors.append(actor.display())
+            # Pipeline puts permissions.user = "level" on actor obj.
+            # Ensure users permissions and proper tenant in one step.
+            # Previously a for loop, really slow. This should be db speed no matter db size.
+            pipeline = [
+                {'$match': {'tenant': g.request_tenant_id}},
+                {'$lookup':
+                    {'from' : 'permissions_store',
+                    'localField' : '_id',
+                    'foreignField' : '_id',
+                    'as' : 'permissions'}},
+                {'$unwind': '$permissions'},
+                {'$match': {'permissions.' + g.request_username: {'$in': ["EXECUTE", "UPDATE", "READ"]}}}
+            ]
+            actors = list(actors_store[site()].aggregate(pipeline))
+            # We now need to run actor objects through .display()
+            display_ready_actors = []
+            for actor in actors:
+                actor = Actor.from_db(actor)
+                display_ready_actors.append(actor.display())
             logger.info("actors retrieved.")
-            return ok(result=actors, msg="Actors retrieved successfully.")
+            return ok(result=display_ready_actors, msg="Actors retrieved successfully.")
 
     def validate_post(self):
         logger.debug("top of validate post in /actors")

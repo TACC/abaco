@@ -136,7 +136,7 @@ endif
 #: Build core image
 build: vars
 	@echo "Makefile: $(GREEN)build$(NC)"
-	@echo "  🔨 : Running image build for core-v3, prometheus, and nginx."
+	@echo "  🔨 : Running image build for core-v3 and nginx."
 
 ifeq ($(BACKEND),minikube)
 	$(MAKE) build-minikube
@@ -147,13 +147,11 @@ endif
 
 build-docker: vars
 	@echo "Makefile: $(GREEN)build$(NC)"
-	@echo "  🔨 : Running image build for core-v3, prometheus, and nginx."
+	@echo "  🔨 : Running image build for core-v3 and nginx."
 
 	@echo "  🌎 : Using backend: $(LCYAN)docker$(NC)"
 	@echo ""
 	docker build -t $(SERVICE_NAME)/core-v3:$$TAG ./
-	@echo ""
-	docker build -t $(SERVICE_NAME)/prom:$$TAG images/prometheus/.
 	@echo ""
 	docker build -t $(SERVICE_NAME)/nginx:$$TAG images/nginx/.
 	@echo ""
@@ -161,12 +159,11 @@ build-docker: vars
 
 build-minikube: vars
 	@echo "Makefile: $(GREEN)build$(NC)"
-	@echo "  🔨 : Running image build for core-v3, prometheus, and nginx."
+	@echo "  🔨 : Running image build for core-v3 and nginx."
 
 	@echo "  🌎 : Using backend: $(LCYAN)minikube$(NC)"
 	@echo ""
 	minikube image build -t $(SERVICE_NAME)/core-v3:$$TAG ./
-	minikube image build -t $(SERVICE_NAME)/prom:$$TAG images/prometheus/.
 	minikube image build -t $(SERVICE_NAME)/nginx:$$TAG images/nginx/.
 	@echo ""
 

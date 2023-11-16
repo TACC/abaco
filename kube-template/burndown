@@ -3,7 +3,6 @@
 # config
 kubectl delete configmap actors-config 
 kubectl delete -f nginx-config.yml
-kubectl delete -f prometheus-config.yml
 kubectl delete -f configmap.yml
 
 # apps
@@ -11,8 +10,6 @@ kubectl delete -f reg.yml
 kubectl delete -f mes.yml
 kubectl delete -f admin.yml
 kubectl delete -f events.yml
-kubectl delete -f prometheus.yml
-kubectl delete -f grafana.yml
 kubectl delete -f metrics.yml
 kubectl delete -f nginx.yml
 kubectl delete -f spawner.yml

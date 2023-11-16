@@ -7,7 +7,6 @@ kubectl apply -f security.yml
 # config files
 kubectl create configmap actors-config --from-file=config.json
 kubectl apply -f nginx-config.yml
-kubectl apply -f prometheus-config.yml
 kubectl apply -f configmap.yml
 
 # services files
@@ -23,8 +22,6 @@ kubectl apply -f reg.yml
 kubectl apply -f mes.yml
 kubectl apply -f admin.yml
 #kubectl apply -f events.yml 
-kubectl apply -f prometheus.yml
-#kubectl apply -f grafana.yml
 kubectl apply -f metrics.yml
 kubectl apply -f spawner.yml
 kubectl apply -f health.yml
