@@ -6,7 +6,7 @@
 # and `DOCKERHUB_TOKEN`.
 # The action pulls the repo and builds the abaco/core-v3 image and uses branch name as the
 # docker tag. In instance of `v3-release-1.2.0`, sed will delete `v3-release-`, leaving `1.2.0`.
-# If branch = prod-v3, tag becomes `latest` so latest is also built.
+# If branch = prod-v3, tag becomes `staging` so staging is also built.
 #
 # NOVEMBER 16th:
 #   DOCKERHUB_USERNAME: username for cgarcia
@@ -25,10 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: docker
     steps:
-      - name: Get tag name from branch. SED removes `v3-release-`; replaces `prod-v3` with `latest`.
+      - name: Get tag name from branch. SED removes `v3-release-`; replaces `prod-v3` with `staging`.
         id: get_tag_name
         shell: bash
-        run: echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/latest/g' | sed 's/v3-release-//g')" >> $GITHUB_OUTPUT
+        run: echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/staging/g' | sed 's/v3-release-//g')" >> $GITHUB_OUTPUT
         
       - name: Checkout repo
         uses: actions/checkout@v3
