@@ -28,7 +28,7 @@ jobs:
       - name: Get tag name from branch. SED removes `v3-release-`; replaces `prod-v3` with `staging`.
         id: get_tag_name
         shell: bash
-        run: echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/staging/g' | sed 's/v3-release-//g')" >> $GITHUB_OUTPUT
+        run: echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/staging/g' | sed 's/v3-release-//g' | sed 's/-v3//g')" >> $GITHUB_OUTPUT
         
       - name: Checkout repo
         uses: actions/checkout@v3
