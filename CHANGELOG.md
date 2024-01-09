@@ -1,6 +1,54 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 1.5.1 - 2023-11-16
+
+### Breaking Changes:
+
+- No Change.
+
+### New features:
+
+- No Change.
+
+### Bug fixes:
+
+- Sped up list actors endpoints with better db call
+- Removing some old code
+- Better deployer
+- t initialization hardened to startup issues
+
+
+## 1.5.0 - 2023-10-24
+
+### Breaking Changes:
+
+- No Change.
+
+### New features:
+
+- No Change.
+
+### Bug fixes:
+
+- No Change.
+
+
+## 1.4.0 - 2023-07-06
+
+### Breaking Changes:
+
+- No Change.
+
+### New features:
+
+- No Change.
+
+### Bug fixes:
+
+- No Change.
+
+
 ## 1.3.1 - 2023-06-06
 
 ### Breaking Changes:

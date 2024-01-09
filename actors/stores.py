@@ -232,6 +232,9 @@ def mongo_initialization():
         time.sleep(3)
 
         try:
+            ### This is legacy code. By setting hostname on the k8 pod object the hostname won't change
+            ### between restarts. So this is no longer needed. But I'm keeping it here for now.
+            #
             # Get the pod hostname (full) for Mongo K8. We have to set the replica set primary host with
             # this, as there's a chance the conf is still pointing at a dead node if you burned down/up
             # This also works for Docker, but it's neccessary for K8.
