@@ -271,28 +271,32 @@ def check_workers(actor_id, ttl):
             except:
                 logger.error("Time received for TTL measurements is not of type datetime.")
                 last_execution = datetime.datetime.min
-            if last_execution + datetime.timedelta(seconds=ttl) < datetime.datetime.utcnow():
+            worker_end_time = last_execution + datetime.timedelta(seconds=ttl)
+            now_time = datetime.datetime.utcnow()
+            if worker_end_time < now_time:
                 # shutdown worker
                 logger.info("Shutting down worker beyond ttl.")
                 shutdown_worker(actor_id, worker_id)
             else:
-                logger.info("Still time left for this worker.")
+                logger.info(f"Worker is within ttl. Leaving worker. worker_end_time: {worker_end_time} < current_time: {now_time}")
 
         if worker['status'] == codes.ERROR:
             # shutdown worker
             logger.info("Shutting down worker in error status.")
             shutdown_worker(actor_id, worker_id)
 
-        # Ensure the worker container still exists on the correct host_id. Workers can be deleted after restarts or crashes.
+
+        ### Ensure the worker container still exists on the correct host_id. Workers can be deleted after restarts or crashes.
+        # Kubernetes container names have to be completely lowercase.
+        if conf.container_backend == 'kubernetes':
+            db_worker_id = worker_id.lower()
+        else:
+            db_worker_id = worker_id
+
         worker_container_found = False
         if worker['host_id'] == conf.spawner_host_id and worker['status'] == 'READY':
             try:
                 for container in worker_containers:
-                    # Kubernete container names have to be completely lowercase.
-                    if conf.container_backend == 'kubernetes':
-                        db_worker_id = worker_id.lower()
-                    else:
-                        db_worker_id = worker_id
                     if db_worker_id in container['worker_id']:
                         worker_container_found = True
                         break
