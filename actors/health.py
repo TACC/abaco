@@ -312,7 +312,10 @@ def check_containers():
     worker_records = workers_store[site()].items()
     worker_ids_in_db = []
     for worker in worker_records:
-        worker_ids_in_db.append(worker['id'].lower())
+        try:
+            worker_ids_in_db.append(worker['id'].lower())
+        except Exception as e:
+            logger.info(f"worker did not have 'id' field: worker: {worker.dict()}")
     logger.info(f"check_containers(). List of all worker_ids found in db: {worker_ids_in_db}")
 
     worker_containers = get_current_worker_containers()
