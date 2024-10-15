@@ -136,6 +136,9 @@ def check_worker_health(worker, ttl):
             # it's possible another health agent already removed the worker record.
             pass
         return None
+    except Exception as e:
+        logger.error(f"Error getting actor_id: {actor_id} tied to worker_id: {worker_id}. error: {e}")
+        return None
 
 def zero_out_workers_db():
     """
