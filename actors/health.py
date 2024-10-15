@@ -315,7 +315,7 @@ def check_containers():
         try:
             worker_ids_in_db.append(worker['id'].lower())
         except Exception as e:
-            logger.info(f"worker did not have 'id' field: worker: {worker.dict()}")
+            logger.info(f"worker did not have 'id' field: worker: {worker}")
     logger.info(f"check_containers(). List of all worker_ids found in db: {worker_ids_in_db}")
 
     worker_containers = get_current_worker_containers()
