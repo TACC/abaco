@@ -35,5 +35,3 @@ elif [ $api = "mes" ]; then
         cd /home/tapis/actors; /usr/local/bin/gunicorn --workers $processes --threads $threads --timeout $timeout -b :5000 message_api:app
     fi
 fi
-
-while true; do sleep 86400; done
