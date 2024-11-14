@@ -69,6 +69,7 @@ def get_worker(wid):
     Check to see if a string `wid` is the id of a worker in the worker store.
     If so, return it; if not, return None.
     """
+    logger.debug(f"top of get_worker for wid: {wid}")
     worker = workers_store[site()].items({'id': wid})
     if worker:
         return worker[0]
@@ -94,6 +95,7 @@ def clean_up_fifo_dirs():
     logger.debug(f"processing fifo_dir: {fifo_dir}")
     for p in os.listdir(fifo_dir):
         # check to see if p is a worker
+        logger.debug(f"Checking if fifodir {p} has an associated worker.")
         worker = get_worker(p)
         if not worker:
             path = os.path.join(fifo_dir, p)
@@ -108,8 +110,8 @@ def clean_up_ipc_dirs():
 def check_worker_health(worker, ttl):
     """Check the specific health of a worker object in the db."""
     logger.debug("top of check_worker_health")
-    actor_id = worker.get('actor_id')
-    worker_id = worker.get('id')
+    actor_id = worker.get('actor_id', '')
+    worker_id = worker.get('id', '')
     logger.info(f"Checking status of worker from db with worker_id: {worker_id}")
     ### This doesn't seem like it should be neccessary, commenting for now. This entire function wasn't
     ### running until May 17th, so the omission should be fine.
