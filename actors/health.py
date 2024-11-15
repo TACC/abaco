@@ -325,20 +325,20 @@ def check_containers():
 
     worker_containers = get_current_worker_containers()
     # We check only by worker_id (not actors-worker-tenant-actor_id-worker_id) because it's easier + better to leave container then delete extras
-    for container in worker_containers:
-        container_worker_id = container['worker_id']
-        if not container_worker_id in worker_ids_in_db:
-            # Couldn't find worker doc matching worker container
-            if conf.container_backend == 'kubernetes':
-                # reconstitute container name actors-worker-<tenant>-<actor-id>-<worker-id>
-                container_id = f"actors-worker-{container['tenant_id']}-{container['actor_id']}-{container_worker_id}"
-                logger.debug(f"Container {container_id} found, but no worker_id == {container_worker_id} found in db. Hanging container, deleting pod.")
-            else: #docker
-                # reconstitute container name worker_<tenant>_<actor-id>_<worker-id>
-                container_id = f"worker_{container['tenant_id']}_{container['actor_id']}_{container_worker_id}"
-                logger.debug(f"Container {container_id} found, but no worker_id == {container_worker_id} found in db. Hanging container, deleting container.")
-            # rm_container is backend specific, but was already imported earlier.
-            rm_container(container_id)
+    # for container in worker_containers:
+    #     container_worker_id = container['worker_id']
+    #     if not container_worker_id in worker_ids_in_db:
+    #         # Couldn't find worker doc matching worker container
+    #         if conf.container_backend == 'kubernetes':
+    #             # reconstitute container name actors-worker-<tenant>-<actor-id>-<worker-id>
+    #             container_id = f"actors-worker-{container['tenant_id']}-{container['actor_id']}-{container_worker_id}"
+    #             logger.debug(f"Container {container_id} found, but no worker_id == {container_worker_id} found in db. Hanging container, deleting pod.")
+    #         else: #docker
+    #             # reconstitute container name worker_<tenant>_<actor-id>_<worker-id>
+    #             container_id = f"worker_{container['tenant_id']}_{container['actor_id']}_{container_worker_id}"
+    #             logger.debug(f"Container {container_id} found, but no worker_id == {container_worker_id} found in db. Hanging container, deleting container.")
+    #         # rm_container is backend specific, but was already imported earlier.
+    #         rm_container(container_id)
 
 def get_host_queues():
     """
