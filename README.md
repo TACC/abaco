@@ -1,13 +1,14 @@
-Abaco
+Abaco - Actor Based Co(mputing)ntainers
 =====
 
-Actor Based Co(mputing)ntainers: Functions-as-a-service using the Actor model.
 
-[![DOCS](https://readthedocs.org/projects/abaco/badge/)](https://tacc-cloud.readthedocs.io/projects/abaco/en/latest/index.html)
 [![DOI](https://zenodo.org/badge/39394579.svg)](https://zenodo.org/badge/latestdoi/39394579)
+[![GitHub tag (latest by date)](https://img.shields.io/github/v/tag/TACC/abaco?label=git%20tag)](https://github.com/TACC/abaco/tags)
+[![Docker Image](https://img.shields.io/docker/v/abaco/core-v3?label=image&sort=semver)](https://hub.docker.com/r/abaco/core-v3/tags)
+[![docs](https://img.shields.io/badge/docs-grey)](https://tapis.readthedocs.io/en/latest/technical/actors.html)
+[![live-docs](https://img.shields.io/badge/live--docs-grey)](https://tapis-project.github.io/live-docs/?service=Actors)
 
-
-Intro
+Abaco - Functions-as-a-service using the Actor model.
 -----
 
 Abaco is a web service and distributed system that combines the actor model of concurrent computation, Linux containers into a web services platform that provides functions-as-a-service. In Abaco, actor registered in the system is associated with a Docker image. Actor containers are executed in response to messages posted to their inbox which itself is given by a URI exposed via Abaco. In the process of executing the actor container, state, logs and execution statistics are collected. Many aspects of the
