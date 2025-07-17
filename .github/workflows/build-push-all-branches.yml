@@ -15,21 +15,28 @@
 name: Build & Push - All Branches
 on:
   push:
-    branches: [ dev-v3, prod-v3, v3-release-* ]
+    tags: [ 'v3-*' ]
+    branches: [ dev-v3, prod-v3 ]
   pull_request:
-    branches: [ dev-v3, prod-v3, v3-release-* ]
+    branches: [ dev-v3, prod-v3 ]
   workflow_dispatch:
+    environment: docker
 
 jobs:
   build-and-push-images:
     runs-on: ubuntu-latest
     environment: docker
     steps:
-      - name: Get tag name from branch. SED removes `v3-release-`; replaces `prod-v3` with `staging`.
+      - name: Get tag or branch name for Docker tag. sed replaces 'prod-v3' with 'staging'. 'dev-v3' becomes 'dev'.
         id: get_tag_name
         shell: bash
-        run: echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/staging/g' | sed 's/v3-release-//g' | sed 's/-v3//g')" >> $GITHUB_OUTPUT
-        
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v3-* ]]; then
+            echo "tag_name=$(echo ${GITHUB_REF#refs/tags/v3-})" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/staging/g' | sed 's/-v3//g')" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout repo
         uses: actions/checkout@v3
 

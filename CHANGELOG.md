@@ -1,44 +1,55 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## 1.7.0 - 2024-09-13
-
+## 1.9.0 - 2025-07-07
 New Release
 
 ### New features:
-
 - No Change.
 
 ### Bug fixes:
+- No Change.
 
+
+## 1.8.0 - 2025-07-sdTODO
+New Release
+
+### New features:
+- No Change.
+
+### Bug fixes:
 - Small health fixes.
 
-## 1.6.0 - 2024-01-24
 
-### Breaking Changes:
-
-- No Change.
+## 1.7.0 - 2024-09-13
+New Release
 
 ### New features:
-
 - No Change.
 
 ### Bug fixes:
+- Small health fixes.
 
+
+## 1.6.0 - 2024-01-24
+### Breaking Changes:
+- No Change.
+
+### New features:
+- No Change.
+
+### Bug fixes:
 - No Change
 
+
 ## 1.5.1 - 2023-11-16
-
 ### Breaking Changes:
-
 - No Change.
 
 ### New features:
-
 - No Change.
 
 ### Bug fixes:
-
 - Sped up list actors endpoints with better db call
 - Removing some old code
 - Better deployer
@@ -46,141 +57,95 @@ New Release
 
 
 ## 1.5.0 - 2023-10-24
-
 ### Breaking Changes:
-
 - No Change.
 
 ### New features:
-
 - No Change.
 
 ### Bug fixes:
-
 - No Change.
 
 
 ## 1.4.0 - 2023-07-06
-
 ### Breaking Changes:
-
 - No Change.
 
 ### New features:
-
 - No Change.
 
 ### Bug fixes:
-
 - No Change.
 
 
 ## 1.3.1 - 2023-06-06
-
 ### Breaking Changes:
-
 - No Change.
 
 ### New features:
-
 - No Change.
 
 ### Bug fixes:
-
 - Health changes to fix hanging DB workers left in SHUTTING_DOWN (we weren't running health checks on workers with an actor_id that does not exist).
 - Health changes to fix worker containers existing without a db record. This edit improves the already existing healthcheck to be more broad.
 - Autoscaling/Cron are now called by sh and not prometheus. Slimming down deployment and simplifying logic. API logic had the tendency to "clog".
 
 
 ## 1.3.0 - 2023-03-09
-
 ### Breaking Changes:
-
 - No Change.
 
 ### New features:
-
 - Now using g.request_username instead of g.username alongside new tapisservice 1.3.0.
 
 ### Bug fixes:
-
 - Can now be used without setting `conf.web_encryption_key`
 - Removed usage of `conf.web_apim_public_key`, a vestige of V2.
 
+
 ## 1.2.0 - 2022 H2 (I don't quite remember)
-
 ### Breaking Changes:
-
 - No Change.
 
 ### New features:
-
 - No Change.
 
 ### Bug fixes:
-
 - No Change.
 
 
 ## 1.1.1 - 2022-04-14 (Pre-release for 1.2.0)
-
 ### Breaking Changes:
-
 - Configuration now required to use Abaco with docker from the get go.
 
 ### New features:
-
 - New Makefile with ability to manage Kubernetes
 - New code organization
 - Abaco can now use Kubernetes as a backend. This requires deployment on minikube and setting config.json `backend_container=kubernetes`.
 
 ### Bug fixes:
-
 - No Change.
 
 
 ## 1.0.2 - 2022-01-06 (Pre-release for 1.1.0)
-
 ### Breaking Changes:
-
 - No change.
 
 ### New features:
-
 - Abaco now relies on new Tapipy (w/Plugins) support. Now referencing tapisservice rather than common and built off the flaskbase-plugins image.
 
 ### Bug fixes:
-
-- No Change.
-
-
-## 1.0.0 - 2021-09-24
-
-### Breaking Changes:
-
-- No Change.
-
-### New features:
-
-- Initial 1.0.0 changelog.
-
-### Bug fixes:
-
 - No Change.
 
 
 ## 1.0.1 - 2021-09-28
-
 ### Breaking Changes:
-
 - No change.
 
 ### New features:
-
 - No change.
 
 ### Bug fixes:
-
 - New autoscaler logic. Simplified and streamlined, got ride of guage usage, should be much more readable and reliable.
 - Added site support for autoscaler, now it'll work on all sites that Abaco is residing over.
 - `py3_func_v3` sample image updated to not crash when `cwd` input is `None`.
@@ -188,20 +153,14 @@ New Release
 
 
 ## 1.0.0 - 2021-09-24
-
 ### Breaking Changes:
-
 - No Change.
 
 ### New features:
-
 - Initial 1.0.0 changelog.
 
 ### Bug fixes:
-
 - No Change.
-
-
 
 
 # ARCHIVE
