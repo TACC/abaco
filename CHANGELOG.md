@@ -1,6 +1,16 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 25Q4.0 - 2025-10-20
+New Release
+
+### New features:
+- No Change.
+
+### Bug fixes:
+- No Change.
+
+
 ## 1.9.0 - 2025-07-07
 New Release
 
