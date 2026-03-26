@@ -112,12 +112,45 @@ def display_time(t):
     return dt
 
 
+# $facet returns the whole page as one document, which is subject to the 16MB BSON cap;
+# bound the page size instead of letting limit=10000000 fail (or succeed slowly).
+SEARCH_MAX_LIMIT = int(conf.get('search_max_limit') or 1000)
+
+
+def parse_actor_id_filter_value(tenant, key, val):
+    """Turn a user-supplied actor_id search value into what Mongo stores (the dbid,
+    "<tenant>_<id>"). This is the ONE place search prefixes actor ids:
+    - a plain id is prefixed; a value already prefixed with "<tenant>_" (the per-actor
+      endpoints pass g.db_id, and older clients pass dbids) is left alone;
+    - .in/.nin take a JSON list and are mapped element-wise, after parsing;
+    - .like/.nlike are regexes and are passed through unchanged (an unanchored pattern
+      already matches inside the dbid).
+    """
+    if '.like' in key or '.nlike' in key:
+        return val
+    if isinstance(val, str) and val.strip().startswith('['):
+        try:
+            val = json.loads(val.replace("'", '"'))
+        except json.JSONDecodeError:
+            pass
+    prefix = f'{tenant}_'
+
+    def one(v):
+        if isinstance(v, str) and not v.startswith(prefix):
+            return prefix + v
+        return v
+    if isinstance(val, list):
+        return [one(v) for v in val]
+    return one(val)
+
+
 class Search():
-    def __init__(self, args, search_type, tenant, user):
+    def __init__(self, args, search_type, tenant, user, admin=False):
         self.args = args
         self.search_type = search_type.lower()
         self.tenant = tenant
         self.user = user
+        self.admin = admin
 
     def search(self):
         """
@@ -126,20 +159,48 @@ class Search():
         to first perform a full-text search. Following that permissions are
         checked, variable matching is attempted, logical operators are attempted,
         and truncation is performed.
+
+        Uses $facet to perform server-side sort, skip, limit, and total_count
+        in a single aggregation round trip.
         """
         logger.info(f'Received a request to search. Search type: {self.search_type}')
 
         queried_store, security = self.get_db_specific_sections()
-        search, query, skip, limit = self.arg_parser()
+        search, query, skip, limit, sort_by, order_by = self.arg_parser()
 
-        # Pipeline initially made use of 'project', I've opted to instead
-        # do all post processing in 'post_processing()' for simplicity.
-        pipeline = search + query + security
+        # Build sort stage: user-specified sort takes priority, then textScore (applied in
+        # arg_parser's $text stage). Both carry an _id tiebreaker: without a total order,
+        # $sort + $skip/$limit can return the same document on two pages and skip another.
+        sort_stage = []
+        if sort_by:
+            direction = 1 if order_by == 'asc' else -1
+            sort_stage = [{'$sort': {sort_by: direction, '_id': 1}}]
+
+        # Use $facet to get total_count and paginated data in one query.
+        # TODO: the compound (tenant/actor_id, <time field>) indexes added in stores.py for
+        # this paging are probably unused: the pipeline starts with $text, so the planner
+        # picks the text index, and the $sort inside $facet runs in memory. Verify with
+        # explain() against a populated store before relying on (or dropping) them.
+        base_pipeline = search + query + security
+        pipeline = base_pipeline + [
+            {'$facet': {
+                'metadata': [{'$count': 'total_count'}],
+                'data': sort_stage + [{'$skip': skip}, {'$limit': limit}]
+            }}
+        ]
         start = time.time()
-        full_search_res = list(queried_store.aggregate(pipeline))
-        logger.info(f'Got search response in {time.time() - start} seconds.'\
-                    f'Pipeline: {pipeline} First two results: {full_search_res[0:1]}')
-        final_result = self.post_processing(full_search_res, skip, limit)
+        facet_result = list(queried_store.aggregate(pipeline))
+        logger.info(f'Got search response in {time.time() - start} seconds. '
+                    f'Pipeline: {pipeline}')
+
+        # Extract results from $facet output.
+        if facet_result and facet_result[0].get('metadata'):
+            total_count = facet_result[0]['metadata'][0]['total_count']
+        else:
+            total_count = 0
+        full_search_res = facet_result[0].get('data', []) if facet_result else []
+
+        final_result = self.post_processing(full_search_res, total_count, skip, limit)
         return final_result
 
     def get_db_specific_sections(self):
@@ -158,20 +219,24 @@ class Search():
         try:
             queried_store = store_dict[self.search_type]
         except KeyError:
-            raise KeyError(f"Inputted search_type is invalid, must"\
-                            " be one of {list(store_dict.keys())}.")
+            raise ResourceError(f"Inputted search_type is invalid, must"
+                                f" be one of {list(store_dict.keys())}.", 400)
         
-        localField = 'actor_id'
-        if self.search_type =='actors':
-            localField = '_id'
-        security = [{'$match': {'tenant': self.tenant}},
-                    {'$lookup':
-                        {'from' : 'permissions_store',
-                        'localField' : localField,
-                        'foreignField' : '_id',
-                        'as' : 'permissions'}},
-                    {'$unwind': '$permissions'},
-                    {'$match': {'permissions.' + self.user: {'$exists': True}}}]
+        # Admins get tenant-wide access; non-admins are filtered by permissions.
+        if self.admin:
+            security = [{'$match': {'tenant': self.tenant}}]
+        else:
+            localField = 'actor_id'
+            if self.search_type =='actors':
+                localField = '_id'
+            security = [{'$match': {'tenant': self.tenant}},
+                        {'$lookup':
+                            {'from' : 'permissions_store',
+                            'localField' : localField,
+                            'foreignField' : '_id',
+                            'as' : 'permissions'}},
+                        {'$unwind': '$permissions'},
+                        {'$match': {'permissions.' + self.user: {'$exists': True}}}]
 
         return queried_store, security
 
@@ -190,6 +255,9 @@ class Search():
         # Initial paging settings
         skip_amo = 0
         limit_amo = 100
+        # Sort settings
+        sort_by = None
+        order_by = 'desc'
 
         # Converts everything to snake case as that's what Mongo holds.
         # This means that snake case input will always work, but not camel case.
@@ -202,7 +270,7 @@ class Search():
         # Checks each key given by the requests query parameters.
         for key, val in self.args.items():
             # Ignores x-nonce as that's for Abaco authentication, not search.
-            if key == "x-nonce":
+            if key == "x-nonce" or key == "x-actors-admin":
                 pass
             # Adds vals matched to 'search' to the 'search' string which will
             # later be added to the pipeline
@@ -224,21 +292,49 @@ class Search():
                 try:
                     val = int(val)
                 except ValueError:
-                    raise ValueError(f'Inputted "{key}" paramater must be an int. Received: {val}')
+                    raise ResourceError(f'Inputted "{key}" paramater must be an int. Received: {val}', 400)
                 if val < 0:
-                    raise ValueError(f'Inputted "{key}" must be positive. Received: {val}')
+                    raise ResourceError(f'Inputted "{key}" must be positive. Received: {val}', 400)
                 if key == "skip":
                     skip_amo = val
                 if key == "limit":
-                    limit_amo = val
+                    if val == 0:
+                        # $limit: 0 is a Mongo error; the old code returned everything.
+                        raise ResourceError('Inputted "limit" must be at least 1. Received: 0', 400)
+                    # clamp rather than reject; record_limit in the response metadata
+                    # shows the effective page size.
+                    limit_amo = min(val, SEARCH_MAX_LIMIT)
+            elif key == "sort_by":
+                allowed_sort_fields = [
+                    'create_time', 'last_update_time', 'start_time', 'finish_time',
+                    'message_received_time', 'last_execution_time', 'last_health_check_time',
+                    'name', 'image', 'status', 'owner', 'id', 'runtime', 'cpu', 'io',
+                    'worker_id', 'executor', 'exit_code'
+                ]
+                if val not in allowed_sort_fields:
+                    raise ResourceError(f'Inputted sort_by field "{val}" is not allowed. '
+                                     f'Allowed fields: {allowed_sort_fields}', 400)
+                sort_by = val
+            elif key == "order_by":
+                if val.lower() not in ('asc', 'desc'):
+                    raise ResourceError(f'Inputted order_by must be "asc" or "desc". Received: {val}', 400)
+                order_by = val.lower()
             else:
+                # The actor_id field is stored in Mongo as a db_id (e.g. "tenant_hashid"),
+                # but users pass the human-readable id. parse_actor_id_filter_value parses
+                # the value (a string, or a JSON list for .in/.nin) and THEN prefixes it
+                # element-wise. No float/bool coercion: an id is always a string.
+                is_actor_id_key = key.split('.')[0] == 'actor_id'
+
                 # Keys in the mongo db that should neccessitate datetime objects.
                 time_keys = ['start_time', 'message_received_time', 'last_execution_time',
                             'last_update_time', 'StartedAt', 'FinishedAt', 'create_time',
                             'last_health_check_time']
                 # Trying lots of types to parse inputted strings.
+                if is_actor_id_key:
+                    val = parse_actor_id_filter_value(self.tenant, key, val)
                 # Boolean check
-                if val.lower() == 'false':
+                elif val.lower() == 'false':
                     val = False
                 elif val.lower() == 'true':
                     val = True
@@ -251,7 +347,7 @@ class Search():
                 elif any(time_key in key for time_key in time_keys):
                     if '.between' in key:
                         if not ',' in val:
-                            raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                            raise ResourceError('Between must have two variables seperated by a comma. Ex. io.between=20,40', 400)
                         time1, time2 = val.split(',')
                         time1 = self.broad_ISO_to_datetime(time1)
                         time2 = self.broad_ISO_to_datetime(time2)
@@ -294,17 +390,17 @@ class Search():
                                 key = key.split('.between')[0]
                                 query += [{'$match': {key: {'$gte': val[0], '$lte': val[1]}}}]
                             else:
-                                raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
+                                raise ResourceError("The values given to .between should be either float or ISO 8601 datetime.", 400)
                         else:
                             if not ',' in val:
-                                raise ValueError('Between must have two variables seperated by a comma. Ex. io.between=20,40')
+                                raise ResourceError('Between must have two variables seperated by a comma. Ex. io.between=20,40', 400)
                             key = key.split('.between')[0]
                             val1, val2 = val.split(',')
                             try:
                                 val1 = float(val1)
                                 val2 = float(val2)
                             except ValueError:
-                                raise ValueError("The values given to .between should be either float or ISO 8601 datetime.")
+                                raise ResourceError("The values given to .between should be either float or ISO 8601 datetime.", 400)
                             query += [{'$match': {key: {'$gte': val1, '$lte': val2}}}]
                     # '.nlike' requires some regex magic to attempt parity with SQL "nlike"
                     elif '.nlike' in key:
@@ -321,10 +417,10 @@ class Search():
         # As mentioned, search gets added to the stanza and sort is done by
         # textScore. Always is done as search always include tenant for speed.
         search = [{'$match': {'$text': {'$search': search}}},
-                  {'$sort': {'score': {'$meta': 'textScore'}}}]
-        return search, query, skip_amo, limit_amo
+                  {'$sort': {'score': {'$meta': 'textScore'}, '_id': 1}}]
+        return search, query, skip_amo, limit_amo, sort_by, order_by
 
-    def post_processing(self, search_list, skip, limit):
+    def post_processing(self, search_list, total_count, skip, limit):
         """
         This function performs post processing on the results. Post processing
         entails fixing times to display_times, changing case, eliminated
@@ -332,9 +428,6 @@ class Search():
         is dependent on the search_type performed.
         """
         logger.info(f'Starting post_processing for search with search_type: {self.search_type}')
-
-        total_count = len(search_list)
-        search_list = search_list[skip: skip + limit]
 
         # Does post processing on execution db searches.
         if self.search_type == 'executions':
@@ -443,7 +536,9 @@ class Search():
         metadata = {"total_count": total_count,
                     "records_skipped": skip,
                     "record_limit": limit,
-                    "count_returned": len(search_list)}
+                    "count_returned": len(search_list),
+                    "search_type": self.search_type,
+                    "tenant": self.tenant}
         if case == 'camel':
             case_corrected_metadata = dict_to_camel(metadata)
         else:
@@ -453,6 +548,12 @@ class Search():
         # _metadata and search for the search results.
         final_result = {"_metadata": case_corrected_metadata,
                         "search": case_corrected_list}
+
+        if self.admin:
+            final_result["_admin_metadata"] = {
+                "admin_search": True
+            }
+
         return final_result
 
     def broad_ISO_to_datetime(self, dt_str):
@@ -494,9 +595,9 @@ class Search():
             except:
                 pass
         # If no parse was successful, error!
-        raise ValueError("Inputted datetime was in an incorrect format."\
+        raise ResourceError("Inputted datetime was in an incorrect format."\
                         " Please refer to docs and follow ISO 8601 formatting."\
-                        " e.g. '2020-05-01T14:45:41.591Z'")
+                        " e.g. '2020-05-01T14:45:41.591Z'", 400)
 
 
 class Event(object):
@@ -986,6 +1087,12 @@ class Actor(AbacoDAO):
     def display(self):
         """Return a representation fit for display."""
         self.update(self.get_hypermedia())
+        # Resolve effective log_ex so the API never returns null when a default applies.
+        if not self.get('log_ex'):
+            try:
+                self['log_ex'] = Actor.get_actor_log_ttl(self['db_id'])
+            except Exception:
+                pass
         self.pop('db_id')
         self.pop('executions')
         self.pop('tenant')

@@ -317,6 +317,17 @@ def mongo_index_initialization():
         actors_store[site].create_index([('$**', TEXT)])
         workers_store[site].create_index([('$**', TEXT)])
 
+        # Compound indexes for sorted/paginated search queries
+        actors_store[site].create_index([('tenant', 1), ('create_time', -1)])
+        actors_store[site].create_index([('tenant', 1), ('last_update_time', -1)])
+        actors_store[site].create_index([('tenant', 1), ('name', 1)])
+        actors_store[site].create_index([('tenant', 1), ('status', 1)])
+        executions_store[site].create_index([('tenant', 1), ('start_time', -1)])
+        executions_store[site].create_index([('tenant', 1), ('message_received_time', -1)])
+        executions_store[site].create_index([('actor_id', 1), ('start_time', -1)])
+        workers_store[site].create_index([('tenant', 1), ('create_time', -1)])
+        workers_store[site].create_index([('actor_id', 1), ('status', 1)])
+
 def role_initialization():
     """
     Creating roles at reg startup so that we can insure they always exist and that they're in all tenants from now on.

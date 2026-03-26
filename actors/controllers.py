@@ -54,13 +54,38 @@ logger.info(f"METRICS - running with ACTOR_MAX_WORKERS = {ACTOR_MAX_WORKERS}")
 
 num_init_workers = conf.worker_init_count
 
+# Query params that never make a list endpoint a search: x-nonce authenticates and
+# x-actors-admin only widens the scope of a search. Any other param switches GET /actors,
+# /executions, /logs and /workers from the list shape to the {_metadata, search} shape.
+NON_SEARCH_ARGS = ('x-nonce', 'x-actors-admin')
+
+
+def is_search_request(args):
+    """True when the request carries at least one real search/filter parameter."""
+    return any(k not in NON_SEARCH_ARGS for k in args)
+
+
+def admin_search_scope():
+    """Tenant-wide (admin) search scope only when explicitly requested -- X-Actors-Admin
+    header or x-actors-admin query param -- AND the user has the admin role. Never for a
+    nonce-authenticated request: a nonce grants access to one actor, but authorization()
+    computes the nonce owner's roles, so an admin's webhook nonce would otherwise read every
+    actor's executions, workers and logs in the tenant."""
+    if 'x-nonce' in request.args:
+        return False
+    admin_requested = request.headers.get('X-Actors-Admin', '').lower() == 'true' or \
+                      request.args.get('x-actors-admin', '').lower() == 'true'
+    return bool(getattr(g, 'admin', False)) and admin_requested
+
+
 class SearchResource(Resource):
     def get(self, search_type):
         """
         Does a broad search with args and search_type passed to this resource.
         """
         args = request.args
-        result = Search(args, search_type, g.request_tenant_id, g.request_username).search()
+        use_admin = admin_search_scope()
+        result = Search(args, search_type, g.request_tenant_id, g.request_username, use_admin).search()
         return ok(result=result, msg="Search completed successfully.")
 
 
@@ -808,11 +833,12 @@ class ActorsResource(Resource):
 
     def get(self):
         logger.debug("top of GET /actors")
-        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+        if is_search_request(request.args):
             args_given = request.args
             args_full = {}
             args_full.update(args_given)
-            result = Search(args_full, 'actors', g.request_tenant_id, g.request_username).search()
+            use_admin = admin_search_scope()
+            result = Search(args_full, 'actors', g.request_tenant_id, g.request_username, use_admin).search()
             return ok(result=result, msg="Actors search completed successfully.")
         else:
             # Pipeline puts permissions.user = "level" on actor obj.
@@ -1469,11 +1495,14 @@ class ActorConfigResource(Resource):
 class ActorExecutionsResource(Resource):
     def get(self, actor_id):
         logger.debug(f"top of GET /actors/{actor_id}/executions")
-        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+        if is_search_request(request.args):
             args_given = request.args
-            args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}'}
+            # g.db_id is the auth-resolved dbid; Search's parse_actor_id_filter_value leaves an
+            # already-prefixed id alone, so the prefix is applied exactly once.
+            args_full = {'actor_id': g.db_id}
             args_full.update(args_given)
-            result = Search(args_full, 'executions', g.request_tenant_id, g.request_username).search()
+            use_admin = admin_search_scope()
+            result = Search(args_full, 'executions', g.request_tenant_id, g.request_username, use_admin).search()
             return ok(result=result, msg="Executions search completed successfully.")
         else:
             dbid = g.db_id
@@ -1684,11 +1713,13 @@ class ActorExecutionLogsResource(Resource):
                                'execution': f'{actor.api_server}/v3/actors/{actor.id}/executions/{exc.id}'},
                     }
         logger.debug(f"top of GET /actors/{actor_id}/executions/{execution_id}/logs.")
-        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+        if is_search_request(request.args):
             args_given = request.args
-            args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}', '_id': execution_id}
+            # g.db_id: see ActorExecutionsResource.get.
+            args_full = {'actor_id': g.db_id, '_id': execution_id}
             args_full.update(args_given)
-            result = Search(args_full, 'logs', g.request_tenant_id, g.request_username).search()
+            use_admin = admin_search_scope()
+            result = Search(args_full, 'logs', g.request_tenant_id, g.request_username, use_admin).search()
             return ok(result=result, msg="Log search completed successfully.")
         else:
             dbid = g.db_id
@@ -1991,11 +2022,14 @@ class MessagesResource(Resource):
 class WorkersResource(Resource):
     def get(self, actor_id):
         logger.debug(f"top of GET /actors/{actor_id}/workers for tenant {g.request_tenant_id}.")
-        if len(request.args) > 1 or (len(request.args) == 1 and not 'x-nonce' in request.args):
+        if is_search_request(request.args):
             args_given = request.args
-            args_full = {'actor_id': f'{g.request_tenant_id}_{actor_id}'}
+            # g.db_id is the auth-resolved dbid; Search's parse_actor_id_filter_value leaves an
+            # already-prefixed id alone, so the prefix is applied exactly once.
+            args_full = {'actor_id': g.db_id}
             args_full.update(args_given)
-            result = Search(args_full, 'workers', g.request_tenant_id, g.request_username).search()
+            use_admin = admin_search_scope()
+            result = Search(args_full, 'workers', g.request_tenant_id, g.request_username, use_admin).search()
             return ok(result=result, msg="Workers search completed successfully.")
         else:
             dbid = g.db_id
