@@ -16,6 +16,7 @@ import datetime
 import copy
 
 import channelpy
+import rabbit_mgmt
 
 from auth import get_tenants, get_tenant_verify
 import codes
@@ -62,7 +63,11 @@ def check_workers_store(ttl):
     logger.debug("Top of check_workers_store.")
     """Run through all workers in workers_store[site()] and ensure there is no data integrity issue."""
     for worker in workers_store[site()].items():
-        check_worker_health(worker, ttl)
+        try:
+            check_worker_health(worker, ttl)
+        except Exception as e:
+            worker_id = worker.get('id', 'unknown') if isinstance(worker, dict) else 'unknown'
+            logger.error(f"Exception in check_workers_store for worker {worker_id}: {e}")
 
 def get_worker(wid):
     """
@@ -152,6 +157,20 @@ def zero_out_workers_db():
     for worker in workers_store[site()].items(proj_inp=None):
         del workers_store[site()][worker['_id']]
 
+def delete_worker_rabbit_queues(worker_id):
+    """
+    Delete a worker's rabbit queues (worker_<id> and spawner_worker_<id>) via the management API.
+    A hard-deleted worker never consumes or deletes its own queues, so without this the durable
+    queues live in the broker forever.
+    """
+    for queue_name in (f"worker_{worker_id}", f"spawner_worker_{worker_id}"):
+        try:
+            if rabbit_mgmt.delete_queue(site(), queue_name):
+                logger.info(f"deleted rabbit queue {queue_name} for hard-deleted worker {worker_id}")
+        except Exception as e:
+            logger.error(f"Could not delete rabbit queue {queue_name}; e: {e}")
+
+
 def hard_delete_worker(actor_id, worker_id, worker_container_id=None, reason_str=None):
     """
     Hard delete of worker from the db. Will also try to hard remove the worker container id, if one is passed,
@@ -173,6 +192,12 @@ def hard_delete_worker(actor_id, worker_id, worker_container_id=None, reason_str
         logger.info(f"worker {worker_id} deleted from store")
     except Exception as e:
         logger.error(f"Got exception trying to delete worker: {worker_id}; exception: {e}")
+        # Fallback: try direct DB delete by _id in case the record is too corrupt for normal deletion
+        try:
+            workers_store[site()]._db.delete_one({'_id': f'{actor_id}_{worker_id}'})
+            logger.info(f"worker {worker_id} deleted via direct DB fallback")
+        except Exception as e2:
+            logger.error(f"Direct DB fallback also failed for worker {worker_id}: {e2}")
 
     # also try to delete container --
     if worker_container_id:
@@ -182,6 +207,9 @@ def hard_delete_worker(actor_id, worker_id, worker_container_id=None, reason_str
         except Exception as e:
             logger.error(f"Got exception trying to delete worker container; worker: {worker_id}; "
                          f"container: {worker_container_id}; exception: {e}")
+
+    # also delete the worker's rabbit queues; nothing else ever will --
+    delete_worker_rabbit_queues(worker_id)
 
 
 def check_workers(actor_id, ttl):
@@ -204,9 +232,25 @@ def check_workers(actor_id, ttl):
             container["pod"] = "Removed due to length (around 200 lines for pod data)"
         logger.info(f"Health: worker_containers for host_id {conf.spawner_host_id}: {loggable_worker_containers}")
 
+    # set when rabbit is unreachable: skip the remaining channel-based health checks this
+    # cycle, but keep running the TTL / ERROR / container checks for every worker.
+    rabbit_unreachable = False
     for worker in workers:
-        worker_id = worker['id']
-        worker_status = worker.get('status')
+        try:
+            worker_id = worker['id']
+            worker_status = worker.get('status')
+        except (KeyError, TypeError) as e:
+            # Corrupt worker record (missing 'id' or not a dict). Clean it up and move on.
+            logger.error(f"Corrupt worker record for actor {actor_id}: {worker}. Exception: {e}. Attempting cleanup.")
+            try:
+                # worker['id'] just failed, so there is no worker id to hard-delete by;
+                # remove the record by its _id.
+                if isinstance(worker, dict) and worker.get('_id'):
+                    workers_store[site()]._db.delete_one({'_id': worker['_id']})
+                    logger.info(f"Deleted corrupt worker record by _id: {worker.get('_id')}")
+            except Exception as cleanup_e:
+                logger.error(f"Failed to clean up corrupt worker record: {cleanup_e}")
+            continue
         # if the worker has only been requested, it will not have a host_id. it is possible
         # the worker will ultimately get scheduled on a different host; however, if there is
         # some issue and the worker is "stuck" in the early phases, we should remove it..
@@ -233,8 +277,12 @@ def check_workers(actor_id, ttl):
             worker_last_health_check_time = worker.get('last_health_check_time') or worker.get('create_time')
             if not worker_last_health_check_time:
                 hard_delete_worker(actor_id, worker_id, reason_str='Worker in SHUTDOWN and no health checks.')
+                # worker is gone; without this continue, the WorkerChannel construction below would
+                # re-declare the deleted worker's durable queue, orphaning it in rabbit forever.
+                continue
             elif worker_last_health_check_time < (get_current_utc_time() - datetime.timedelta(minutes=5)):
                 hard_delete_worker(actor_id, worker_id, reason_str='Worker in SHUTDOWN for too long.')
+                continue
 
         # check if the worker has not responded to a health check recently; we use a relatively long period
         # (60 minutes) of idle health checks in case there is an issue with sending health checks through rabbitmq.
@@ -243,21 +291,34 @@ def check_workers(actor_id, ttl):
         if not worker_last_health_check_time or \
                 (worker_last_health_check_time < get_current_utc_time() - datetime.timedelta(minutes=60)):
             hard_delete_worker(actor_id, worker_id, reason_str='Worker has not health checked for too long.')
+            continue
 
-        # first send worker a health check
-        logger.info(f"sending worker {worker_id} a health check")
-        ch = WorkerChannel(worker_id=worker_id)
-        try:
-            logger.debug(f"Issuing status check to channel: {worker['ch_name']}")
-            ch.put('status')
-        except (channelpy.exceptions.ChannelTimeoutException, Exception) as e:
-            logger.error(f"Got exception of type {type(e)} trying to send worker {worker_id} a "
-                         f"health check. e: {e}")
-        finally:
+        # first send worker a health check (skipped once rabbit proved unreachable this cycle)
+        if rabbit_unreachable:
+            logger.debug(f"skipping channel health check for worker {worker_id}; rabbit unreachable.")
+        else:
+            logger.info(f"sending worker {worker_id} a health check")
             try:
-                ch.close()
+                ch = WorkerChannel(worker_id=worker_id)
+                try:
+                    logger.debug(f"Issuing status check to channel: {worker['ch_name']}")
+                    ch.put('status')
+                except (channelpy.exceptions.ChannelTimeoutException, Exception) as e:
+                    logger.error(f"Got exception of type {type(e)} trying to send worker {worker_id} a "
+                                 f"health check. e: {e}")
+                finally:
+                    try:
+                        ch.close()
+                    except Exception as e:
+                        logger.error(f"Got an error trying to close the worker channel for dead worker. Exception: {e}")
+            except (RuntimeError, ConnectionResetError, OSError) as e:
+                # was `break`, which also skipped the TTL / ERROR / container checks below
+                # for every remaining worker of this actor.
+                logger.critical(f"RabbitMQ unreachable during health check for worker {worker_id}: {e}. "
+                                f"Skipping remaining channel-based health checks this cycle.")
+                rabbit_unreachable = True
             except Exception as e:
-                logger.error(f"Got an error trying to close the worker channel for dead worker. Exception: {e}")
+                logger.error(f"Could not create WorkerChannel for worker {worker_id}: {e}")
 
         # now check if the worker has been idle beyond the max worker_ttl configured for this abaco:
         if ttl < 0:
@@ -434,6 +495,42 @@ def shutdown_all_workers():
     for actor_id in actors_with_workers:
         check_workers(actor_id, 0)
 
+def check_orphan_worker_queues():
+    """
+    Sweep the broker for worker_*/spawner_worker_* queues whose worker no longer exists in the
+    workers store and delete them. Catches every path that leaves a durable queue behind (worker
+    crash, container kill, host restart) and cleans up queues orphaned before this fix shipped.
+    A live worker is always in the store before its queues are declared (REQUESTED precedes queue
+    creation), so anything unknown to the store is safe to remove.
+    """
+    try:
+        queues = rabbit_mgmt.list_queues(site(), ("name", "consumers"))
+    except Exception as e:
+        logger.error(f"check_orphan_worker_queues could not list queues; e: {e}")
+        return
+    live_worker_ids = {w.get('id') for w in workers_store[site()].items(proj_inp={'id': 1})}
+    deleted = 0
+    for q in queues:
+        name = q.get('name', '')
+        if name.startswith('spawner_worker_'):
+            worker_id = name[len('spawner_worker_'):]
+        elif name.startswith('worker_'):
+            worker_id = name[len('worker_'):]
+        else:
+            continue
+        # only touch queues with no consumer whose worker is unknown to the store
+        if q.get('consumers') or worker_id in live_worker_ids:
+            continue
+        try:
+            if rabbit_mgmt.delete_queue(site(), name, if_unused=True):
+                deleted += 1
+                logger.info(f"deleted orphan queue {name}; worker {worker_id} not in workers store.")
+        except Exception as e:
+            logger.error(f"could not delete orphan queue {name}; e: {e}")
+    if deleted:
+        logger.info(f"check_orphan_worker_queues deleted {deleted} orphan queue(s).")
+
+
 def main():
     logger.info(f"Running abaco health checks. Now: {time.time()}")
     if conf.container_backend == 'docker':
@@ -460,6 +557,9 @@ def main():
 
     # Check health of all workers, even if not connected to an actor.
     check_workers_store(ttl)
+
+    # Remove rabbit queues left behind by workers that no longer exist.
+    check_orphan_worker_queues()
 
 if __name__ == '__main__':
     main()

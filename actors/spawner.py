@@ -156,6 +156,15 @@ class Spawner(object):
                          f"actor_id: {actor_id}; worker_id: {worker_id}; e: {e}")
             return
 
+        # Validate that the retrieved worker has required fields; corrupt records should be cleaned up.
+        if not isinstance(worker, dict) or not worker.get('status') or not worker.get('id'):
+            logger.error(f"spawner found corrupt worker record for {actor_id}_{worker_id}: {worker}. Deleting.")
+            try:
+                Worker.delete_worker(actor_id, worker_id, site_id)
+            except Exception:
+                pass
+            return
+
         status = worker.get('status')
         if not status == REQUESTED:
             logger.debug(f"worker was NOT in REQUESTED status. status: {status}")

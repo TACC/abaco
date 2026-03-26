@@ -1993,18 +1993,16 @@ class Worker(AbacoDAO):
 
     @classmethod
     def delete_worker(cls, actor_id, worker_id, site_id=None):
-        """Deletes a worker from the worker store. Uses Redis optimistic locking to provide thread-safety since multiple
-        clients could be attempting to delete workers at the same time. Pass db_id as `actor_id`
-        parameter.
+        """Deletes a worker from the worker store. Idempotent — returns gracefully if the worker
+        is already gone. Pass db_id as `actor_id` parameter.
         """
         site_id = site_id or site()
         logger.debug(f"top of delete_worker(). actor_id: {actor_id}; worker_id: {worker_id}")
         try:
             wk = workers_store[site_id].pop_field([f'{actor_id}_{worker_id}'])
             logger.info(f"worker deleted. actor: {actor_id}. worker: {worker_id}.")
-        except KeyError as e:
-            logger.info(f"KeyError deleting worker. actor: {actor_id}. worker: {actor_id}. exception: {e}")
-            raise errors.WorkerException("Worker not found.")
+        except KeyError:
+            logger.warning(f"delete_worker called but worker already gone. actor: {actor_id}. worker: {worker_id}.")
 
     @classmethod
     def ensure_one_worker(cls, actor_id, tenant, site_id=None):

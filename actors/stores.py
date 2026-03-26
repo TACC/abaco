@@ -68,7 +68,9 @@ def rabbit_initialization():
 
         # Creating the subprocess call (Has to be str, list not working due to docker
         # aliasing of rabbit with it's IP address (Could work? But this works too.).).
-        fn_call = f'/home/tapis/rabbitmqadmin -H {rabbit_dash_host} '
+        # same port as every other management-API caller (rabbit_mgmt.py); rabbitmqadmin defaults to 15672
+        rabbit_dash_port = int(conf.get('rabbit_dash_port') or 15672)
+        fn_call = f'/home/tapis/rabbitmqadmin -H {rabbit_dash_host} -P {rabbit_dash_port} '
 
         # Get admin credentials from rabbit_uri. Add auth to fn_call.
         # Note: If admin password not set in rabbit env with compose the user and pass
