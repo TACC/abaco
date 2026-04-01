@@ -60,6 +60,54 @@ TOKEN_RE = re.compile('Bearer (.+)')
 
 WORLD_USER = 'ABACO_WORLD'
 
+# ---------------------------------------------------------------------------
+# TEMPORARY admin override (trust-model change).
+#
+# The Abaco service account is no longer a protected/privileged SK account, so
+# t.sk.grantRole() across tenants fails and the abaco_admin role can no longer
+# be granted through SK (see role_initialization() in stores.py, which is now
+# best-effort). Until the role-granting logic is reworked, the users below are
+# treated as Abaco admins locally, without consulting SK.
+#
+# The list comes from config -- admin_usernames, default empty -- so a deployment
+# grants admin without a code change and nothing personal is hard-coded in the
+# repo. Entries are TENANT-QUALIFIED, "<tenant_id>:<username>": usernames are only
+# unique within a tenant, so a bare username would make every same-named user in
+# every tenant an admin. A malformed value fails at import rather than being
+# silently ignored (or, for a string, silently turned into a substring test). It is THE single point of the override: applied in get_user_sk_roles()
+# by injecting codes.ADMIN_ROLE into g.roles, so every downstream check
+# (authorization(), check_privileged(), check_permissions(),
+# check_config_permissions(), and the roles passed through controllers.py)
+# sees it the same way a real SK grant would. Remove this mechanism -- and
+# nothing else -- once SK grants work again.
+# ---------------------------------------------------------------------------
+def parse_admin_usernames(value):
+    """Validate the admin_usernames config and return a frozenset of "<tenant>:<username>"
+    entries. Raises ValueError with a clear message on anything else."""
+    if value is None:
+        return frozenset()
+    if not isinstance(value, list):
+        raise ValueError(f"admin_usernames config must be a list of \"<tenant_id>:<username>\" "
+                         f"strings; got {type(value).__name__}: {value!r}")
+    entries = set()
+    for entry in value:
+        if not isinstance(entry, str):
+            raise ValueError(f"admin_usernames entries must be strings; got {entry!r}")
+        tenant, sep, username = entry.strip().partition(':')
+        if not sep or not tenant or not username or ':' in username:
+            raise ValueError(f"admin_usernames entry {entry!r} is not \"<tenant_id>:<username>\"; "
+                             f"bare usernames are no longer accepted (they matched in every tenant).")
+        entries.add(f"{tenant}:{username}")
+    return frozenset(entries)
+
+
+ADMIN_USERNAMES = parse_admin_usernames(conf.get('admin_usernames'))
+
+
+def is_admin_override_user():
+    """True when the request's tenant-qualified user is listed in admin_usernames."""
+    return f"{g.request_tenant_id}:{g.request_username}" in ADMIN_USERNAMES
+
 
 def authn_and_authz():
     """All-in-one convenience function for implementing the basic abaco authentication
@@ -160,6 +208,12 @@ def get_user_sk_roles():
         total = (end_timer - start_timer) * 1000
         if total > 4000:
             logger.critical(f"t.sk.getUserRoles took {total} to run for user {g.request_username}, tenant: {g.request_tenant_id}")
+        # see ADMIN_USERNAMES above; these users must work even when SK cannot answer.
+        if is_admin_override_user():
+            logger.warning(f"TEMPORARY: getUserRoles failed for {g.request_username} (tenant: {g.request_tenant_id}); "
+                           f"falling back to {codes.ADMIN_ROLE} from the admin_usernames config. e: {e}")
+            g.roles = [codes.ADMIN_ROLE]
+            return
         raise e
     end_timer = timeit.default_timer()
     total = (end_timer - start_timer) * 1000
@@ -173,6 +227,11 @@ def get_user_sk_roles():
         if "abaco" in role.lower():
             abaco_roles_list.append(role)
     logger.debug(f"Roles received: {abaco_roles_list}")
+    # see ADMIN_USERNAMES above.
+    if is_admin_override_user() and codes.ADMIN_ROLE not in abaco_roles_list:
+        logger.warning(f"TEMPORARY: granting {codes.ADMIN_ROLE} from the admin_usernames config to "
+                       f"{g.request_username} in tenant {g.request_tenant_id}; no SK grant was found.")
+        abaco_roles_list.append(codes.ADMIN_ROLE)
     g.roles = abaco_roles_list
 
 
@@ -244,7 +303,8 @@ def authorization():
     
     logger.debug(f"request.path: {request.path}")
 
-    # the admin role when JWT auth is configured:
+    # the admin role when JWT auth is configured (this also covers the temporary
+    # ADMIN_USERNAMES override, which injects ADMIN_ROLE into g.roles):
     if codes.ADMIN_ROLE in g.roles:
         g.admin = True
         logger.info("Allowing request because of ADMIN_ROLE.")

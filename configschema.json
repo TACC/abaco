@@ -51,6 +51,15 @@
       "type": "string",
       "description": "The password for the mongo instance if authentication is active."
     },
+    "admin_usernames": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[^:]+:[^:]+$"
+      },
+      "default": [],
+      "description": "TEMPORARY admin override while SK role grants are unavailable: users granted the abaco admin role without consulting SK. Each entry is tenant-qualified, \"<tenant_id>:<username>\" (e.g. \"admin:jdoe\"), because usernames are only unique within a tenant. Bare usernames are rejected."
+    },
     "mongo_tls": {
       "type": ["boolean", "string"],
       "default": false,
