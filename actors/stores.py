@@ -403,4 +403,9 @@ if __name__ == "__main__":
     # Mongo indexes only go through init on primary site.
     # Needs to be here as it needs to happen after store dictionary creation.
     mongo_index_initialization()
-    role_initialization()
+    try:
+        role_initialization()
+    except Exception as e:
+        # This is expected if the user doesn't have permissions to create roles.
+        # We don't want to fail the service if this happens.
+        logger.warning(f"Role initialization failed. e: {e}")
