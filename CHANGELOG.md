@@ -1,6 +1,16 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 26Q2.0
+Bumping changelog
+
+### New features:
+- No Change.
+
+### Bug fixes:
+- No Change.
+
+
 ## 26Q1.0
 Bumping changelog
 
