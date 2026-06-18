@@ -1,6 +1,16 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## 26Q2.0
+Bumping changelog
+
+### New features:
+- No Change.
+
+### Bug fixes:
+- No Change.
+
+
 ## 26Q1.0
 Bumping changelog
 
@@ -30,7 +40,7 @@ New Release
 - No Change.
 
 
-## 1.8.0 - 2025-07-sdTODO
+## 1.8.0 - 2025-07
 New Release
 
 ### New features:
