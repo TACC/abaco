@@ -40,7 +40,7 @@ New Release
 - No Change.
 
 
-## 1.8.0 - 2025-07-sdTODO
+## 1.8.0 - 2025-07
 New Release
 
 ### New features:
