@@ -26,6 +26,7 @@ from stores import actors_store, alias_store, configs_store, configs_permissions
     executions_store, logs_store, nonce_store, permissions_store, abaco_metrics_store, SITE_LIST
 from worker import shutdown_workers, shutdown_worker
 import encrypt_utils
+import rabbit_mgmt
 
 from prometheus_client import start_http_server, Summary, MetricsHandler, Counter, Gauge, generate_latest
 
@@ -40,7 +41,6 @@ DEFAULT_SYNC_MAX_IDLE_TIME = 600 # defaults to 10*60 = 600 s = 10 min
 message_gauges = {}
 rate_gauges = {}
 last_metric = {}
-
 
 try:
     ACTOR_MAX_WORKERS = conf.get("spawner_max_workers_per_actor")
@@ -169,6 +169,27 @@ class CronResource(Resource):
             actors_store[site()][actor_id, 'cron_next_ex'] = Actor.set_next_ex(actor, actor_id)
 
 
+def get_queue_depths(site_id):
+    """Fetch the message depth of every queue in a site's vhost with a single call to the
+    RabbitMQ management API. Returns a dict of queue name -> READY message count, or None if
+    the management API could not be reached. Unlike constructing a channel object, this never
+    opens an AMQP connection and never (re)declares a queue.
+
+    The count is `messages_ready`, not `messages` (ready + unacked): a worker acks only after
+    its execution finishes, so unacked messages are executions already running, and counting
+    them made the autoscaler add a worker per running execution. messages_ready is also what
+    every caller got before the management-API switch (queue_declare(passive=True)
+    .message_count, i.e. len(channel)), so the admin and utilization numbers keep their
+    meaning.
+    """
+    try:
+        return {q["name"]: q.get("messages_ready") or 0
+                for q in rabbit_mgmt.list_queues(site_id, ("name", "messages_ready"))}
+    except Exception as e:
+        logger.error(f"Could not fetch queue depths from the RabbitMQ management API for site {site_id}; e: {e}")
+        return None
+
+
 class MetricsResource(Resource):
     def get(self):
         logger.debug("AUTOSCALER initiating new run --------")
@@ -188,22 +209,25 @@ class MetricsResource(Resource):
         g.site_id = site_id
         logger.debug(f"AUTOSCALER starting run for site: {site()} --------")
 
+        # one management API call gives the depth of every queue in the vhost; previously this
+        # loop opened a new AMQP connection per actor per run just to read its inbox depth.
+        depths = get_queue_depths(site_id)
+        if depths is None:
+            logger.error("Autoscaler skipping run; queue depths unavailable.")
+            return
+
         # autoscaler does not manage stateful actors or actors in ERROR or SHUTTING_DOWN status:
         actors = actors_store[site()].items({"stateless": True, "status": {"$nin": [ERROR, SHUTTING_DOWN]}})
 
         # iterate over each actor and check how many pending message it has:
         for actor in actors:
-            try:
-                ch = ActorMsgChannel(actor_id=actor["db_id"])
-                inbox_length = len(ch._queue._queue)
-            except Exception as e:
-                logger.error(f"Exception connecting to ActorMsgChannel: {e}")
-                # if we get an exception, move on to the next actor
-                continue
+            # a missing queue means the actor has never been messaged (or its queue was deleted);
+            # treat as an empty inbox rather than re-declaring the queue.
+            inbox_length = depths.get(f'actor_msg_{actor["db_id"]}', 0)
             if inbox_length == 0:
                 self.check_for_scale_down(actor)
             else:
-                self.check_for_scale_up(actor, inbox_length)
+                self.check_for_scale_up(actor, inbox_length, depths)
 
     def check_for_scale_down(self, actor):
         # Check each actor and see if we need to scale down
@@ -217,36 +241,37 @@ class MetricsResource(Resource):
                                                                            SHUTDOWN_REQUESTED]}})
         ready_workers = [w for w in viable_workers if w['status'] == 'READY']
         if is_sync_actor:
-            sync_max_idle_time = conf.workers_sync_max_idle_time or DEFAULT_SYNC_MAX_IDLE_TIME
+            sync_max_idle_time = conf.get('worker_sync_max_idle_time') or DEFAULT_SYNC_MAX_IDLE_TIME
             # if all the viable workers are ready workers, we need to save one ready worker because it is a sync
             # actor. however, if some viable worker is not ready, we can save that one and therefore shutdown all
             # ready workers.
             if len(ready_workers) == len(viable_workers):
                 # iterate through the ready workers and see if any of them are within the sync ttl
                 worker_idx_to_save = -1
-                best_worker_ttl = sync_max_idle_time
+                best_worker_idle = datetime.timedelta(seconds=sync_max_idle_time)
                 for idx, worker in enumerate(ready_workers):
-                    last_worker_activity_time = worker.get('last_execution_time') or worker.get('create_time') or 0
+                    last_worker_activity_time = worker.get('last_execution_time') or worker.get('create_time')
+                    if not isinstance(last_worker_activity_time, datetime.datetime):
+                        continue
+                    idle = get_current_utc_time() - last_worker_activity_time
                     # this worker is a candidate to be saved
-                    if datetime.datetime.now() - last_worker_activity_time < sync_max_idle_time:
-                        if datetime.datetime.now() - last_worker_activity_time < best_worker_ttl:
-                            # we just found a worker with a more recent activity, so update:
-                            worker_idx_to_save = idx
-                            best_worker_ttl = datetime.datetime.now() - last_worker_activity_time
+                    if idle < best_worker_idle:
+                        # we just found a worker with a more recent activity, so update:
+                        worker_idx_to_save = idx
+                        best_worker_idle = idle
                 if worker_idx_to_save >= 0:
                     ready_workers.pop(worker_idx_to_save)
         for worker in ready_workers:
             logger.info(f"autoscaler stopping worker {worker['id']} for actor {actor_id}")
             shutdown_worker(actor_id, worker['id'], delete_actor_ch=False)
 
-    def check_for_scale_up(self, actor, inbox_length):
+    def check_for_scale_up(self, actor, inbox_length, depths):
         # Check each actor and see if we need to scale up
         actor_id = actor["db_id"]
         logger.debug(f"top of check_for_scale_up; actor_id: {actor_id}; inbox_length: {inbox_length}")
 
         channel_name = actor.get('queue') or 'default'
-        ch = CommandChannel(name=channel_name)
-        cmd_length = len(ch._queue._queue)
+        cmd_length = depths.get(f'command_channel_{channel_name}', 0)
 
         try:
             max_cmd_length = int(conf.spawner_max_cmd_length)
@@ -1605,6 +1630,7 @@ class ActorNoncesResource(Resource):
             if not args['level'] in PERMISSION_LEVELS:
                 raise DAOError("Invalid nonce description. "
                                f"The level attribute must be one of: {PERMISSION_LEVELS}")
+
         if conf.web_case == 'snake':
             if 'max_uses' in args:
                 self.validate_max_uses(args['max_uses'])
