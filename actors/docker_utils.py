@@ -332,7 +332,7 @@ def run_worker(image,
                  f"image:{image}; revision: {revision}; command:{command}")
 
     mounts = []
-    if conf.mongo_tls:
+    if conf.mongo_tls and conf.mongo_tls_certs_path:
         # mount the directory on the host containing Mongo TLS certs.
         # Paths should be formatted as host_path:container_path for split
         mongo_certs_host_path_dir, mongo_certs_container_path_dir = conf.mongo_tls_certs_path.split(':')

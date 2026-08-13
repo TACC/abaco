@@ -51,6 +51,11 @@
       "type": "string",
       "description": "The password for the mongo instance if authentication is active."
     },
+    "mongo_tls": {
+      "type": ["boolean", "string"],
+      "default": false,
+      "description": "Mongo TLS mode. false: plain connection. true (or \"verify\"): TLS with a client certificate and the private CA; requires mongo_tls_certs_path, mongo_tls_ca_cert_name and mongo_tls_client_cert_name. \"tls-only\" (alias \"no-client-cert\"): TLS without a client certificate; the server certificate is verified against mongo_tls_ca_cert_name when it and mongo_tls_certs_path are set, otherwise against the system CAs."
+    },
     "rabbit_uri": {
       "type": "string",
       "description": "URI for rabbitMQ."

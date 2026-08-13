@@ -92,6 +92,74 @@ class AbstractTransactionalStore(AbstractStore):
         pass
 
 
+# MongoClient is thread-safe and owns a connection pool, so it is meant to be shared.
+# Every MongoStore used to build its own, and stores.py constructs 12 stores per site,
+# so each container ran ~12 independent pools (pymongo defaults to maxPoolSize=100).
+# Measured 2026-08-18: the metrics container alone held 516 server-side connections
+# against a bench stack, with 10-15k opened per 25-minute run. Keying one client per
+# distinct connection target collapses that to a single bounded pool per process.
+# Bound the shared pool. Default pymongo is 100 per client, which was never the
+# intended budget when a dozen clients existed per process.
+MONGO_MAX_POOL_SIZE = int(conf.get('mongo_max_pool_size', 50) or 50)
+# Server selection and connect fail fast (5s). socketTimeoutMS is NOT a query timeout:
+# it guards a half-open socket, and it is also how long a request thread that already
+# holds a pooled connection waits when mongod stalls (server selection only protects NEW
+# operations once the monitor has marked the server down). So it must sit above the
+# slowest legitimate operation -- bounded server-side by maxTimeMS (see aggregate()) --
+# but not much above it: 45s vs maxTimeMS 30s.
+MONGO_SOCKET_TIMEOUT_MS = int(conf.get('mongo_socket_timeout_ms', 45000) or 45000)
+MONGO_MAX_TIME_MS = int(conf.get('mongo_max_time_ms', 30000) or 30000)
+_MONGO_CLIENTS = {}
+
+
+def _shared_mongo_client(cache_key, build, label):
+    """Return the process-wide MongoClient for `cache_key`, building it on first use.
+    `label` is what gets logged: cache_key[0] is the full mongo URI, which carries the
+    password, so it must never reach a log line."""
+    client = _MONGO_CLIENTS.get(cache_key)
+    if client is None:
+        client = build()
+        _MONGO_CLIENTS[cache_key] = client
+        logger.info(f"created shared MongoClient for {label} "
+                    f"(pool #{len(_MONGO_CLIENTS)} in this process)")
+    return client
+
+
+# mongo_tls modes. Trunk semantics are preserved: any truthy value other than the
+# explicit opt-in strings below means TLS + client certificate + private CA ("verify").
+MONGO_TLS_OFF = 'off'
+MONGO_TLS_VERIFY = 'verify'
+MONGO_TLS_ONLY = 'tls-only'
+_MONGO_TLS_ONLY_ALIASES = ('tls-only', 'no-client-cert')
+
+
+def mongo_tls_mode(value):
+    """Normalize the mongo_tls config value to one of MONGO_TLS_OFF / MONGO_TLS_VERIFY /
+    MONGO_TLS_ONLY.
+    - false / null / "" / "false"          -> off (plain connection)
+    - true / "true" / "verify"             -> verify: TLS with a client certificate and the
+                                              private CA (the trunk meaning of `true`)
+    - "tls-only" / "no-client-cert"        -> TLS without a client certificate; the server
+                                              cert is checked against mongo_tls_ca_cert_name
+                                              when configured, else the system CAs
+    Any other string is a config error and raises ValueError rather than silently picking
+    a mode."""
+    if not value:
+        return MONGO_TLS_OFF
+    if value is True:
+        return MONGO_TLS_VERIFY
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ('', 'false', '0', 'no', 'off'):
+            return MONGO_TLS_OFF
+        if v in ('true', '1', 'yes', 'on', 'verify'):
+            return MONGO_TLS_VERIFY
+        if v in _MONGO_TLS_ONLY_ALIASES:
+            return MONGO_TLS_ONLY
+    raise ValueError(f"Invalid mongo_tls value {value!r}; expected false, true/'verify', "
+                     f"or one of {list(_MONGO_TLS_ONLY_ALIASES)}.")
+
+
 class MongoStore(AbstractStore):
 
     def __init__(self, host, port, database='abaco_tacc', db='0', user=None, password=None, auth_db=""):
@@ -117,27 +185,61 @@ class MongoStore(AbstractStore):
             u = urllib.parse.quote_plus(user)
             p = urllib.parse.quote_plus(password)
             mongo_uri = f'mongodb://{u}:{p}@{host}:{port}/{auth_db}'
-        if conf.mongo_tls:
+        tls_mode = mongo_tls_mode(conf.get('mongo_tls'))
+        # never log mongo_uri: with auth it embeds the password.
+        label = f"{host}:{port} (tls: {tls_mode})"
+        common = dict(maxPoolSize=MONGO_MAX_POOL_SIZE,
+                      serverSelectionTimeoutMS=5000,
+                      connectTimeoutMS=5000,
+                      # without these, a half-open mongo socket blocks a request thread forever
+                      socketTimeoutMS=MONGO_SOCKET_TIMEOUT_MS)
+        if tls_mode == MONGO_TLS_VERIFY:
+            # trunk behaviour of `mongo_tls: true`: TLS + client certificate + private CA.
             try:
                 cert_dir = conf.mongo_tls_certs_path.split(':')[1]
                 ca_cert_name = conf.get("mongo_tls_ca_cert_name")
                 client_cert_name = conf.get("mongo_tls_client_cert_name")
                 if not ca_cert_name or not client_cert_name:
-                    msg = "Mongo TLS requires both the 'mongo_tls_cert' and 'mongo_tls_ca_cert' configs to be set."
+                    msg = "Mongo TLS requires both the 'mongo_tls_client_cert_name' and 'mongo_tls_ca_cert_name' configs to be set."
                     logger.critical(msg)
                     raise SystemError(msg)
                 ca_cert_path = os.path.join(cert_dir, ca_cert_name)
                 client_cert_path = os.path.join(cert_dir, client_cert_name)
-                self._mongo_client = MongoClient(mongo_uri,
-                                                 tls=True,
-                                                 tlsCertificateKeyFile=client_cert_path,
-                                                 tlsCAFile=ca_cert_path)
+                self._mongo_client = _shared_mongo_client(
+                    (mongo_uri, MONGO_TLS_VERIFY, client_cert_path, ca_cert_path),
+                    lambda: MongoClient(mongo_uri,
+                                        tls=True,
+                                        tlsCertificateKeyFile=client_cert_path,
+                                        tlsCAFile=ca_cert_path,
+                                        **common),
+                    label)
             except Exception as e:
-                msg = f"Error creating MongoStore object with TLS. e: {e}"
+                msg = f"Error creating MongoStore object with TLS + client verification. e: {e}"
+                logger.critical(msg)
+                raise Exception(msg)
+        elif tls_mode == MONGO_TLS_ONLY:
+            # explicit opt-in: TLS without a client certificate. The server certificate is
+            # still verified -- against the private CA when one is configured, otherwise
+            # against the system trust store.
+            try:
+                tls_kwargs = {'tls': True}
+                ca_cert_name = conf.get("mongo_tls_ca_cert_name")
+                certs_path = conf.get("mongo_tls_certs_path")
+                if ca_cert_name and certs_path:
+                    tls_kwargs['tlsCAFile'] = os.path.join(certs_path.split(':')[1], ca_cert_name)
+                self._mongo_client = _shared_mongo_client(
+                    (mongo_uri, MONGO_TLS_ONLY, tls_kwargs.get('tlsCAFile')),
+                    lambda: MongoClient(mongo_uri, **tls_kwargs, **common),
+                    label)
+            except Exception as e:
+                msg = f"Error creating MongoStore object with TLS (no client cert). e: {e}"
                 logger.critical(msg)
                 raise Exception(msg)
         else:
-            self._mongo_client = MongoClient(mongo_uri)
+            self._mongo_client = _shared_mongo_client(
+                (mongo_uri, MONGO_TLS_OFF),
+                lambda: MongoClient(mongo_uri, **common),
+                label)
         self._mongo_database = self._mongo_client[database]
         self._db = self._mongo_database[db]
 
@@ -359,7 +461,14 @@ class MongoStore(AbstractStore):
             return None
     
     def aggregate(self, pipeline, options = None):
-        return self._db.aggregate(pipeline, options)
+        # maxTimeMS bounds the server-side work per aggregation; without it a pathological
+        # search pins a request thread for as long as the socket timeout allows.
+        # pymongo 3.10's signature is aggregate(pipeline, session=None, **kwargs): the old
+        # positional `options` landed in `session`. Options are keyword arguments and
+        # override these defaults.
+        kwargs = {'allowDiskUse': True, 'maxTimeMS': MONGO_MAX_TIME_MS}
+        kwargs.update(options or {})
+        return self._db.aggregate(pipeline, **kwargs)
 
     def create_index(self, index_list):
         return self._db.create_index(index_list)

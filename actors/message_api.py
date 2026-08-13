@@ -1,11 +1,13 @@
 from flask import Flask
 from flask_cors import CORS 
 
-from tapisservice.tapisflask.utils import handle_error, TapisApi
+from tapisservice.tapisflask.utils import TapisApi
 
 
 from auth import authn_and_authz
 from controllers import MessagesResource
+
+from api_errors import handle_error
 
 app = Flask(__name__)
 CORS(app)
