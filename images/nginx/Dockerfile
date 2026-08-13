@@ -1,7 +1,7 @@
 # Image: abaco/nginx
 FROM alpine:3.8
 
-ENV NGINX_VERSION nginx-1.7.11
+ENV NGINX_VERSION=nginx-1.7.11
 
 RUN apk --update add openssl-dev pcre-dev zlib-dev wget build-base && \
     mkdir -p /tmp/src && \

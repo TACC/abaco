@@ -1340,7 +1340,7 @@ components:
           description: The username associated with the permission.
         level:
           type: string
-          enum: [READ, EXECUTE, WRITE]
+          enum: [READ, UPDATE, EXECUTE]
           description: The level associated with the permission.
 
 
@@ -1354,7 +1354,7 @@ components:
       properties:
         level:
           type: string
-          enum: [READ, WRITE, EXECUTE]
+          enum: [READ, UPDATE, EXECUTE]
           description: The permission level associated with the nonce.
         max_uses:
           type: integer
@@ -1368,7 +1368,7 @@ components:
           description: the id of the nonce
         level:
           type: string
-          enum: [READ, WRITE, EXECUTE]
+          enum: [READ, UPDATE, EXECUTE]
           description: The permission level associated with the nonce.
         max_uses:
           type: integer
