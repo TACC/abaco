@@ -1015,8 +1015,7 @@ class ActorsResource(Resource):
         actors_store[site()].add_if_empty([actor.db_id], actor)
         abaco_metrics_store[site()].full_update(
             {'_id': f'{datetime.date.today()}-stats'},
-            {'$inc': {'actor_total': 1},
-             '$addToSet': {'actor_dbids': actor.db_id}},
+            {'$inc': {'actor_total': 1}},
              upsert=True)
 
         logger.debug(f"new actor saved in db. id: {actor.db_id}. image: {actor.image}. tenant: {actor.tenant}")

@@ -1633,8 +1633,7 @@ class Execution(AbacoDAO):
         executions_store[site()][f'{actor_id}_{execution.id}'] = execution
         abaco_metrics_store[site()].full_update(
             {'_id': f'{datetime.date.today()}-stats'},
-            {'$inc': {'execution_total': 1},
-             '$addToSet': {'execution_dbids': f'{actor_id}_{execution.id}'}},
+            {'$inc': {'execution_total': 1}},
              upsert=True)
 
         stop_timer = timeit.default_timer()
@@ -2027,8 +2026,7 @@ class Worker(AbacoDAO):
             val = workers_store[site_id][f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store[site_id].full_update(
                 {'_id': f'{datetime.date.today()}-stats'},
-                {'$inc': {'worker_total': 1},
-                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                {'$inc': {'worker_total': 1}},
                 upsert=True)
             logger.info(f"got worker: {val} from add_if_empty.")
             return worker_id
@@ -2054,16 +2052,14 @@ class Worker(AbacoDAO):
             workers_store[site()][f'{actor_id}_{worker_id}'] = worker
             abaco_metrics_store[site()].full_update(
                 {'_id': f'{datetime.date.today()}-stats'},
-                {'$inc': {'worker_total': 1},
-                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                {'$inc': {'worker_total': 1}},
                 upsert=True)
             logger.info(f"added additional worker with id: {worker_id} to workers_store[site()].")
         except KeyError:
             workers_store[site()].add_if_empty([f'{actor_id}_{worker_id}'], worker)
             abaco_metrics_store[site()].full_update(
                 {'_id': f'{datetime.date.today()}-stats'},
-                {'$inc': {'worker_total': 1},
-                 '$addToSet': {'worker_dbids': f'{actor_id}_{worker_id}'}},
+                {'$inc': {'worker_total': 1}},
                 upsert=True)
             logger.info(f"added first worker with id: {worker_id} to workers_store[site()].")
         return worker_id
