@@ -1985,7 +1985,26 @@ class MessagesResource(Resource):
         check_results_channel = True
         binary_result = False
         timeout = 0.1
+        # hard deadline: without it, an execution that never completes (e.g., its worker died)
+        # pins this gunicorn thread forever -- gthread's --timeout does not reap request threads.
+        deadline = time.time() + (conf.get('web_synch_message_timeout') or 90)
+        # the results-channel get() below waits `timeout` per pass, so the loop spins ~10x/s;
+        # the executions store only needs checking about twice a second.
+        mongo_poll_s = 0.5
+        next_mongo_check = 0
+        failed_exc = None
         while not complete:
+            if time.time() > deadline:
+                try:
+                    ch.close()
+                except Exception:
+                    pass
+                logger.error(f"do_synch_message hit deadline; execution_id: {execution_id}; dbid: {dbid}")
+                raise ResourceError("Timed out waiting for the synchronous execution to complete. "
+                                    "The execution may still be running; check its status and logs.", 504)
+            if not check_results_channel:
+                # the results channel is gone; don't hot-spin on the executions store
+                time.sleep(0.5)
             # check for a result on the results channel -
             if check_results_channel:
                 logger.debug("checking for result on the results channel...")
@@ -2005,11 +2024,19 @@ class MessagesResource(Resource):
                     logger.info(f"unexpected exception in check_results_channel thread: {e}")
                     check_results_channel = False
 
-            # check to see if execution has completed:
-            if not complete:
+            # check to see if execution has completed (or failed):
+            if not complete and time.time() >= next_mongo_check:
+                next_mongo_check = time.time() + mongo_poll_s
                 try:
-                    exc = Execution.from_db(executions_store[site()][f'{dbid}_{execution_id}'])
+                    exc_doc = executions_store[site()][f'{dbid}_{execution_id}']
+                    exc = Execution.from_db(exc_doc)
                     complete = exc.status == COMPLETE
+                    if exc.status == ERROR:
+                        # terminal: without this the request waited out the whole deadline
+                        # and answered 504 for an execution that had already failed. (The raw
+                        # doc, not the DAO: status_message is not an Execution PARAM.)
+                        failed_exc = exc_doc
+                        break
                 except Exception as e:
                     logger.info(f"got exception trying to check execution status: {e}")
             if complete:
@@ -2034,6 +2061,14 @@ class MessagesResource(Resource):
                         except KeyError:
                             logger.debug(f"did not find logs. execution: {execution_id}. actor: {dbid}.")
                             result = ""
+        if failed_exc is not None:
+            try:
+                ch.close()
+            except Exception:
+                pass
+            reason = failed_exc.get('status_message') or 'no further detail recorded'
+            logger.info(f"synchronous execution {execution_id} (actor {dbid}) ended in ERROR: {reason}")
+            raise ResourceError(f"The synchronous execution {execution_id} failed with status {ERROR}: {reason}", 500)
         response = make_response(result)
         if binary_result:
             response.headers['content-type'] = 'application/octet-stream'

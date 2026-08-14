@@ -94,8 +94,8 @@ services:
             abaco_host_path: ${abaco_path}
             api: reg
             server: gunicorn
-            threads: 1
-            processes: 1
+            threads: 2
+            processes: 2
             timeout: 120
             TAS_ROLE_ACCT:
             TAS_ROLE_PASS:
