@@ -1,8 +1,10 @@
 # Core image for Abaco project - Includes files for testing.
 # Image: abaco/core-v3
 
-# inherit from the flaskbase iamge:
-FROM tapis/flaskbase
+# inherit from the flaskbase image. Pinned: an untagged FROM re-resolved to whatever
+# `latest` was at build time, and this image overwrites tapisservice's auth.py and
+# patches tapipy, both of which are verified against specific versions (see below).
+FROM tapis/flaskbase:1.9.0
 # set the name of the api, for use by some of the common modules.
 ENV TAPIS_API=actors-api
 ENV PYTHONPATH=.:*:actors:actors/*
@@ -14,6 +16,10 @@ COPY requirements.txt /home/tapis/
 RUN apt-get update && apt-get install python3-dev g++ sudo -y
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/requirements.txt
+# channelpy is an editable VCS install (see requirements.txt), so pip leaves a full
+# git checkout in /home/tapis/src. Drop the VCS metadata -- it ships repo history and
+# remote URLs in the image and the editable install does not need it.
+RUN rm -rf /home/tapis/src/*/.git
 # rabbitmqadmin download for rabbit init
 RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
 RUN chmod +x rabbitmqadmin
@@ -57,8 +63,15 @@ RUN TAPIS_PY=$(python3 -c "import tapipy, os; print(os.path.join(os.path.dirname
     sed -i 's/resp = self.tapis_client.requests_session.send(r, verify=self.tapis_client.verify)/resp = self.tapis_client.requests_session.send(r, verify=self.tapis_client.verify, timeout=(5, 30))/' $TAPIS_PY && \
     test $(grep -c "timeout=(5, 30)" $TAPIS_PY) -eq 2
 # Some more permissions
-RUN echo "tapis ALL=NOPASSWD: /home/tapis/actors/folder_permissions.sh" >> /etc/sudoers
-RUN chmod +x /home/tapis/actors/health_check.sh /home/tapis/actors/metrics_cron_check.sh /home/tapis/actors/folder_permissions.sh
+# folder_permissions.sh runs as root via sudo, so it must live OUTSIDE the tree the
+# tapis user owns: with the script under /home/tapis/actors, tapis could rewrite it
+# (or unlink and replace it -- the directory is tapis-owned too) and sudo it to root.
+# Install a root-owned copy and point the sudo rule at that path only.
+RUN install -o root -g root -m 0755 /home/tapis/actors/folder_permissions.sh /usr/local/sbin/folder_permissions.sh
+# The rule also pins the only two arguments abaco ever passes (the script re-checks them).
+RUN echo "tapis ALL=(root) NOPASSWD: /usr/local/sbin/folder_permissions.sh /home/tapis/runtime_files, /usr/local/sbin/folder_permissions.sh /var/run/docker.sock" >> /etc/sudoers && \
+    visudo -c
+RUN chmod +x /home/tapis/actors/health_check.sh /home/tapis/actors/metrics_cron_check.sh
 # Permission finalization
 RUN chown -R tapis:tapis /home/tapis
 

@@ -31,13 +31,13 @@ from kubernetes import client, config
 
 # Give permissions some files since we are running as Tapis user, not root.
 # folder_permissions is made to require no sudo permissions to run.
-os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
+os.system(f'sudo /usr/local/sbin/folder_permissions.sh /home/tapis/runtime_files')
 
 # This isn't currently working because they require different code in some functions
 if conf.container_backend == "docker":
     from docker_utils import rm_container, get_current_worker_containers, container_running, run_container
     # Another run of folder_permissions, for docker.sock
-    os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+    os.system(f'sudo /usr/local/sbin/folder_permissions.sh /var/run/docker.sock')
 elif conf.container_backend == "kubernetes":
     from kubernetes_utils import rm_container, get_current_worker_containers, container_running, run_container
     # k8 client creation

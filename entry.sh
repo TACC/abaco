@@ -3,7 +3,7 @@
 # Give permissions to Docker copied folders and files.
 # Have to do this as we are running as Tapis user, not root.
 # This script requires no permissions.
-sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files
+sudo /usr/local/sbin/folder_permissions.sh /home/tapis/runtime_files
 
 if [ $api = "reg" ]; then
     # This does some mongo initialization that only needs to be done once

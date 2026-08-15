@@ -599,8 +599,8 @@ if __name__ == '__main__':
 
     # call the main() function:
     try:
-        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
-        os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+        os.system(f'sudo /usr/local/sbin/folder_permissions.sh /home/tapis/runtime_files')
+        os.system(f'sudo /usr/local/sbin/folder_permissions.sh /var/run/docker.sock')
         main()
     except Exception as e:
         try:

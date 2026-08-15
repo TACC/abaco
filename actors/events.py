@@ -28,9 +28,9 @@ from tapisservice.logs import get_logger
 # Give permissions to Docker copied folders and files.
 # Have to do this as we are running as Tapis user, not root.
 # This script requires no permissions.
-os.system(f'sudo /home/tapis/actors/folder_permissions.sh /home/tapis/runtime_files')
+os.system(f'sudo /usr/local/sbin/folder_permissions.sh /home/tapis/runtime_files')
 if conf.container_backend == 'docker':
-    os.system(f'sudo /home/tapis/actors/folder_permissions.sh /var/run/docker.sock')
+    os.system(f'sudo /usr/local/sbin/folder_permissions.sh /var/run/docker.sock')
     import docker_utils
     from docker_utils import DockerError
 if conf.container_backend == 'kubernetes':
