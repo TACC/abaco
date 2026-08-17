@@ -107,6 +107,9 @@ ifeq ($(BACKEND),docker)
 	@sed -i 's/"version".*/"version": "$(TAG)",/g' config-local.json
 	@echo "  🔥 : Running docker-compose up."
 	@echo ""
+	@# abaco.log is bind-mounted as a FILE by every service; on a fresh checkout it does
+	@# not exist and docker would create a directory in its place, failing the mount.
+	@touch abaco.log
 	@docker-compose --project-name=abaco up -d
 
 else ifeq ($(BACKEND),minikube)
