@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: actors-rabbit
-        image: rabbitmq:3.6.12-management
+        image: rabbitmq:3.12.14-management
         ports:
         - name: rabbit
           containerPort: 5672
@@ -24,7 +24,8 @@ spec:
         - name: RABBITMQ_NODENAME
           value: "abaco-rabbit"
         - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
-          value: "+A 128"
+          # consumer_timeout 7d (3.12 default 30min requeues long executions); see rabbitmq-abaco.conf
+          value: "+A 128 -rabbit consumer_timeout 604800000"
         - name: RABBITMQ_DEFAULT_USER
           value: "admin"
         - name: RABBITMQ_DEFAULT_PASS

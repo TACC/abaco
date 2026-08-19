@@ -21,7 +21,7 @@ RUN pip3 install -r /home/tapis/requirements.txt
 # image. No-op now that channelpy is gone, kept as a guard.
 RUN rm -rf /home/tapis/src/*/.git
 # rabbitmqadmin download for rabbit init
-RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
+RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-server/v3.12.14/deps/rabbitmq_management/bin/rabbitmqadmin
 RUN chmod +x rabbitmqadmin
 
 ## PERMISSION INITIALIZATION

@@ -48,10 +48,14 @@ services:
 
 
     rabbit:
-        image: rabbitmq:3.6.12-management
+        # exact patch: version-locked with the rabbitmqadmin v3.12.14 the Dockerfile fetches
+        image: rabbitmq:3.12.14-management
         ports:
             - "5672:5672"
             - "15672:15672"
+        volumes:
+            # consumer_timeout override; see the file. Prod needs the same setting.
+            - ./rabbitmq-abaco.conf:/etc/rabbitmq/conf.d/20-abaco.conf:ro
         environment:
             RABBITMQ_NODENAME: abaco-rabbit
             RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+A 128"
@@ -91,6 +95,10 @@ services:
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
             - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
+            # Short-lived service tokens for failure-injection benchmarking; empty in
+            # normal use so the 24h default applies. See sandbox/bench_suite.sh 'fail'.
+            service_token_ttl: ${service_token_ttl:-}
+            service_token_refresh_margin: ${service_token_refresh_margin:-}
             abaco_host_path: ${abaco_path}
             api: reg
             server: gunicorn
@@ -113,6 +121,10 @@ services:
         ports:
             - "5001:5000"
         environment:
+            # Short-lived service tokens for failure-injection benchmarking; empty in
+            # normal use so the 24h default applies. See sandbox/bench_suite.sh 'fail'.
+            service_token_ttl: ${service_token_ttl:-}
+            service_token_refresh_margin: ${service_token_refresh_margin:-}
             abaco_host_path: ${abaco_path}
             server: gunicorn
             api: mes
@@ -136,6 +148,10 @@ services:
         ports:
             - "5003:5000"
         environment:
+            # Short-lived service tokens for failure-injection benchmarking; empty in
+            # normal use so the 24h default applies. See sandbox/bench_suite.sh 'fail'.
+            service_token_ttl: ${service_token_ttl:-}
+            service_token_refresh_margin: ${service_token_refresh_margin:-}
             abaco_host_path: ${abaco_path}
             server: gunicorn
             api: admin
@@ -160,6 +176,10 @@ services:
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
             - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
+            # Short-lived service tokens for failure-injection benchmarking; empty in
+            # normal use so the 24h default applies. See sandbox/bench_suite.sh 'fail'.
+            service_token_ttl: ${service_token_ttl:-}
+            service_token_refresh_margin: ${service_token_refresh_margin:-}
             abaco_host_path: ${abaco_path}
             _abaco_secret: 123
             mongo_password:
@@ -183,6 +203,10 @@ services:
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
             - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
+            # Short-lived service tokens for failure-injection benchmarking; empty in
+            # normal use so the 24h default applies. See sandbox/bench_suite.sh 'fail'.
+            service_token_ttl: ${service_token_ttl:-}
+            service_token_refresh_margin: ${service_token_refresh_margin:-}
             abaco_host_path: ${abaco_path}
             mongo_password:
             TAS_ROLE_ACCT:
@@ -203,6 +227,10 @@ services:
             - ./abaco.log:/home/tapis/runtime_files/logs/service.log
             - ./runtime_files/certs:/home/tapis/runtime_files/certs
         environment:
+            # Short-lived service tokens for failure-injection benchmarking; empty in
+            # normal use so the 24h default applies. See sandbox/bench_suite.sh 'fail'.
+            service_token_ttl: ${service_token_ttl:-}
+            service_token_refresh_margin: ${service_token_refresh_margin:-}
             abaco_host_path: ${abaco_path}
             _abaco_secret: 123
             mongo_password:
@@ -227,6 +255,10 @@ services:
         ports:
             - "5004:5000"
         environment:
+            # Short-lived service tokens for failure-injection benchmarking; empty in
+            # normal use so the 24h default applies. See sandbox/bench_suite.sh 'fail'.
+            service_token_ttl: ${service_token_ttl:-}
+            service_token_refresh_margin: ${service_token_refresh_margin:-}
             abaco_host_path: ${abaco_path}
             server: dev
             api: metrics
