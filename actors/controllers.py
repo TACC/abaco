@@ -14,7 +14,7 @@ from parse import parse
 
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
-from queues import RABBIT_ERRORS, PUBLISH_REFUSED_ERRORS
+from queues import RABBIT_ERRORS, PUBLISH_REFUSED_ERRORS, delete_queue
 from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
     UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
     UPDATING_STORE, SHUTDOWN_REQUESTED
@@ -1088,8 +1088,8 @@ class ActorResource(Resource):
         # NOTE: If the workers are not yet completed deleted, since they subscribe to the ActorMsgChannel,
         # there is a chance the ActorMsgChannel will survive.
         try:
-            ch = ActorMsgChannel(actor_id=id)
-            ch.delete()
+            # never declare in a delete path (see queues.delete_queue)
+            delete_queue(f'actor_msg_{id}')
             logger.info(f"Deleted actor message channel for actor: {id}")
         except Exception as e:
             # if we get an error trying to remove the inbox, log it but keep going

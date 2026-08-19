@@ -562,12 +562,21 @@ def reconcile_lost_messages():
     Conservative by design: acts only when depth == 0 (a non-empty queue makes "which
     message is missing" unanswerable), only past an age threshold (a just-consumed
     message can sit in SUBMITTED for a beat before RUNNING), and at most
-    RECONCILE_MAX_REQUEUES times per execution (a poison message must not loop forever
-    through the outbox -- there is still no DLX)."""
+    reconcile_max_requeues times per execution (default 1, claimed atomically).
+
+    Interaction with dead-lettering: a poison message that the broker moved to abaco_dlq
+    (x-delivery-limit, or a worker nack for an undeserializable body) also leaves its
+    execution SUBMITTED with an empty queue, and from here it is indistinguishable from a
+    lost message -- nothing marks the execution when the broker dead-letters. So every
+    re-publish of such an execution replays the poison message (and, on quorum queues,
+    up to rabbit_delivery_limit more worker crashes) before it is dead-lettered again.
+    That is why the default is a single re-publish and the ERROR status_message names
+    both possibilities instead of claiming the message was lost."""
     threshold_s = int(conf.get('reconcile_lost_messages_after_s') or 900)
-    # strict: an explicit 0 means never re-publish (was `or 2`, which turned 0 into 2)
+    # strict: an explicit 0 means never re-publish (was `or 2`, which turned 0 into 2).
+    # Default 1: an execution whose message was dead-lettered is replayed at most once.
     max_requeues = conf.get('reconcile_max_requeues')
-    max_requeues = 2 if max_requeues is None else int(max_requeues)
+    max_requeues = 1 if max_requeues is None else int(max_requeues)
     now = datetime.datetime.utcnow()
     try:
         # indexed on status (stores.py); only the fields the reconciler reads, not whole documents
@@ -639,12 +648,18 @@ def reconcile_lost_messages():
                     logger.critical(f"RECONCILER: re-published lost message for execution {ex_id} "
                                     f"(actor {actor_id}, attempt {requeues + 1}/{max_requeues})")
                 else:
-                    if qm:
-                        reason = f"message was lost from the queue; re-published {requeues}x from the stored copy without completing"
+                    # neutral wording: the reconciler cannot tell a lost message from one the
+                    # broker dead-lettered to abaco_dlq (see docstring).
+                    reason = (f"no message in the actor's queue after {threshold_s}s; it may have "
+                              f"been dead-lettered to abaco_dlq or lost")
+                    if qm and requeues:
+                        reason += f"; re-published {requeues}x from the stored copy without completing"
+                    elif qm:
+                        reason += "; re-publishing disabled (reconcile_max_requeues is 0)"
                     elif conf.get('message_outbox'):
-                        reason = "message was lost from the queue; no recoverable copy (binary or oversized)"
+                        reason += "; no recoverable copy (binary or oversized)"
                     else:
-                        reason = "message was lost from the queue; recovery disabled (message_outbox not set)"
+                        reason += "; recovery disabled (message_outbox not set)"
                     _reconciler_mark_error(actor_id, ex_id, reason)
             except Exception as ex:
                 logger.error(f"reconciler failed on execution {ex_id} (actor {actor_id}): {ex}")

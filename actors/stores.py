@@ -6,6 +6,7 @@ from pymongo import errors, TEXT
 from store import MongoStore
 from tapisservice.config import conf
 from __init__ import t
+import json
 import subprocess
 import re
 import requests as r
@@ -160,6 +161,66 @@ def rabbit_initialization():
             subprocess.run(fn_call + f'declare vhost name={site_db_name}', shell=True) # create vhost
             subprocess.run(fn_call + f'declare permission vhost={site_db_name} user={site_rabbitmq_user} configure=.* write=.* read=.*', shell=True) # site user perm
             subprocess.run(fn_call + f'declare permission vhost={site_db_name} user={admin_rabbitmq_user} configure=.* write=.* read=.*', shell=True) # admin perm
+
+            # Dead-lettering: a message on an actor queue that is rejected
+            # without requeue (worker.py: undeserializable message) or, on quorum queues,
+            # that exhausts its delivery-limit (poison: every delivery kills its worker)
+            # is moved to abaco_dlq via abaco_dlx, where it can be alarmed on, inspected,
+            # replayed, or discarded. DLX does NOT protect against broker storage loss
+            # (quorum replication does); it protects against messages that can never be
+            # processed.
+            # Classic queues have no delivery limit at all: with the default
+            # rabbit_queue_type (classic) a poison message that crashes its worker is
+            # requeued and redelivered forever; only explicit nack(requeue=False) reaches
+            # the DLQ. Classic dead-lettering is also at-most-once: a dead-letter the DLX
+            # cannot route is dropped.
+            # NB: shell=True eats unprotected JSON quotes -- every JSON payload must
+            # ride inside single quotes or rabbitmqadmin receives mangled JSON and the
+            # declare fails (first attempt lost the DLQ entirely: dead-letters went to a
+            # fanout exchange with no bound queue, i.e. dropped).
+            dlq_args = '{"x-queue-type":"quorum"}' if (conf.get('rabbit_queue_type') or '') == 'quorum' else '{}'
+            # The delivery limit lives in the POLICY, not in x-delivery-limit queue
+            # arguments: a policy can be changed on a live broker, a queue argument is fixed
+            # at declaration (changing it => 406 on every redeclare). Benign requeues
+            # (stale revision during an actor update, worker shutdown, docker start
+            # retries, dropped connections) count toward it too, hence the headroom.
+            delivery_limit = int(conf.get('rabbit_delivery_limit') or 10)
+            # abaco_dlq has no consumer: bound it so dead letters cannot pile up forever
+            # (oldest dropped past max-length; each expires after message-ttl).
+            dlq_max_length = int(conf.get('rabbit_dlq_max_length') or 10000)
+            dlq_ttl_ms = int(conf.get('rabbit_dlq_message_ttl_ms') or 14 * 24 * 3600 * 1000)
+            # Only ONE policy applies to a queue: the highest-priority match. And in 3.12
+            # a policy carrying a key the queue type does not support (delivery-limit on
+            # a classic queue) is not applied to that queue AT ALL -- it would silently lose
+            # its DLX. Hence two actor-inbox policies, scoped by queue type so they never
+            # overlap: classic inboxes get the plain DLX; quorum inboxes also get the delivery
+            # limit. Dead-lettering stays at-most-once (the default): with
+            # dead-letter-strategy=at-least-once, RabbitMQ 3.12.14's rabbit_fifo_dlx_worker
+            # crash-loops whenever a quorum inbox is deleted while it is being created (an
+            # actor deleted while its first worker starts), its supervisor gives up, and the
+            # broker then refuses every new quorum inbox (541) until it is restarted
+            # (reproduced 2026-11-12; see docs/rabbitmq.md). Both are declared
+            # whatever rabbit_queue_type says, so a migration needs no re-init.
+            # (apply-to=classic_queues / quorum_queues need 3.12+.) The DLQ's own policy uses only
+            # keys every queue type supports, so it applies whatever type abaco_dlq is.
+            classic_policy = {"dead-letter-exchange": "abaco_dlx"}
+            quorum_policy = {"dead-letter-exchange": "abaco_dlx",
+                             "delivery-limit": delivery_limit}
+            dlq_policy = {"max-length": dlq_max_length, "message-ttl": dlq_ttl_ms, "overflow": "drop-head"}
+            for cmd in (f"declare exchange --vhost={site_db_name} name=abaco_dlx type=fanout durable=true",
+                        f"declare queue --vhost={site_db_name} name=abaco_dlq durable=true arguments='{dlq_args}'",
+                        f"declare binding --vhost={site_db_name} source=abaco_dlx destination=abaco_dlq",
+                        f"declare policy --vhost={site_db_name} name=abaco-actor-msg pattern='^actor_msg_' "
+                        f"definition='{json.dumps(classic_policy)}' priority=10 apply-to=classic_queues",
+                        f"declare policy --vhost={site_db_name} name=abaco-actor-msg-quorum pattern='^actor_msg_' "
+                        f"definition='{json.dumps(quorum_policy)}' priority=20 apply-to=quorum_queues",
+                        f"declare policy --vhost={site_db_name} name=abaco-dlq pattern='^abaco_dlq$' "
+                        f"definition='{json.dumps(dlq_policy)}' priority=10 apply-to=queues"):
+                res = subprocess.run(fn_call + cmd, shell=True, capture_output=True)
+                if res.returncode != 0:
+                    logger.critical(f"rabbit DLX setup step failed: {cmd}; stderr: {res.stderr.decode()[:300]} "
+                                    f"(an 'inequivalent arg' on abaco_dlq means rabbit_queue_type changed: "
+                                    f"see docs/rabbitmq.md)")
             logger.debug(f"RabbitMQ init complete for site: {site}.")
             print(f"RabbitMQ init complete for site: {site}.")
     except Exception as e:

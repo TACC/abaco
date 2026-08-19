@@ -147,11 +147,12 @@ class Message(object):
     """The slice of the rabbitpy Message surface that call sites actually use:
     .body, .ack(), .nack(requeue=). Wraps one pika delivery."""
 
-    __slots__ = ('_ch', 'delivery_tag', 'body')
+    __slots__ = ('_ch', 'delivery_tag', 'redelivered', 'body')
 
     def __init__(self, ch, method, body):
         self._ch = ch
         self.delivery_tag = method.delivery_tag
+        self.redelivered = bool(getattr(method, 'redelivered', False))
         self.body = body
 
     def ack(self):
@@ -197,6 +198,10 @@ def queue_declare_args(name):
     if (conf.get('rabbit_queue_type') or 'classic') != 'quorum':
         return {}
     if name and name.startswith(QUORUM_PREFIXES):
+        # Poison protection (the delivery limit -> abaco_dlx -> abaco_dlq) is applied by
+        # the abaco-actor-msg-quorum POLICY from stores.rabbit_initialization, deliberately not
+        # as an x-delivery-limit argument here: queue arguments are fixed at declaration,
+        # so tuning rabbit_delivery_limit would 406 every existing queue. See docs/rabbitmq.md.
         return {'x-queue-type': 'quorum'}
     return {}
 
@@ -220,6 +225,17 @@ def declare_queue(channel, name, durable=True, arguments=None, **kwargs):
                             f"arguments (was rabbit_queue_type changed on a live broker?); every use of "
                             f"this queue will fail until it is migrated: see {QUEUE_MIGRATION_DOC}")
         raise
+
+
+def delete_queue(name, deadline_s=None):
+    """Delete a queue WITHOUT declaring it first. TaskQueue(...).delete() and a declaring get_pika_channel()
+    re-create the queue before deleting it: during an actor DELETE every worker (on 'stop') and the API
+    would re-create and delete the same quorum inbox at once, racing Raft cluster creation against
+    deletion (541 INTERNAL_ERROR on the racing calls; with at-least-once dead-lettering it also took down
+    RabbitMQ 3.12's dead-letter supervisor, see stores.py). Deleting a queue that is already gone is not
+    an error."""
+    with RabbitConnection(deadline_s=deadline_s) as conn:
+        conn._ch.queue_delete(queue=name)
 
 
 class TaskQueue(object):
