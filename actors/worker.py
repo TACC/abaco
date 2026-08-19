@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 import shutil
 import sys
@@ -6,18 +7,20 @@ import threading
 import _thread
 import time
 
-import channelpy
+import cloudpickle
+import pika
+import pika.exceptions
 
 from __init__ import t
 from auth import get_tenant_verify
-from channels import ActorMsgChannel, CommandChannel, WorkerChannel, SpawnerWorkerChannel
 from codes import SHUTDOWN_REQUESTED, SHUTTING_DOWN, ERROR, READY, BUSY, COMPLETE
 from tapisservice.config import conf
 from docker_utils import DockerError, DockerStartContainerError, DockerStopContainerError, execute_actor, pull_image
 from errors import WorkerException
+from queues import RabbitUnavailableError, connect_with_backoff
 import globals
 from models import Actor, Execution, Worker, site
-from stores import actors_store, workers_store, executions_store
+from stores import actors_store, workers_store, executions_store, get_site_rabbitmq_uri
 
 from tapisservice.logs import get_logger
 logger = get_logger(__name__)
@@ -29,9 +32,129 @@ keep_running = True
 # maximum number of consecutive errors a worker can encounter before giving up and moving itself into an ERROR state.
 MAX_WORKER_CONSECUTIVE_ERRORS = 5
 
+# how long a new worker waits for the spawner's 'READY' handshake before giving up. The spawner sends it
+# right after creating the container, so this only trips if the spawner died mid-spawn.
+SPAWNER_HANDSHAKE_TIMEOUT_S = 300
+
+RABBIT_URI = get_site_rabbitmq_uri(site())
+
+def channel_loads(body):
+    """Decode a message body from a queue shared with the TaskQueue channels, which
+    cloudpickle every payload, including the spawner's 'READY' handshake. Falls back
+    to utf-8 for a producer that still sends raw bytes during a rolling upgrade."""
+    try:
+        return cloudpickle.loads(body)
+    except Exception:
+        return body.decode()
+
+
+def get_pika_channel(queue_name, uri=None, *, durable=True, auto_delete=False, exclusive=False,
+                     expires_ms=None, heartbeat=30, blocked_timeout=30,
+                     deadline_s=None, declare=True):
+    uri = uri or RABBIT_URI
+    # never log `uri`: it carries the broker password
+    logger.debug(f"top of get_pika_channel for queue_name: {queue_name}")
+    params = pika.URLParameters(uri)
+    params.heartbeat = heartbeat
+    params.blocked_connection_timeout = blocked_timeout
+    # same bounded exponential backoff as every other channel; raises RabbitUnavailableError once
+    # deadline_s (default: queues.CONNECT_DEADLINE_S) has passed.
+    connection = connect_with_backoff(params, deadline_s=deadline_s)
+    channel = connection.channel()
+    if declare:
+        arguments = {}
+        if expires_ms:
+            arguments['x-expires'] = expires_ms
+        channel.queue_declare(queue=queue_name,
+                              durable=durable,
+                              auto_delete=auto_delete,
+                              exclusive=exclusive,
+                              arguments=arguments)
+    return connection, channel
+
+
+def _close_quietly(connection):
+    try:
+        if connection is not None and connection.is_open:
+            connection.close()
+    except Exception:
+        pass
+
+
+def _reconnect_actor_channel(connection, queue_name, worker_id):
+    """Replace the main loop's dead actor-inbox connection. Raises WorkerException when the queue no longer
+    exists (deleted along with its actor -- a passive declare, so it is not resurrected) or the broker stays
+    unreachable past the connect deadline; the caller lets that propagate to __main__, which sends
+    stop-no-delete and terminates the process."""
+    _close_quietly(connection)
+    try:
+        connection, channel = get_pika_channel(queue_name, declare=False)
+    except Exception as e:
+        raise WorkerException(f"worker {worker_id} could not reconnect to {queue_name}; "
+                              f"exiting. {type(e).__name__}: {e}")
+    try:
+        channel.queue_declare(queue=queue_name, passive=True)
+    except Exception as e:
+        _close_quietly(connection)
+        raise WorkerException(f"actor queue {queue_name} is gone; worker {worker_id} exiting. "
+                              f"{type(e).__name__}: {e}")
+    logger.info(f"worker {worker_id} reconnected to {queue_name}.")
+    return connection, channel
+
+
+def _settle(channel, delivery_tag, ack=True, requeue=False):
+    """basic_ack/basic_nack that survives a dead connection: the broker has then already put the delivery
+    back and will redeliver it. Log it; the next basic_get fails and takes the reconnect path."""
+    try:
+        if ack:
+            channel.basic_ack(delivery_tag=delivery_tag)
+        else:
+            channel.basic_nack(delivery_tag=delivery_tag, requeue=requeue)
+        return True
+    except Exception as e:
+        logger.error(f"could not {'ack' if ack else 'nack'} delivery {delivery_tag}: the connection is gone "
+                     f"and the broker will redeliver it. {type(e).__name__}: {e}")
+        return False
+
+
+def run_with_heartbeats(connection, fn, *args):
+    """Run fn(*args) on a helper thread while this thread -- the one that owns `connection` -- keeps
+    servicing it. A BlockingConnection only answers heartbeats inside I/O calls, so an execution blocking
+    this thread for more than two heartbeat intervals got the connection dropped by the broker: the unacked
+    message was requeued (a duplicate run) and the final basic_ack raised. pika is not thread-safe, so the
+    helper never touches the connection and acks/nacks stay on this thread. Returns fn's result or re-raises
+    its exception here, so the caller's except clauses work unchanged."""
+    outcome = {}
+
+    def target():
+        try:
+            outcome['result'] = fn(*args)
+        except BaseException as e:
+            outcome['error'] = e
+
+    helper = threading.Thread(target=target, name='execute_actor', daemon=True)
+    helper.start()
+    pumping = True
+    while helper.is_alive():
+        if pumping:
+            try:
+                connection.process_data_events(time_limit=1)
+            except Exception as e:
+                # the connection is gone; let the execution finish -- the ack after it fails and the
+                # main loop reconnects.
+                logger.error(f"actor connection failed during an execution; {type(e).__name__}: {e}")
+                pumping = False
+        else:
+            helper.join(timeout=1)
+    if 'error' in outcome:
+        raise outcome['error']
+    return outcome['result']
+
 def shutdown_worker(actor_id, worker_id, delete_actor_ch=True):
-    """Gracefully shutdown a single worker."
+    """Gracefully shutdown a single worker.
     actor_id (str) - the dbid of the associated actor.
+    Returns False only when RabbitMQ could not be reached at all, so a caller stopping many workers can stop
+    paying the connect deadline once per worker.
     """
     logger.debug(f"top of shutdown_worker for worker_id: {worker_id}")
     # set the worker status to SHUTDOWN_REQUESTED:
@@ -40,13 +163,31 @@ def shutdown_worker(actor_id, worker_id, delete_actor_ch=True):
     except Exception as e:
         logger.error(f"worker got exception trying to update status to SHUTODWN_REQUESTED. actor_id: {actor_id};"
                      f"worker_id: {worker_id}; exception: {e}")
-    ch = WorkerChannel(worker_id=worker_id)
+    queue_name = f"worker_{worker_id}"
     if not delete_actor_ch:
-        ch.put("stop-no-delete")
+        msg = "stop-no-delete"
     else:
-        ch.put("stop")
-    logger.info(f"A 'stop' message was sent to worker: {worker_id}")
-    ch.close()
+        msg = "stop"
+    connection = None
+    try:
+        # Declare the queue, as trunk's WorkerChannel(...).put() did. The spawner records a worker as READY a
+        # few seconds before the worker process declares worker_<id>; a stop sent in that window (the
+        # autoscaler scaling an idle actor down) was unroutable without the declare, and the worker came up
+        # stuck in SHUTDOWN_REQUESTED, alive until its TTL. A queue declared for a worker that is already gone
+        # is removed by health's orphan sweep (check_orphan_worker_queues).
+        connection, channel = get_pika_channel(queue_name)
+        channel.confirm_delivery()
+        channel.basic_publish(exchange='', routing_key=queue_name, body=cloudpickle.dumps(msg), mandatory=True)
+        logger.info(f"A '{msg}' message was sent to worker: {worker_id}")
+    except RabbitUnavailableError as e:
+        logger.error(f"Could not reach RabbitMQ to send '{msg}' to worker {worker_id}: {e}")
+        return False
+    except Exception as e:
+        logger.info(f"Could not publish shutdown message to {queue_name}; it may not exist. worker_id: {worker_id}; e: {e}")
+    finally:
+        _close_quietly(connection)
+    return True
+
 
 def shutdown_workers(actor_id, delete_actor_ch=True):
     """
@@ -56,6 +197,7 @@ def shutdown_workers(actor_id, delete_actor_ch=True):
       whenever the actor is being removed. This will also force quit any currently running executions.
     """
     logger.debug(f"shutdown_workers() called for actor: {actor_id}")
+    workers = []
     try:
         workers = Worker.get_workers(actor_id)
     except Exception as e:
@@ -63,27 +205,94 @@ def shutdown_workers(actor_id, delete_actor_ch=True):
     if not workers:
         logger.info(f"shutdown_workers did not receive any workers from Worker.get_workers for actor: {actor_id}")
     # @TODO - this code is not thread safe. we need to update the workers state in a transaction:
-    for worker in workers:
-        shutdown_worker(actor_id, worker['id'], delete_actor_ch)
+    for idx, worker in enumerate(workers):
+        if not shutdown_worker(actor_id, worker['id'], delete_actor_ch):
+            # Each attempt waits out the connect deadline (10s on an API request), so with the broker down a
+            # DELETE of an actor with many workers outlasted nginx. Mark the rest SHUTDOWN_REQUESTED without
+            # messaging them, the state a failed message would have left them in anyway. Health hard-deletes
+            # workers whose actor is gone, and its TTL check sends a live actor's workers a new stop.
+            rest = workers[idx + 1:]
+            if rest:
+                logger.error(f"RabbitMQ unreachable; not messaging the remaining {len(rest)} worker(s) of actor "
+                             f"{actor_id}, only marking them {SHUTDOWN_REQUESTED}.")
+            for other in rest:
+                try:
+                    Worker.update_worker_status(actor_id, other['id'], SHUTDOWN_REQUESTED)
+                except Exception as e:
+                    logger.error(f"could not mark worker {other['id']} {SHUTDOWN_REQUESTED}; e: {e}")
+            break
 
 
-def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
+def _open_worker_channel(queue_name, worker_id):
+    """(Re)connect the worker-channel thread. Returns (connection, channel), or None when the queue no longer
+    exists (404): the system reaped this worker. Any other failure (broker down or restarting) is retried
+    here. Only a 404 means "reaped"; an unreachable broker also breaks the main thread's actor channel, whose
+    reconnect gives up after its deadline and takes the whole process down."""
+    backoff = 2
+    while True:
+        connection = None
+        try:
+            connection, channel = get_pika_channel(queue_name, declare=False)
+            # passive: a plain declare would resurrect a reaped worker's queue
+            channel.queue_declare(queue=queue_name, passive=True)
+            return connection, channel
+        except pika.exceptions.ChannelClosedByBroker as e:
+            _close_quietly(connection)
+            if e.reply_code == 404:
+                return None
+            error = e
+        except Exception as e:
+            _close_quietly(connection)
+            error = e
+        logger.error(f"worker {worker_id} could not reopen {queue_name}; retrying in {backoff}s. "
+                     f"{type(error).__name__}: {error}")
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 30)
+
+
+def process_worker_ch(tenant, worker_id, actor_id, actor_queue_name):
     """ Target for a thread to listen on the worker channel for a message to stop processing.
     :param worker_ch:
     :return:
     """
     global keep_running
     logger.info(f"Worker subscribing to worker channel...{actor_id}_{worker_id}")
+    queue_name = f"worker_{worker_id}"
+    connection, channel = get_pika_channel(queue_name)
     while keep_running:
         try:
-            msg, msg_obj = worker_ch.get_one()
+            method_frame, header_frame, body = channel.basic_get(queue=queue_name, auto_ack=False)
+            if not method_frame:
+                time.sleep(1)
+                continue
+            # Receiving a control message is enough to ack it: health re-sends 'status', and a stop is acted on
+            # below. Inside the try so that a connection which died here takes the reconnect path instead of
+            # killing this thread (the worker would keep running with nobody listening for stop or status).
+            channel.basic_ack(delivery_tag=method_frame.delivery_tag)
         except Exception as e:
-            logger.error(f"worker {worker_id} got exception trying to read the worker channel! "
-                         f"sleeping for 10 seconds and then will try again; e: {e}")
-            time.sleep(10)
+            # A closed channel never recovers by retrying the same handle: once the broker closes it, every
+            # basic_get raises instantly, so retrying the same handle would spin forever while the worker
+            # holds its Mongo pool. Reconnect; exit only if the queue is gone.
+            logger.error(f"worker {worker_id} got exception ({type(e).__name__}) reading the "
+                         f"worker channel; reconnecting. e: {e}")
+            _close_quietly(connection)
+            time.sleep(2)
+            reopened = _open_worker_channel(queue_name, worker_id)
+            if reopened is None:
+                logger.info(f"worker channel {queue_name} is gone; worker was reaped -- exiting.")
+                globals.keep_running = False
+                globals.force_quit = True
+                _thread.interrupt_main()
+                os._exit(0)
+            connection, channel = reopened
             continue
-        # receiving the message is enough to ack it - resiliency is currently handled in the calling code.
-        msg_obj.ack()
+        try:
+            msg = channel_loads(body)
+        except Exception as e:
+            # already acked: dropping it is the only way it does not come back forever
+            logger.error(f"worker {worker_id} dropped an undecodable message on {queue_name}. "
+                         f"{type(e).__name__}: {e}")
+            continue
         logger.debug(f"Received message in worker channel; msg: {msg}; {actor_id}_{worker_id}")
         logger.debug(f"Type(msg)={type(msg)}")
         if msg == 'status':
@@ -98,14 +307,12 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
                 continue
 
         elif msg == 'force_quit':
-            logger.info("Worker with worker_id: {} (actor_id: {}) received a force_quit message, "
-                        "forcing the execution to halt...".format(worker_id, actor_id))
+            logger.info(f"Worker with worker_id: {worker_id} (actor_id: {actor_id}) received a force_quit message, forcing the execution to halt...")
             globals.force_quit = True
             globals.keep_running = False
 
         elif msg == 'stop' or msg == 'stop-no-delete':
-            logger.info("Worker with worker_id: {} (actor_id: {}) received stop message, "
-                        "stopping worker...".format(worker_id, actor_id))
+            logger.info(f"Worker with worker_id: {worker_id} (actor_id: {actor_id}) received stop message, stopping worker...")
             globals.keep_running = False
             # set the worker status to SHUTTING_DOWN:
             try:
@@ -117,7 +324,8 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
 
             # when an actor's image is updated, old workers are deleted while new workers are
             # created. Deleting the actor msg channel in this case leads to race conditions
-            delete_actor_ch = True
+            delete_actor_ch = msg != 'stop-no-delete' # get msg with status and compare
+            # handle stop-no-delete vs stop semantics and remove Worker registry entry
             if msg == 'stop-no-delete':
                 logger.info(f"Got stop-no-delete; will not delete actor_ch. {actor_id}_{worker_id}")
                 delete_actor_ch = False
@@ -127,29 +335,29 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
             try:
                 Worker.delete_worker(actor_id, worker_id)
             except WorkerException as e:
-                logger.info("Got WorkerException from delete_worker(). "
-                            "worker_id: {}"
-                            "Exception: {}".format(worker_id, e))
+                logger.info(f"Got WorkerException from delete_worker(). "
+                            f"worker_id: {worker_id} Exception: {e}")
             # delete associated channels:
             # it is possible the actor channel was already deleted, in which case we just keep processing
             if delete_actor_ch:
                 try:
-                    actor_ch.delete()
+                    actor_connection, actor_channel = get_pika_channel(actor_queue_name)
+                    actor_channel.queue_delete(queue=actor_queue_name)
                     logger.info(f"ActorChannel deleted for actor: {actor_id} worker_id: {worker_id}")
+                    actor_connection.close()
                 except Exception as e:
-                    logger.info("Got exception deleting ActorChannel for actor: {} "
-                                "worker_id: {}; exception: {}".format(actor_id, worker_id, e))
+                    logger.info(f"Got exception deleting ActorChannel for actor: {actor_id} worker_id: {worker_id}; exception: {e}")
             try:
-                worker_ch.delete()
+                channel.queue_delete(queue=queue_name)
                 logger.info(f"WorkerChannel deleted for actor: {actor_id} worker_id: {worker_id}")
             except Exception as e:
-                logger.info("Got exception deleting WorkerChannel for actor: {} "
-                            "worker_id: {}; exception: {}".format(actor_id, worker_id, e))
-
+                logger.info(f"Got exception deleting WorkerChannel for actor: {actor_id} worker_id: {worker_id}; exception: {e}")
+            _close_quietly(connection)
             logger.info(f"Worker with worker_id: {worker_id} is now exiting.")
             _thread.interrupt_main()
             logger.info(f"main thread interrupted, worker {actor_id}_{worker_id} issuing os._exit()...")
             os._exit(0)
+    _close_quietly(connection)
 
 def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
     """
@@ -174,13 +382,7 @@ def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
         logger.error(msg)
         raise WorkerException(msg)
 
-def subscribe(tenant,
-              actor_id,
-              image,
-              revision,
-              worker_id,
-              api_server,
-              worker_ch):
+def subscribe(tenant, actor_id, image, revision, worker_id, api_server):
     """
     Main loop for the Actor executor worker. Subscribes to the actor's inbox and executes actor
     containers when message arrive. Also launches a separate thread which ultimately subscribes to the worker channel
@@ -188,7 +390,10 @@ def subscribe(tenant,
     :return:
     """
     logger.debug(f"Top of subscribe(). worker_id: {worker_id}")
-    actor_ch = ActorMsgChannel(actor_id)
+    # Must match ActorMsgChannel in channels.py (actor_msg_<id>), the queue that the
+    # messages API publishes to.
+    actor_queue_name = f"actor_msg_{actor_id}"
+    worker_queue_name = f"worker_{worker_id}"
     # establish configs for this worker -------
     leave_containers = conf.worker_leave_containers
     logger.debug(f"leave_containers: {leave_containers}")
@@ -201,7 +406,7 @@ def subscribe(tenant,
 
     # start a separate thread for handling messages sent to the worker channel ----
     logger.info("Starting the process worker channel thread.")
-    t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch))
+    t = threading.Thread(target=process_worker_ch, args=(tenant, worker_id, actor_id, actor_queue_name))
     t.start()
 
     # subscribe to the actor message queue -----
@@ -219,55 +424,56 @@ def subscribe(tenant,
     consecutive_errors = 0
 
     # main subscription loop -- processing messages from actor's mailbox
+    connection, channel = get_pika_channel(actor_queue_name)
     while globals.keep_running:
         logger.debug(f"top of keep_running; worker id: {worker_id}")
         if update_worker_status:
             Worker.update_worker_status(actor_id, worker_id, READY)
             logger.debug(f"updated worker status to READY in SUBSCRIBE; worker id: {worker_id}")
             update_worker_status = False
-
-        # note: the following get_one() call blocks until a message is returned. this means it could be a long time
-        # (i.e., many seconds, or even minutes) between the check above to globals.keep_running (line 252) and the
-        # get_one() function returning. In this time, the worker channel thread could have received a stop. We need to
-        # check this.
         try:
-            msg, msg_obj = actor_ch.get_one()
-        except channelpy.ChannelClosedException:
-            logger.info(f"Channel closed, worker exiting. worker id: {worker_id}")
-            globals.keep_running = False
-            sys.exit()
+            method_frame, header_frame, body = channel.basic_get(queue=actor_queue_name, auto_ack=False)
+        except Exception as e:
+            # A closed channel never recovers by retrying the same handle, and sys.exit() here only ended the
+            # main thread: the non-daemon worker-channel thread kept answering health pings, a zombie that
+            # looked READY forever. Reconnect instead; _reconnect_actor_channel raises (-> __main__ sends
+            # stop-no-delete and terminates the process) if the queue is gone or the broker stays down.
+            logger.warning(f"worker {worker_id} lost the actor channel ({type(e).__name__}: {e}); reconnecting.")
+            connection, channel = _reconnect_actor_channel(connection, actor_queue_name, worker_id)
+            continue
+        if not method_frame:
+            time.sleep(1)
+            continue
+        msg_obj = method_frame
+        try:
+            msg = channel_loads(body)
+        except Exception as e:
+            # A message that cannot be deserialized will never process no matter how many
+            # workers try. Reject it without requeue instead of conflating it with a closed
+            # channel (which killed the worker and left the message to loop forever).
+            logger.error(f"worker {worker_id} could not deserialize a message on {actor_queue_name}; "
+                         f"rejecting it without requeue. e: {e}")
+            _settle(channel, msg_obj.delivery_tag, ack=False, requeue=False)
+            continue
         logger.info(f"worker {worker_id} processing new msg.")
+        # Load the actor for every message: the revision check below must see the
+        # actor's current revision, and mounts can change between messages.
+        actor = Actor.from_db(actors_store[site()][actor_id])
 
         # worker ch thread has received a stop and is already shutting us down (see note above); we need to nack this
         # message and exit
         if not globals.keep_running:
-            logger.info("got msg from get_one() but globals.keep_running was False! "
-                        "Requeing message and worker will exit. {}+{}".format(actor_id, worker_id))
-            msg_obj.nack(requeue=True)
+            logger.info("got msg from get_one() but globals.keep_running was False! Requeing message and worker will exit. {}+{}".format(actor_id, worker_id))
+            channel.basic_nack(delivery_tag=msg_obj.delivery_tag, requeue=True)
             logger.info(f"message requeued; worker exiting:{actor_id}_{worker_id}")
             time.sleep(5)
+            connection.close()
             raise Exception()
-        # if the actor revision is different from the revision assigned to this worker, the worker is stale, so we
-        # need to nack this message and exit.
-        # NOTE: we could also compare the worker's revision to the revision contained in the message itself so that
-        # a given message was always processed by a worker of the same revision, but this would take more work and is
-        # not the requirement.
-        try:
-            actor = Actor.from_db(actors_store[site()][actor_id])
-        except Exception as e:
-            logger.error("unexpected exception retrieving actor to check revision. Nacking message."
-                         "actor_id: {}; worker_id: {}; status: {}; exception: {}".format(actor_id,
-                                                                                         worker_id,
-                                                                                         READY,
-                                                                                         e))
-            msg_obj.nack(requeue=True)
-            logger.info(f"worker exiting. worker_id: {worker_id}")
-            raise e
         if not revision == actor.revision:
             logger.info(f"got msg from get_one() but worker's revision ({revision}) was different "
                         f"from actor.revision ({actor.revision}). Requeing message and worker will "
                         f"exit. {actor_id}+{worker_id}")
-            msg_obj.nack(requeue=True)
+            channel.basic_nack(delivery_tag=msg_obj.delivery_tag, requeue=True)
             logger.info(f"message requeued; worker exiting:{actor_id}_{worker_id}")
             time.sleep(5)
             raise Exception()
@@ -281,7 +487,7 @@ def subscribe(tenant,
                                                                                          BUSY,
                                                                                          e))
             logger.info(f"worker exiting. {actor_id}_{worker_id}")
-            msg_obj.nack(requeue=True)
+            channel.basic_nack(delivery_tag=msg_obj.delivery_tag, requeue=True)
             raise e
         update_worker_status = True
         logger.info(f"Received message {msg}. Starting actor container. worker id: {worker_id}")
@@ -299,7 +505,7 @@ def subscribe(tenant,
                                                                                          worker_id,
                                                                                          BUSY,
                                                                                          e))
-            msg_obj.nack(requeue=True)
+            channel.basic_nack(delivery_tag=msg_obj.delivery_tag, requeue=True)
             logger.info(f"worker exiting. worker_id: {worker_id}")
             raise e
 
@@ -312,7 +518,7 @@ def subscribe(tenant,
             logger.info(f"got msg from get_one() but worker's revision ({revision}) was different "
                         f"from actor.revision ({actor.revision}). Requeing message and worker will "
                         f"exit. {actor_id}+{worker_id}")
-            msg_obj.nack(requeue=True)
+            channel.basic_nack(delivery_tag=msg_obj.delivery_tag, requeue=True)
             logger.info(f"message requeued; worker exiting:{actor_id}_{worker_id}")
             time.sleep(5)
             raise Exception()
@@ -341,7 +547,7 @@ def subscribe(tenant,
                 logger.info(f"Created fifo at path: {fifo_host_path}")
             except Exception as e:
                 logger.error(f"Could not create fifo_path at {fifo_host_path}. Nacking message. Exception: {e}")
-                msg_obj.nack(requeue=True)
+                channel.basic_nack(delivery_tag=msg_obj.delivery_tag, requeue=True)
                 logger.info(f"worker exiting. worker_id: {worker_id}")
                 raise e
             # add the fifo as a mount:
@@ -356,7 +562,7 @@ def subscribe(tenant,
             Execution.add_worker_id(actor_id, execution_id, worker_id)
         except Exception as e:
             logger.error(f"Unexpected exception adding working_id to the Execution. Nacking message. Exception: {e}")
-            msg_obj.nack(requeue=True)
+            channel.basic_nack(delivery_tag=msg_obj.delivery_tag, requeue=True)
             logger.info(f"worker exiting. worker_id: {worker_id}")
             raise e
 
@@ -406,26 +612,30 @@ def subscribe(tenant,
         logger.info(f"About to execute actor; worker_id: {worker_id}")
         logger.info(f"Executed actor mounts: {mounts}")
         try:
-            stats, logs, final_state, exit_code, start_time = execute_actor(actor_id,
-                                                                            worker_id,
-                                                                            execution_id,
-                                                                            image,
-                                                                            message,
-                                                                            user,
-                                                                            environment,
-                                                                            privileged,
-                                                                            mounts,
-                                                                            leave_containers,
-                                                                            fifo_container_path,
-                                                                            socket_container_path,
-                                                                            mem_limit,
-                                                                            max_cpus,
-                                                                            tenant)
+            # executions run for minutes; run_with_heartbeats keeps the connection holding the unacked
+            # message alive meanwhile.
+            stats, logs, final_state, exit_code, start_time = run_with_heartbeats(connection,
+                                                                                  execute_actor,
+                                                                                  actor_id,
+                                                                                  worker_id,
+                                                                                  execution_id,
+                                                                                  image,
+                                                                                  message,
+                                                                                  user,
+                                                                                  environment,
+                                                                                  privileged,
+                                                                                  mounts,
+                                                                                  leave_containers,
+                                                                                  fifo_container_path,
+                                                                                  socket_container_path,
+                                                                                  mem_limit,
+                                                                                  max_cpus,
+                                                                                  tenant)
         except DockerStartContainerError as e:
             logger.error("Worker {} got DockerStartContainerError: {} trying to start actor for execution {}."
                          "Placing message back on queue.".format(worker_id, e, execution_id))
             # if we failed to start the actor container, we leave the worker up and re-queue the original message
-            msg_obj.nack(requeue=True)
+            _settle(channel, msg_obj.delivery_tag, ack=False, requeue=True)
             logger.debug('message requeued.')
             consecutive_errors += 1
             if consecutive_errors > MAX_WORKER_CONSECUTIVE_ERRORS:
@@ -449,7 +659,7 @@ def subscribe(tenant,
             Actor.set_status(actor_id, ERROR, f"Error executing container: {e}")
             # since the error was with stopping the actor, we will consider this message "processed"; this choice
             # could be reconsidered/changed
-            msg_obj.ack()
+            _settle(channel, msg_obj.delivery_tag)
             Execution.update_status(actor_id, execution_id, ERROR)
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
@@ -469,14 +679,15 @@ def subscribe(tenant,
             # the execute_actor function raises a DockerStartContainerError if it met an exception before starting the
             # actor container; if the container was started, then another exception should be raised. Therefore,
             # we can assume here that the container was at least started and we can ack the message.
-            msg_obj.ack()
+            _settle(channel, msg_obj.delivery_tag)
             Execution.update_status(actor_id, execution_id, ERROR)
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
             time.sleep(60)
             break
-        # ack the message
-        msg_obj.ack()
+        # ack the message. If the connection died meanwhile the broker redelivers it (a duplicate run, the
+        # unavoidable cost of a genuine broker failure); the next basic_get reconnects.
+        _settle(channel, msg_obj.delivery_tag)
 
         # Add the logs to the execution before finalizing it -- otherwise, there is a race condition for clients
         # waiting on the execution to be COMPLETE and then immediately retrieving the logs.
@@ -569,26 +780,53 @@ def main():
 
     logger.info(f"Top of main() for worker: {worker_id}, image: {image}; revision: {revision} "
                 f"actor_id: {actor_id}; client_id:{client_id}; tenant: {tenant}; api_server: {api_server}")
-    spawner_worker_ch = SpawnerWorkerChannel(worker_id=worker_id)
+    # Must match SpawnerWorkerChannel in channels.py (spawner_worker_<id>), the queue
+    # the spawner sends READY to; any other name leaves the worker waiting forever.
+    spawner_queue_name = f"spawner_worker_{worker_id}"
+    connection, channel = get_pika_channel(spawner_queue_name)
 
     logger.debug("Worker waiting on message from spawner...")
-    result = spawner_worker_ch.get_one()
+    give_up_at = time.monotonic() + SPAWNER_HANDSHAKE_TIMEOUT_S
+    next_log_at = time.monotonic() + 30
+    while True:
+        method_frame, header_frame, body = channel.basic_get(queue=spawner_queue_name, auto_ack=True)
+        if method_frame:
+            result = channel_loads(body)
+            break
+        now = time.monotonic()
+        if now >= give_up_at:
+            _close_quietly(connection)
+            raise WorkerException(f"worker {worker_id} got no handshake from the spawner on {spawner_queue_name} "
+                                  f"within {SPAWNER_HANDSHAKE_TIMEOUT_S}s; exiting.")
+        if now >= next_log_at:
+            logger.info(f"worker {worker_id} still waiting for the spawner handshake on {spawner_queue_name}...")
+            next_log_at = now + 30
+        time.sleep(1)
     logger.debug(f"Worker received reply from spawner. result: {result}.")
 
     # should be OK to close the spawner_worker_ch on the worker side since spawner was first
     # to open it.
-    spawner_worker_ch.delete()
+    channel.queue_delete(queue=spawner_queue_name)
+    connection.close()
     logger.debug('spawner_worker_ch closed.')
-
     logger.info(f"Actor {actor_id} status set to READY. subscribing to inbox.")
-    worker_ch = WorkerChannel(worker_id=worker_id)
-    subscribe(tenant,
-              actor_id,
-              image,
-              revision,
-              worker_id,
-              api_server,
-              worker_ch)
+    subscribe(tenant, actor_id, image, revision, worker_id, api_server)
+
+
+def exit_process(code, grace_s=60):
+    """Terminate the whole worker process. sys.exit() only ends the main thread: the interpreter then waits
+    forever on the non-daemon worker-channel thread, which keeps answering health 'status' pings -- a zombie
+    that looks READY. Give that thread grace_s to act on a stop-no-delete (it deletes the worker record and
+    queue, then os._exit()s itself), then flush the logs and exit regardless."""
+    give_up_at = time.monotonic() + grace_s
+    for thread in threading.enumerate():
+        if thread is not threading.current_thread() and not thread.daemon:
+            thread.join(timeout=max(0.0, give_up_at - time.monotonic()))
+    logger.info(f"worker process exiting; code: {code}")
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 if __name__ == '__main__':
@@ -597,31 +835,36 @@ if __name__ == '__main__':
     # data for the worker through environment variables.
     logger.info("Initial log for new worker.")
 
+    exit_code = 0
     # call the main() function:
     try:
         os.system(f'sudo /usr/local/sbin/folder_permissions.sh /home/tapis/runtime_files')
         os.system(f'sudo /usr/local/sbin/folder_permissions.sh /var/run/docker.sock')
         main()
     except Exception as e:
+        exit_code = 1
         try:
             worker_id = os.environ.get('worker_id')
         except:
-            logger.error(f"worker main thread got exception trying to get worker id from environment."
-                         f"not able to send stop-no-delete message to itself. worker_id is unknown.")
+            logger.error(f"worker main thread got exception trying to get worker id from environment. not able to send stop-no-delete message to itself. worker_id is unknown.")
             worker_id = ''
         if worker_id:
             try:
-                ch = WorkerChannel(worker_id=worker_id)
-                # since this is an exception, we don't know that the actor has been deleted
-                # don't delete the actor msg channel:
-                ch.put('stop-no-delete')
+                queue_name = f"worker_{worker_id}"
+                # since this is an exception, we don't know that the actor has been deleted; don't delete the
+                # actor msg channel. declare=False: a worker queue that was already reaped is not resurrected.
+                connection, channel = get_pika_channel(queue_name, declare=False)
+                channel.basic_publish(exchange='', routing_key=queue_name, body=cloudpickle.dumps('stop-no-delete'))
                 logger.info(f"Worker main loop sent 'stop-no-delete' message to itself; worker_id: {worker_id}.")
-                ch.close()
-                msg = f"worker caught exception from main loop. worker exiting. e" \
-                      f"Exception: {e} worker_id: {worker_id}"
+                connection.close()
+                msg = f"worker caught exception from main loop. worker exiting. eException: {e} worker_id: {worker_id}"
                 logger.info(msg)
             except Exception as e2:
                 logger.error(f"worker main thread got exception trying to send stop-no-delete message to itself;"
                              f"worker_id: {worker_id}. e1: {e} e2: {e2}")
-    keep_running = False
-    sys.exit()
+    else:
+        # process_worker_ch polls `while keep_running` (this module's global, not globals.keep_running), so
+        # this ends that thread within ~1s. Only on a clean return: after an exception the thread must stay up
+        # long enough to act on the stop-no-delete sent above (worker record + queue cleanup).
+        keep_running = False
+    exit_process(exit_code)

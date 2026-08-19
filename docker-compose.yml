@@ -152,6 +152,7 @@ services:
 
     spawner:
         image: abaco/core-v3:$TAG
+        restart: unless-stopped
         command: "python3 -u /home/tapis/actors/spawner.py"
         volumes:
             - ./config-local.json:/home/tapis/config.json
@@ -173,6 +174,7 @@ services:
 
     health:
         image: abaco/core-v3:$TAG
+        restart: unless-stopped
         command: /home/tapis/actors/health_check.sh
         volumes:
             - /:/host
@@ -193,6 +195,7 @@ services:
 
     events:
         image: abaco/core-v3:$TAG
+        restart: unless-stopped
         command: "python3 -u /home/tapis/actors/events.py"
         volumes:
             - ./config-local.json:/home/tapis/config.json
@@ -213,6 +216,7 @@ services:
 
     metrics:
         image: abaco/core-v3:$TAG
+        restart: unless-stopped
         command: /home/tapis/actors/metrics_cron_check.sh
         networks:
             - abaco

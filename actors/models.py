@@ -667,7 +667,10 @@ class Event(object):
             logger.debug("No link or webhook supplied for this event. Not publishing to the EventsChannel.")
             return None
         ch = EventsChannel()
-        ch.put_event(self.data)
+        try:
+            ch.put_event(self.data)
+        finally:
+            ch.close()
 
 
 class ActorEvent(Event):
@@ -1123,15 +1126,27 @@ class Actor(AbacoDAO):
         if worker_id:
             logger.info("Actor.ensure_one_worker() putting message on command "
                         f"channel for worker_id: {worker_id}")
-            ch = CommandChannel(name=self.queue)
-            ch.put_cmd(actor_id=self.db_id,
-                       worker_id=worker_id,
-                       image=self.image,
-                       revision=self.revision,
-                       tenant=self.tenant,
-                       site_id=site_id,
-                       stop_existing=False)
-            ch.close()
+            try:
+                ch = CommandChannel(name=self.queue)
+                try:
+                    ch.put_cmd(actor_id=self.db_id,
+                               worker_id=worker_id,
+                               image=self.image,
+                               revision=self.revision,
+                               tenant=self.tenant,
+                               site_id=site_id,
+                               stop_existing=False)
+                finally:
+                    ch.close()
+            except Exception:
+                # No spawner will ever start this worker, and while its REQUESTED record exists every later
+                # ensure_one_worker() for the actor sees "a worker exists" and requests none. (If the command
+                # did reach the queue after all, the spawner finds no record and skips it.)
+                try:
+                    Worker.delete_worker(self.db_id, worker_id, site_id)
+                except Exception as e:
+                    logger.error(f"could not remove REQUESTED worker {worker_id} after its command failed: {e}")
+                raise
             return worker_id
         else:
             logger.debug("Actor.ensure_one_worker() returning None.")

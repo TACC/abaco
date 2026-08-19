@@ -6,7 +6,7 @@ import threading
 import time
 import timeit
 
-from channelpy.exceptions import ChannelClosedException, ChannelTimeoutException
+from queues import ChannelClosedException, ChannelTimeoutException
 from flask import g, request, render_template, make_response, Response
 from flask_restful import Resource, Api, inputs
 from werkzeug.exceptions import BadRequest
@@ -14,6 +14,7 @@ from parse import parse
 
 from auth import check_permissions, check_config_permissions, get_uid_gid_homedir, get_token_default, tenant_can_use_tas
 from channels import ActorMsgChannel, CommandChannel, ExecutionResultsChannel, WorkerChannel
+from queues import RABBIT_ERRORS, PUBLISH_REFUSED_ERRORS
 from codes import ERROR, SUBMITTED, COMPLETE, SHUTTING_DOWN, PERMISSION_LEVELS, ALIAS_NONCE_PERMISSION_LEVELS, READ, \
     UPDATE, EXECUTE, PERMISSION_LEVELS, PermissionLevel, READY, REQUESTED, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, \
     UPDATING_STORE, SHUTDOWN_REQUESTED
@@ -324,6 +325,8 @@ class AdminActorsResource(Resource):
         logger.debug("top of GET /admin")
         case = conf.web_case
         actors = []
+        # one management API call for every inbox depth instead of an AMQP connection per actor
+        depths = get_queue_depths(site()) or {}
         try:
             for actor in actors_store[site()].items():
                 actor = Actor.from_db(actor)
@@ -332,9 +335,7 @@ class AdminActorsResource(Resource):
                     if case == 'camel':
                         worker = dict_to_camel(worker)
                     actor.workers.append(worker)
-                ch = ActorMsgChannel(actor_id=actor.db_id)
-                actor.messages = len(ch._queue._queue)
-                ch.close()
+                actor.messages = depths.get(f'actor_msg_{actor.db_id}', 0)
                 summary = ExecutionsSummary(db_id=actor.db_id)
                 actor.executions = summary.total_executions
                 actor.runtime = summary.total_runtime
@@ -846,11 +847,11 @@ class AbacoUtilizationResource(Resource):
             except KeyError as e:
                 # Stat docs created daily, so some days there might not be stats in them
                 continue
-        ch = CommandChannel()
+        depths = get_queue_depths(site()) or {}
         result = {'currentActors': num_current_actors,
                   'totalActors': total_actors,
                   'workers': num_workers,
-                  'commandQueue': len(ch._queue._queue)
+                  'commandQueue': depths.get('command_channel_default', 0)
                   }
         return ok(result=result, msg="Abaco utilization returned successfully.")
 
@@ -1695,7 +1696,10 @@ class ActorExecutionResource(Resource):
         logger.debug(f"issuing force quit to worker: {exc.worker_id} "
                      f"for actor_id: {actor_id} execution_id: {execution_id}")
         ch = WorkerChannel(worker_id=exc.worker_id)
-        ch.put('force_quit')
+        try:
+            ch.put('force_quit')
+        finally:
+            ch.close()
         msg = f'Issued force quit command for execution {execution_id}.'
         return ok(result=None, msg=msg)
 
@@ -1896,9 +1900,14 @@ class MessagesResource(Resource):
         logger.debug(f"extra fields added to message from query parameters: {d}.")
         if synchronous:
             # actor mailbox length must be 0 to perform a synchronous execution
-            ch = ActorMsgChannel(actor_id=actor_id)
-            box_len = len(ch._queue._queue)
-            ch.close()
+            # dbid, not the bare actor_id: the inbox is actor_msg_<dbid>. With actor_id
+            # this measured (and declared!) a bogus, always-empty actor_msg_<actor_id>
+            # queue -- a fresh Raft group per actor once rabbit_queue_type is quorum.
+            ch = ActorMsgChannel(actor_id=dbid)
+            try:
+                box_len = len(ch._queue._queue)
+            finally:
+                ch.close()
             if box_len > 3:
                 raise ResourceError("Cannot issue synchronous execution when actor message queue > 0.")
         if hasattr(g, 'username'):
@@ -1933,19 +1942,68 @@ class MessagesResource(Resource):
         logger.debug(f"Final message dictionary: {d}")
         
         before_ch_timer = timeit.default_timer()
-        ch = ActorMsgChannel(actor_id=dbid)
-        after_ch_timer = timeit.default_timer()
-        ch.put_msg(message=args['message'], d=d)
-        after_put_msg_timer = timeit.default_timer()
-        ch.close()
+        ch = None
+        publishing = False
+        try:
+            ch = ActorMsgChannel(actor_id=dbid)
+            after_ch_timer = timeit.default_timer()
+            publishing = True
+            ch.put_msg(message=args['message'], d=d)
+            after_put_msg_timer = timeit.default_timer()
+        except RABBIT_ERRORS as e:
+            if publishing and not isinstance(e, PUBLISH_REFUSED_ERRORS):
+                # AMBIGUOUS: the connection died after basic_publish handed the frames to
+                # the socket but before the broker's confirm came back (StreamLostError,
+                # ConnectionClosed, ...). The broker may well have enqueued the message,
+                # so marking the execution ERROR could contradict a run that then
+                # happens. Leave it SUBMITTED -- a worker moves it on if the message
+                # landed; the outbox reconciler (health.reconcile_lost_messages) finds it
+                # SUBMITTED-with-empty-queue if it did not -- and answer 503, because a
+                # 200 would claim a success we cannot vouch for. The body names the
+                # execution so the client checks it instead of blindly re-posting (which
+                # could run the message twice).
+                # (No status_message either: it would stick to an execution that then
+                # runs to COMPLETE.)
+                logger.error(f"enqueue of execution {exc} (actor {dbid}) is UNCONFIRMED: connection lost "
+                             f"while awaiting the publisher confirm ({type(e).__name__}): {e}")
+                raise ResourceError(f"The message broker connection was lost before it confirmed the message; it may or "
+                                    f"may not have been queued. Check execution {exc} before retrying.", 503)
+            # Definitely NOT queued: we never got as far as publishing (connect/declare
+            # failed, channel already closed), or the broker returned it (Unroutable) or
+            # refused it (Nack). The execution record already exists in SUBMITTED; surface
+            # that now instead of leaving a phantom SUBMITTED execution for the health
+            # reconciler to find 15 minutes later.
+            logger.error(f"could not enqueue message for execution {exc} (actor {dbid}): {e}")
+            try:
+                Execution.update_status(dbid, exc, ERROR)
+                executions_store[site()][f"{dbid}_{exc}", 'status_message'] = \
+                    f"message could not be queued: the message broker was unavailable ({type(e).__name__})"
+            except Exception as mark_e:
+                logger.error(f"could not mark execution {exc} ERROR after the enqueue failure: {mark_e}")
+            if isinstance(e, ResourceError):
+                raise
+            raise ResourceError("The message broker is unavailable; the message was not queued. Please retry.", 503)
+        finally:
+            # every path, including the raises above: an unclosed channel is a leaked
+            # socket for the life of the gunicorn worker.
+            if ch is not None:
+                ch.close()
         after_ch_close_timer = timeit.default_timer()
         logger.debug(f"Message added to actor inbox. id: {actor_id}.")
-        # make sure at least one worker is available
-        actor = Actor.from_db(actors_store[site()][dbid])
+        # make sure at least one worker is available. The message is already queued (confirmed above), so
+        # this is best-effort: an error answered here makes the client retry, and the message would run
+        # twice. A missed worker request only delays the execution: the autoscaler and the next message
+        # request one too.
         after_get_actor_db_timer = timeit.default_timer()
-        actor.ensure_one_worker()
+        try:
+            actor = Actor.from_db(actors_store[site()][dbid])
+            after_get_actor_db_timer = timeit.default_timer()
+            actor.ensure_one_worker()
+            logger.debug(f"ensure_one_worker() called. id: {actor_id}.")
+        except Exception as e:
+            logger.error(f"execution {exc} is queued, but ensure_one_worker failed for actor {dbid} "
+                         f"({type(e).__name__}): {e}")
         after_ensure_one_worker_timer = timeit.default_timer()
-        logger.debug(f"ensure_one_worker() called. id: {actor_id}.")
         if args.get('_abaco_Content_Type') == 'application/octet-stream':
             result = {'execution_id': exc, 'msg': 'binary - omitted'}
         else:
@@ -1978,10 +2036,18 @@ class MessagesResource(Resource):
         """Monitor for the termination of a synchronous message execution."""
         logger.debug("top of do_synch_message")
         dbid = g.db_id
-        ch = ExecutionResultsChannel(actor_id=dbid, execution_id=execution_id)
+        try:
+            ch = ExecutionResultsChannel(actor_id=dbid, execution_id=execution_id)
+        except Exception as e:
+            # The message is already queued, so answering an error here makes the client retry and run it
+            # twice. Without the results channel a binary result is lost, but completion, failure and the
+            # logs still come from the executions store.
+            logger.error(f"could not open the results channel for synchronous execution {execution_id}; "
+                         f"waiting on the executions store only. {type(e).__name__}: {e}")
+            ch = None
         result = None
         complete = False
-        check_results_channel = True
+        check_results_channel = ch is not None
         binary_result = False
         timeout = 0.1
         # hard deadline: without it, an execution that never completes (e.g., its worker died)
@@ -2145,13 +2211,13 @@ class WorkersResource(Resource):
             logger.debug(f"There were only {current_number_workers} workers for actor: {actor_id} so we're adding more.")
             num_to_add = int(num) - len(workers)
             logger.info(f"adding {num_to_add} more workers for actor {actor_id}")
+            ch = CommandChannel(name=actor.queue)
             for idx in range(num_to_add):
                 # send num_to_add messages to add 1 worker so that messages are spread across multiple
                 # spawners.
                 worker_id = Worker.request_worker(tenant=g.request_tenant_id,
                                                   actor_id=dbid)
                 logger.info(f"New worker id: {worker_id[0]}")
-                ch = CommandChannel(name=actor.queue)
                 ch.put_cmd(actor_id=actor.db_id,
                            worker_id=worker_id,
                            image=actor.image,

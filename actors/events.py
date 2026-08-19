@@ -13,12 +13,12 @@ event.publish()
 """
 import json
 import os
-import rabbitpy
 import requests
 import time
 
 from codes import SUBMITTED
 from channels import ActorMsgChannel, EventsChannel
+from queues import RABBIT_ERRORS
 from models import Execution, site
 from stores import actors_store
 from tapisservice.config import conf
@@ -98,7 +98,9 @@ def process_webhook(webhook, msg, d):
     logger.debug("top of process_webhook")
     msg.update(d)
     try:
-        rsp = requests.post(webhook, json=msg)
+        # the URL is user-supplied; without a timeout one endpoint that accepts the TCP
+        # connection and never answers stalls every event and link behind it.
+        rsp = requests.post(webhook, json=msg, timeout=(5, 30))
         rsp.raise_for_status()
         logger.debug("webhook processed")
     except Exception as e:
@@ -120,7 +122,9 @@ def run(ch):
         except Exception as e:
             msg = f"Events processor get an exception trying to process a message. exception: {e}; msg: {msg}"
             logger.error(msg)
-        # at this point, all messages are acked, even when there is an error processing
+        # Ack after processing, even when processing failed, so an event in flight when this container is
+        # killed is redelivered. If processing outlasted the heartbeat window (the webhook timeout keeps it
+        # under), this ack raises a RABBIT_ERRORS error, main() reconnects, and the event runs again.
         msg_obj.ack()
 
 
@@ -133,8 +137,9 @@ def main():
     #
     ch_name = os.environ.get('events_ch_name')
 
-    idx = 0
-    while idx < 3:
+    backoff = 1
+    while True:
+        ch = None
         try:
             if ch_name:
                 ch = EventsChannel(name=ch_name)
@@ -142,12 +147,21 @@ def main():
                 ch = EventsChannel()
             logger.info("events processor made connection to rabbit, entering main loop")
             logger.info(f"events processor using abaco_host_path={os.environ.get('abaco_host_path')}")
+            backoff = 1
             run(ch)
-        except (rabbitpy.exceptions.ConnectionException, RuntimeError):
-            # rabbit seems to take a few seconds to come up
-            time.sleep(5)
-            idx += 1
-    logger.critical("events agent could not connect to rabbitMQ. Shutting down!")
+        except RABBIT_ERRORS as e:
+            # AMQPError covers every pika error, including ConnectionClosedByBroker
+            # raised by a clean broker restart; ChannelClosedException covers a consumer
+            # the broker cancelled. The agent must outlive rabbit, not exit after three
+            # tries.
+            logger.error(f"events agent lost RabbitMQ connection: {e}. Reconnecting in {backoff}s...")
+            try:
+                if ch:
+                    ch.close()
+            except Exception:
+                pass
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 30)
 
 if __name__ == '__main__':
     # This is the entry point for the events processor agent container.

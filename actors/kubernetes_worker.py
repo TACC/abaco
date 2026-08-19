@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 import shutil
 import sys
@@ -6,7 +7,9 @@ import threading
 import _thread
 import time
 
-import channelpy
+import pika.exceptions
+
+from queues import ChannelClosedException, RabbitConnection
 
 from __init__ import t
 from auth import get_tenant_verify
@@ -76,24 +79,60 @@ def shutdown_workers(actor_id, delete_actor_ch=True):
         shutdown_worker(actor_id, worker['id'], delete_actor_ch)
 
 
-def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
+def _reopen_worker_ch(worker_id):
+    """Reconnect the worker channel after a failure. A closed channel never recovers by retrying the same
+    handle (the old loop retried it every 10s forever, a zombie that never exited). If the queue is gone
+    (404) the worker was reaped: exit the whole process. Any other failure (broker down or restarting) is
+    retried: only a 404 means "reaped", and an unreachable broker also breaks the main thread's actor
+    channel, whose get_one() raises and takes the worker down."""
+    name = WorkerChannel.get_name(worker_id)
+    backoff = 2
+    while True:
+        try:
+            # passive check first: WorkerChannel() declares, which would resurrect a reaped worker's queue.
+            with RabbitConnection() as probe:
+                probe._ch.queue_declare(queue=name, passive=True)
+            return WorkerChannel(worker_id=worker_id)
+        except pika.exceptions.ChannelClosedByBroker as e:
+            if e.reply_code == 404:
+                logger.info(f"worker channel {name} is gone; worker was reaped -- exiting.")
+                globals.keep_running = False
+                globals.force_quit = True
+                _thread.interrupt_main()
+                os._exit(0)
+            error = e
+        except Exception as e:
+            error = e
+        logger.error(f"worker {worker_id} could not reopen {name}; retrying in {backoff}s. "
+                     f"{type(error).__name__}: {error}")
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 30)
+
+
+def process_worker_ch(tenant, actor_id, worker_id):
     """
     Target for a thread to listen on the worker channel for a message to stop processing.
-    :param worker_ch:
-    :return:
+    pika is not thread-safe: this thread opens its own connections for everything it does (worker channel,
+    actor channel delete) and never touches the main thread's actor channel.
     """
     global keep_running
     logger.info(f"Worker subscribing to worker channel...{actor_id}_{worker_id}")
+    worker_ch = WorkerChannel(worker_id=worker_id)
     while keep_running:
         try:
+            # get_one() rejects (without requeue) a message it cannot decode
             msg, msg_obj = worker_ch.get_one()
+            # Receiving a control message is enough to ack it: health re-sends 'status', and a stop is acted on
+            # below. Inside the try so that a connection which died here takes the reconnect path instead of
+            # killing this thread (the worker would keep running with nobody listening for stop or status).
+            msg_obj.ack()
         except Exception as e:
-            logger.error(f"worker {worker_id} got exception trying to read the worker channel! "
-                         f"sleeping for 10 seconds and then will try again; e: {e}")
-            time.sleep(10)
+            logger.error(f"worker {worker_id} got exception ({type(e).__name__}) reading the worker channel; "
+                         f"reconnecting. e: {e}")
+            worker_ch.close()
+            time.sleep(2)
+            worker_ch = _reopen_worker_ch(worker_id)
             continue
-        # receiving the message is enough to ack it - resiliency is currently handled in the calling code.
-        msg_obj.ack()
         logger.debug(f"Received message in worker channel; msg: {msg}; {actor_id}_{worker_id}")
         logger.debug(f"Type(msg)={type(msg)}")
         if msg == 'status':
@@ -144,7 +183,7 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
             # it is possible the actor channel was already deleted, in which case we just keep processing
             if delete_actor_ch:
                 try:
-                    actor_ch.delete()
+                    ActorMsgChannel(actor_id).delete()
                     logger.info(f"ActorChannel deleted for actor: {actor_id} worker_id: {worker_id}")
                 except Exception as e:
                     logger.info("Got exception deleting ActorChannel for actor: {} "
@@ -160,6 +199,51 @@ def process_worker_ch(tenant, worker_ch, actor_id, worker_id, actor_ch):
             _thread.interrupt_main()
             logger.info(f"main thread interrupted, worker {actor_id}_{worker_id} issuing os._exit()...")
             os._exit(0)
+
+def run_with_heartbeats(connection, fn, *args):
+    """Run fn(*args) on a helper thread while this thread -- the one that owns `connection` -- keeps
+    servicing it. A pika BlockingConnection only answers heartbeats inside I/O calls (rabbitpy had its own
+    I/O thread), so an execution blocking this thread for more than two heartbeat intervals got the
+    connection dropped by the broker: the unacked message was requeued (a duplicate run) and the final ack
+    raised. The helper never touches the connection; acks stay on this thread. Returns fn's result or
+    re-raises its exception here. Same helper as worker.run_with_heartbeats (that module cannot be imported
+    here: it pulls in docker_utils)."""
+    outcome = {}
+
+    def target():
+        try:
+            outcome['result'] = fn(*args)
+        except BaseException as e:
+            outcome['error'] = e
+
+    helper = threading.Thread(target=target, name='execute_actor', daemon=True)
+    helper.start()
+    pumping = True
+    while helper.is_alive():
+        if pumping:
+            try:
+                connection.process_data_events(time_limit=1)
+            except Exception as e:
+                # the connection is gone; let the execution finish -- the ack after it fails and the
+                # next get_one() takes the worker down.
+                logger.error(f"actor connection failed during an execution; {type(e).__name__}: {e}")
+                pumping = False
+        else:
+            helper.join(timeout=1)
+    if 'error' in outcome:
+        raise outcome['error']
+    return outcome['result']
+
+
+def _ack_quietly(msg_obj):
+    """ack that survives a dead connection: the broker has then already put the message back and will
+    redeliver it; the next get_one() raises and the worker exits via stop-no-delete."""
+    try:
+        msg_obj.ack()
+    except Exception as e:
+        logger.error(f"could not ack delivery {msg_obj.delivery_tag}: the connection is gone and the broker "
+                     f"will redeliver it. {type(e).__name__}: {e}")
+
 
 def get_execution_token(token_tenant, token_user, access_token_ttl=14400):
     """
@@ -189,8 +273,7 @@ def subscribe(tenant,
               image,
               revision,
               worker_id,
-              api_server,
-              worker_ch):
+              api_server):
     """
     Main loop for the Actor executor worker. Subscribes to the actor's inbox and executes actor
     containers when message arrive. Also launches a separate thread which ultimately subscribes to the worker channel
@@ -211,7 +294,7 @@ def subscribe(tenant,
 
     # start a separate thread for handling messages sent to the worker channel ----
     logger.info("Starting the process worker channel thread.")
-    t = threading.Thread(target=process_worker_ch, args=(tenant, worker_ch, actor_id, worker_id, actor_ch))
+    t = threading.Thread(target=process_worker_ch, args=(tenant, actor_id, worker_id))
     t.start()
 
     # subscribe to the actor message queue -----
@@ -242,10 +325,10 @@ def subscribe(tenant,
         # check this.
         try:
             msg, msg_obj = actor_ch.get_one()
-        except channelpy.ChannelClosedException:
-            logger.info(f"Channel closed, worker exiting. worker id: {worker_id}")
-            globals.keep_running = False
-            sys.exit()
+        except ChannelClosedException:
+            # raise rather than sys.exit(): SystemExit skipped __main__'s stop-no-delete and left the
+            # non-daemon worker-channel thread answering health pings forever.
+            raise WorkerException(f"Channel closed, worker exiting. worker id: {worker_id}")
         logger.info(f"worker {worker_id} processing new msg.")
 
         # worker ch thread has received a stop and is already shutting us down (see note above); we need to nack this
@@ -421,21 +504,25 @@ def subscribe(tenant,
         logger.info(f"Adding to exec - volumes: {volumes};(worker {worker_id}; {execution_id})")
         logger.info(f"Adding to exec - volume_mounts: {volume_mounts};(worker {worker_id}; {execution_id})")
         try:
-            stats, logs, final_state, exit_code, start_time = execute_actor(actor_id,
-                                                                            worker_id,
-                                                                            execution_id,
-                                                                            image,
-                                                                            message,
-                                                                            user,
-                                                                            environment,
-                                                                            privileged,
-                                                                            [volumes, volume_mounts],
-                                                                            leave_containers,
-                                                                            fifo_container_path,
-                                                                            socket_container_path,
-                                                                            mem_limit,
-                                                                            max_cpus,
-                                                                            tenant)
+            # executions run for minutes; run_with_heartbeats keeps the connection holding the unacked
+            # message alive meanwhile.
+            stats, logs, final_state, exit_code, start_time = run_with_heartbeats(actor_ch.conn._conn,
+                                                                                  execute_actor,
+                                                                                  actor_id,
+                                                                                  worker_id,
+                                                                                  execution_id,
+                                                                                  image,
+                                                                                  message,
+                                                                                  user,
+                                                                                  environment,
+                                                                                  privileged,
+                                                                                  [volumes, volume_mounts],
+                                                                                  leave_containers,
+                                                                                  fifo_container_path,
+                                                                                  socket_container_path,
+                                                                                  mem_limit,
+                                                                                  max_cpus,
+                                                                                  tenant)
         except KubernetesStartContainerError as e:
             logger.error(f"Worker {worker_id} got KubernetesStartContainerError: {e} trying to start actor for "
                          f"execution {execution_id}.")
@@ -476,7 +563,7 @@ def subscribe(tenant,
             Actor.set_status(actor_id, ERROR, f"Error executing container: {e}")
             # since the error was with stopping the actor, we will consider this message "processed"; this choice
             # could be reconsidered/changed
-            msg_obj.ack()
+            _ack_quietly(msg_obj)
             Execution.update_status(actor_id, execution_id, ERROR)
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
@@ -501,14 +588,14 @@ def subscribe(tenant,
             # the execute_actor function raises a KubernetesStartContainerError if it met an exception before starting the
             # actor container; if the container was started, then another exception should be raised. Therefore,
             # we can assume here that the container was at least started and we can ack the message.
-            msg_obj.ack()
+            _ack_quietly(msg_obj)
             Execution.update_status(actor_id, execution_id, ERROR)
             shutdown_workers(actor_id, delete_actor_ch=False)
             # wait for worker to be shutdown..
             time.sleep(60)
             break
         # ack the message
-        msg_obj.ack()
+        _ack_quietly(msg_obj)
 
         # Add the logs to the execution before finalizing it -- otherwise, there is a race condition for clients
         # waiting on the execution to be COMPLETE and then immediately retrieving the logs.
@@ -614,14 +701,28 @@ def main():
     logger.debug('spawner_worker_ch closed.')
 
     logger.info(f"Actor {actor_id} status set to READY. subscribing to inbox.")
-    worker_ch = WorkerChannel(worker_id=worker_id)
     subscribe(tenant,
               actor_id,
               image,
               revision,
               worker_id,
-              api_server,
-              worker_ch)
+              api_server)
+
+
+def exit_process(code, grace_s=60):
+    """Terminate the whole worker process. sys.exit() only ends the main thread: the interpreter then waits
+    forever on the non-daemon worker-channel thread, which keeps answering health 'status' pings -- a zombie
+    that looks READY. Give that thread grace_s to act on a stop-no-delete (it deletes the worker record and
+    queue, then os._exit()s itself), then flush the logs and exit regardless."""
+    give_up_at = time.monotonic() + grace_s
+    for thread in threading.enumerate():
+        if thread is not threading.current_thread() and not thread.daemon:
+            thread.join(timeout=max(0.0, give_up_at - time.monotonic()))
+    logger.info(f"worker process exiting; code: {code}")
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 if __name__ == '__main__':
@@ -630,11 +731,13 @@ if __name__ == '__main__':
     # data for the worker through environment variables.
     logger.info("Initial log for new worker.")
 
+    exit_code = 0
     # call the main() function:
     try:
         os.system(f'sudo /usr/local/sbin/folder_permissions.sh /home/tapis/runtime_files')
         main()
     except Exception as e:
+        exit_code = 1
         try:
             worker_id = os.environ.get('worker_id')
         except:
@@ -655,5 +758,8 @@ if __name__ == '__main__':
             except Exception as e2:
                 logger.error(f"worker main thread got exception trying to send stop-no-delete message to itself;"
                              f"worker_id: {worker_id}. e1: {e} e2: {e2}")
-    keep_running = False
-    sys.exit()
+    else:
+        # ends process_worker_ch's `while keep_running` loop (this module's global) after its next message.
+        # Only on a clean return: after an exception that thread must act on the stop-no-delete sent above.
+        keep_running = False
+    exit_process(exit_code)

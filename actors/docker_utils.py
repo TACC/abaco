@@ -910,7 +910,15 @@ def execute_actor(actor_id,
             logger.debug(f"got Exception trying to clean up fifo_host_path; e: {e}")
     if results_ch:
         # check if the length of the results channel is empty and if so, delete it --
-        if len(results_ch._queue._queue) == 0:
+        # (a broker problem here must not fail an execution that already finished; the
+        # queue's x-expires reaps it if we cannot)
+        try:
+            results_pending = len(results_ch._queue._queue)
+        except Exception as e:
+            logger.warn(f"Could not read the results queue depth, leaving it to expire; Exception: {e}; "
+                        f"(worker {worker_id};{execution_id})")
+            results_pending = None
+        if results_pending == 0:
             try:
                 results_ch.delete()
             except Exception as e:

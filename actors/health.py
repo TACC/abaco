@@ -15,7 +15,7 @@ import time
 import datetime
 import copy
 
-import channelpy
+from queues import ChannelTimeoutException
 import rabbit_mgmt
 
 from auth import get_tenants, get_tenant_verify
@@ -303,7 +303,7 @@ def check_workers(actor_id, ttl):
                 try:
                     logger.debug(f"Issuing status check to channel: {worker['ch_name']}")
                     ch.put('status')
-                except (channelpy.exceptions.ChannelTimeoutException, Exception) as e:
+                except (ChannelTimeoutException, Exception) as e:
                     logger.error(f"Got exception of type {type(e)} trying to send worker {worker_id} a "
                                  f"health check. e: {e}")
                 finally:

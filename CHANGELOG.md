@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+- Replacing home-made channelpy with pika so we can raise errors properly and restart in a more hardened fashion.
+- Replace ActorMsgChannel and EventsChannel in events.py
+- Remove ClientsChannel
+
 ## 26Q2.0
 Bumping changelog
 

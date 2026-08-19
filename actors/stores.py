@@ -53,6 +53,8 @@ def get_site_rabbitmq_uri(site):
     rabbit_uri = rabbit_uri.replace("amqp://", f"amqp://{auth}@")
     # Adding site vhost to rabbit_uri
     rabbit_uri += f"/abaco_{site}"
+    # No query parameters here: the heartbeat is applied by queues.RabbitConnection
+    # (pika.URLParameters would parse a ?heartbeat= and then be overridden anyway).
     return rabbit_uri
 
 

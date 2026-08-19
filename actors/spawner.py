@@ -1,11 +1,11 @@
 import json
 import os
+import sys
 import time
 
-import rabbitpy
 
-from channelpy.exceptions import ChannelTimeoutException
-from pymongo.errors import OperationFailure
+from queues import ChannelTimeoutException, RABBIT_ERRORS
+from pymongo.errors import PyMongoError
 
 from codes import BUSY, ERROR, SPAWNER_SETUP, PULLING_IMAGE, CREATING_CONTAINER, UPDATING_STORE, READY, \
     REQUESTED, SHUTDOWN_REQUESTED, SHUTTING_DOWN
@@ -62,10 +62,37 @@ class Spawner(object):
                     time.sleep(5)
                 else:
                     break
-            cmd, msg_obj = self.cmd_ch.get_one()
-            # directly ack the messages from the command channel; problems generated from starting workers are
-            # handled downstream; e.g., by setting the actor in an ERROR state; command messages should not be re-queued
-            msg_obj.ack()
+            try:
+                cmd, msg_obj = self.cmd_ch.get_one()
+                # directly ack the messages from the command channel; problems generated from
+                # starting workers are handled downstream, e.g. by setting the actor in an
+                # ERROR state; command messages should not be re-queued. The ack sits inside
+                # this try so a channel that died between delivery and ack takes the
+                # reconnect path (the broker redelivers the unacked command) instead of
+                # escaping run().
+                msg_obj.ack()
+            except RABBIT_ERRORS as e:
+                # AMQPError is the base of every pika error, including
+                # ConnectionClosedByBroker -- what a clean broker restart raises. Narrower
+                # tuples let that escape and kill the spawner permanently.
+                logger.error(f"Lost RabbitMQ connection in spawner run loop: {e}. Reconnecting...")
+                try:
+                    self.cmd_ch.close()
+                except Exception:
+                    pass
+                backoff = 1
+                max_backoff = 30
+                while True:
+                    try:
+                        time.sleep(backoff)
+                        self.cmd_ch = CommandChannel(name=self.queue)
+                        logger.info("Spawner successfully reconnected to RabbitMQ.")
+                        break
+                    except Exception as reconn_e:
+                        logger.error(f"Spawner reconnect attempt failed: {reconn_e}. "
+                                     f"Retrying in {backoff}s...")
+                        backoff = min(backoff * 2, max_backoff)
+                continue
             try:
                 self.process(cmd)
             except Exception as e:
@@ -201,7 +228,6 @@ class Spawner(object):
         logger.debug(f"spawner has updated worker status to SPAWNER_SETUP; worker_id: {worker_id}")
         api_server = actor.get('api_server', None)
 
-        spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
         logger.debug(f"spawner attempting to start worker; worker_id: {worker_id}")
         try:
             worker = self.start_worker(
@@ -210,7 +236,6 @@ class Spawner(object):
                 tenant,
                 actor_id,
                 worker_id,
-                spawner_ch,
                 api_server,
                 site_id
             )
@@ -221,8 +246,6 @@ class Spawner(object):
             return
 
         logger.debug(f"Returned from start_worker; Created new worker: {worker}")
-        spawner_ch.close()
-        logger.debug("Worker's spawner channel closed")
 
         if stop_existing:
             logger.info(f"Stopping existing workers: {worker_id}")
@@ -235,7 +258,6 @@ class Spawner(object):
                      tenant,
                      actor_id,
                      worker_id,
-                     spawner_ch,
                      api_server,
                      site_id):
 
@@ -336,8 +358,20 @@ class Spawner(object):
         logger.info(f"calling add_worker for worker: {worker}.")
         Worker.add_worker(actor_id, worker, site_id)
 
-        spawner_ch.put('READY')  # step 4
-        logger.info('sent message through channel')
+        # step 4. The channel is opened here, not before pull_image/run_worker: a
+        # BlockingConnection only services heartbeats while pika is called, so a channel
+        # held open across a pull longer than ~2 heartbeat intervals (60s) is closed by
+        # the broker and this put fails -- which error_out_actor()s a healthy worker.
+        # The worker declares spawner_worker_<id> itself and polls it, so the queue does
+        # not need to exist before this point. Closed in finally, so a failed spawn does
+        # not leak a connection.
+        spawner_ch = SpawnerWorkerChannel(worker_id=worker_id)
+        try:
+            spawner_ch.put('READY')
+            logger.info('sent message through channel')
+        finally:
+            spawner_ch.close()
+            logger.debug("Worker's spawner channel closed")
 
     def error_out_actor(self, actor_id, worker_id, message, site_id=None):
         """In case of an error, put the actor in error state and kill all workers"""
@@ -395,13 +429,16 @@ class Spawner(object):
 
 
 def main():
-    # todo - find something more elegant
-    # Ensure Mongo can connect.
+    # Ensure Mongo can connect before subscribing to the command channel. Any pymongo
+    # error counts (the old loop only caught OperationFailure, so a slow-starting mongo
+    # raised ServerSelectionTimeoutError straight through); give up with a non-zero exit
+    # after two minutes so the restart policy gets a real failure signal.
     msg = "Spawner started. Connecting to Mongo..."
     logger.debug(msg)
     print(msg)
-    idy = 0
-    while idy < 5:
+    give_up_at = time.monotonic() + 120
+    backoff = 3
+    while True:
         try:
             # Testing whatever function to see if Mongo connects
             len(workers_store[site()])
@@ -409,25 +446,28 @@ def main():
             logger.debug(msg)
             print(msg)
             break
-        except OperationFailure:
-            msg = "Waiting for Mongo connection"
-            logger.debug(msg)
-            print(msg)
-            time.sleep(3)
-            idy +=1
-    # Start spawner
-    idx = 0
-    while idx < 3:
+        except PyMongoError as e:
+            if time.monotonic() > give_up_at:
+                logger.critical(f"Spawner could not reach Mongo after 120s ({type(e).__name__}): {e}. Exiting.")
+                sys.exit(1)
+            logger.warning(f"Waiting for Mongo connection ({type(e).__name__}): {e}")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+    # Start spawner. A rabbit error escaping run() (which reconnects on its own for
+    # consume/ack failures) means the command channel itself could not be (re)built;
+    # keep trying with backoff. The old three-strikes counter was per process lifetime,
+    # so the third blip in a month exited the spawner with status 0.
+    backoff = 5
+    while True:
         try:
             sp = Spawner()
             logger.info("spawner made connection to rabbit, entering main loop")
             logger.info(f"spawner using abaco_host_path={os.environ.get('abaco_host_path')}")
             sp.run()
-        except (rabbitpy.exceptions.ConnectionException, RuntimeError):
-            # rabbit seems to take a few seconds to come up
-            time.sleep(5)
-            idx += 1
-    logger.critical("spawner could not connect to rabbitMQ. Shutting down!")
+        except RABBIT_ERRORS as e:
+            logger.critical(f"spawner lost RabbitMQ ({type(e).__name__}): {e}. Retrying in {backoff}s...")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 if __name__ == '__main__':
     main()

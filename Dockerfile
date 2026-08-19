@@ -16,9 +16,9 @@ COPY requirements.txt /home/tapis/
 RUN apt-get update && apt-get install python3-dev g++ sudo -y
 RUN pip3 install --upgrade pip
 RUN pip3 install -r /home/tapis/requirements.txt
-# channelpy is an editable VCS install (see requirements.txt), so pip leaves a full
-# git checkout in /home/tapis/src. Drop the VCS metadata -- it ships repo history and
-# remote URLs in the image and the editable install does not need it.
+# If any requirement is an editable VCS install, pip leaves a full git checkout in
+# /home/tapis/src; drop the VCS metadata so no repo history/remote URLs ship in the
+# image. No-op now that channelpy is gone, kept as a guard.
 RUN rm -rf /home/tapis/src/*/.git
 # rabbitmqadmin download for rabbit init
 RUN wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.9/bin/rabbitmqadmin
