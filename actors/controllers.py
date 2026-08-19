@@ -159,6 +159,7 @@ class CronResource(Resource):
             d['_abaco_execution_id'] = exc
             d['_abaco_Content_Type'] = 'str'
             d['_abaco_actor_revision'] = actor.get('revision')
+            Execution.store_queued_message(actor_id, exc, "This is your cron execution", d)
             ch = ActorMsgChannel(actor_id=actor_id)
             ch.put_msg(message="This is your cron execution", d=d)
             ch.close()
@@ -1812,6 +1813,20 @@ class MessagesResource(Resource):
         ch._queue._queue.purge()
         result = {'msg': "Actor mailbox purged."}
         ch.close()
+        # a purged message will never be consumed: without this, its execution sits in
+        # SUBMITTED forever, and the health reconciler would eventually re-publish it
+        # from the outbox copy -- resurrecting messages the user explicitly discarded.
+        purged = 0
+        for e in executions_store[site()].items({'actor_id': id, 'status': SUBMITTED}):
+            try:
+                Execution.update_status(id, e['id'], ERROR)
+                executions_store[site()][f"{id}_{e['id']}", 'status_message'] = \
+                    "mailbox purged by user before this message was processed"
+                executions_store[site()][f"{id}_{e['id']}", 'queued_message'] = None
+                purged += 1
+            except Exception as ex:
+                logger.warning(f"could not mark purged execution {e.get('id')}: {ex}")
+        logger.info(f"mailbox purge marked {purged} SUBMITTED execution(s) as ERROR for {id}")
         logger.debug(f"messages purged for actor: {actor_id}.")
         result.update(get_messages_hypermedia(actor))
         return ok(result)
@@ -1940,7 +1955,11 @@ class MessagesResource(Resource):
         d['_abaco_Content_Type'] = args.get('_abaco_Content_Type', '')
         d['_abaco_actor_revision'] = actor.revision
         logger.debug(f"Final message dictionary: {d}")
-        
+        # outbox: persist a bounded copy of the message on the execution record BEFORE
+        # publishing, so a message lost from rabbit can be re-published from Mongo by
+        # the health reconciler instead of stranding the execution in SUBMITTED.
+        Execution.store_queued_message(dbid, exc, args['message'], d)
+
         before_ch_timer = timeit.default_timer()
         ch = None
         publishing = False

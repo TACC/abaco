@@ -329,6 +329,8 @@ def mongo_index_initialization():
         executions_store[site].create_index([('tenant', 1), ('start_time', -1)])
         executions_store[site].create_index([('tenant', 1), ('message_received_time', -1)])
         executions_store[site].create_index([('actor_id', 1), ('start_time', -1)])
+        # the health reconciler lists SUBMITTED executions every run
+        executions_store[site].create_index([('status', 1), ('message_received_time', 1)])
         workers_store[site].create_index([('tenant', 1), ('create_time', -1)])
         workers_store[site].create_index([('actor_id', 1), ('status', 1)])
 

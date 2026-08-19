@@ -182,6 +182,9 @@ class Search():
         # picks the text index, and the $sort inside $facet runs in memory. Verify with
         # explain() against a populated store before relying on (or dropping) them.
         base_pipeline = search + query + security
+        if self.search_type == 'executions':
+            # the outbox copy holds the message body: only its sender and the reconciler may see it
+            base_pipeline = base_pipeline + [{'$project': {'queued_message': 0}}]
         pipeline = base_pipeline + [
             {'$facet': {
                 'metadata': [{'$count': 'total_count'}],
@@ -1683,6 +1686,39 @@ class Execution(AbacoDAO):
             logger.critical(f"Execution.add_worker_id took {ms} to run for actor {actor_id}, execution: {execution_id}, worker: {worker_id}")
 
 
+    RECOVERABLE_MESSAGE_MAX_BYTES = 65536
+    OUTBOX_EXCLUDED_PARAMS = ('x-nonce',)
+
+    @classmethod
+    def store_queued_message(cls, actor_id, execution_id, message, d):
+        """Persist a bounded copy of the queued message on the execution record, making
+        Mongo the outbox: if the rabbit message is ever lost (broker wipe, crash between
+        confirm and consume), the health reconciler can re-publish it from here. Binary
+        and oversized messages are skipped -- those executions are flagged unrecoverable
+        by the reconciler instead of replayed."""
+        # OPT-IN: storing message copies is new behavior on every POST (doc growth,
+        # replay semantics), so it is off unless message_outbox is set in config. With
+        # it off the reconciler still runs in detect-only mode: lost messages surface
+        # as ERROR instead of hanging in SUBMITTED forever, but nothing is re-published.
+        if not conf.get('message_outbox'):
+            return False
+        try:
+            if isinstance(message, bytes):
+                return False
+            # d carries the request's query parameters; never persist credentials (x-nonce) in the copy
+            d = {k: v for k, v in d.items() if str(k).lower() not in cls.OUTBOX_EXCLUDED_PARAMS}
+            if len(json.dumps({'m': message, 'd': d}, default=str).encode()) > cls.RECOVERABLE_MESSAGE_MAX_BYTES:
+                return False
+            # NOTE: AbstractStore.update() is an abstract no-op that MongoStore never
+            # overrides -- calling it silently discards the write. Tuple-key assignment
+            # is the real field-update API.
+            executions_store[site()][f'{actor_id}_{execution_id}', 'queued_message'] = \
+                {'message': message, 'd': d}
+            return True
+        except Exception as e:
+            logger.warning(f"could not store queued message for {actor_id}_{execution_id}: {e}")
+            return False
+
     @classmethod
     def update_status(cls, actor_id, execution_id, status):
         """
@@ -1698,6 +1734,12 @@ class Execution(AbacoDAO):
             executions_store[site()][f'{actor_id}_{execution_id}', 'status'] = status
             logger.debug("status updated for execution: {} actor: {}. New status: {}".format(
             execution_id, actor_id, status))
+            if status != SUBMITTED and conf.get('message_outbox'):
+                # the outbox copy is only ever replayed while SUBMITTED; keeping it would hold a copy of
+                # every message (in the $** text index too) for the life of the execution record
+                executions_store[site()].full_update({'_id': f'{actor_id}_{execution_id}',
+                                                      'queued_message': {'$exists': True}},
+                                                     {'$unset': {'queued_message': ''}})
         except KeyError as e:
             logger.error("Could not update status. KeyError: {}. actor: {}. ex: {}. status: {}".format(
                 e, actor_id, execution_id, status))

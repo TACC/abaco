@@ -22,8 +22,8 @@ from auth import get_tenants, get_tenant_verify
 import codes
 from tapisservice.config import conf
 from tapisservice.logs import get_logger
-from models import Actor, Worker, is_hashid, get_current_utc_time, site
-from channels import CommandChannel, WorkerChannel
+from models import Actor, Execution, Worker, is_hashid, get_current_utc_time, site
+from channels import ActorMsgChannel, CommandChannel, WorkerChannel
 from stores import actors_store, executions_store, workers_store
 from worker import shutdown_worker
 from kubernetes import client, config
@@ -531,6 +531,141 @@ def check_orphan_worker_queues():
         logger.info(f"check_orphan_worker_queues deleted {deleted} orphan queue(s).")
 
 
+
+def get_queue_depth(queue_name):
+    """Message count for a queue via the management API; None when unknowable (mgmt
+    unreachable / queue absent). None means the reconciler must NOT act."""
+    try:
+        queue = rabbit_mgmt.get_queue(site(), queue_name)
+        if queue is None:
+            # no queue at all: for a live actor that is the broker-wipe case the reconciler
+            # exists for (re-publishing re-declares it). The reconciler checks that the actor
+            # still exists before acting, so a deleted actor's queue is never re-created.
+            return 0
+        return queue.get('messages')
+    except Exception as e:
+        logger.warning(f"could not read depth of {queue_name}: {e}")
+        return None
+
+
+def reconcile_lost_messages():
+    """The recovery half of the outbox: find executions stuck in SUBMITTED whose actor
+    queue is EMPTY -- meaning the message is gone from rabbit (broker wipe, crash after
+    ingest) -- and re-publish them from the copy controllers stored on the execution
+    record. Executions with no stored copy (binary/oversized) are marked ERROR so they
+    surface instead of hanging in SUBMITTED forever.
+
+    With message_outbox unset (the default) this is DETECT-ONLY: lost messages are
+    marked ERROR so they surface, and nothing is ever re-published. Enabling
+    message_outbox in config turns on the recovery half (verified live 2026-08-19).
+
+    Conservative by design: acts only when depth == 0 (a non-empty queue makes "which
+    message is missing" unanswerable), only past an age threshold (a just-consumed
+    message can sit in SUBMITTED for a beat before RUNNING), and at most
+    RECONCILE_MAX_REQUEUES times per execution (a poison message must not loop forever
+    through the outbox -- there is still no DLX)."""
+    threshold_s = int(conf.get('reconcile_lost_messages_after_s') or 900)
+    # strict: an explicit 0 means never re-publish (was `or 2`, which turned 0 into 2)
+    max_requeues = conf.get('reconcile_max_requeues')
+    max_requeues = 2 if max_requeues is None else int(max_requeues)
+    now = datetime.datetime.utcnow()
+    try:
+        # indexed on status (stores.py); only the fields the reconciler reads, not whole documents
+        stuck = executions_store[site()].items(
+            {'status': codes.SUBMITTED},
+            {'_id': False, 'id': True, 'actor_id': True, 'message_received_time': True,
+             'queued_message': True, 'reconcile_requeues': True})
+    except Exception as e:
+        logger.error(f"reconciler could not list SUBMITTED executions: {e}")
+        return
+    by_actor = {}
+    for e in stuck:
+        by_actor.setdefault(e.get('actor_id'), []).append(e)
+    for actor_id, execs in by_actor.items():
+        if not actor_id:
+            continue
+        stale = []
+        for e in execs:
+            t = e.get('message_received_time')
+            try:
+                if isinstance(t, str):
+                    t = datetime.datetime.fromisoformat(t.replace('Z', '')).replace(tzinfo=None)
+                if t is None or (now - t).total_seconds() < threshold_s:
+                    continue
+            except Exception:
+                continue
+            stale.append(e)
+        if not stale:
+            continue
+        # A deleted actor's SUBMITTED executions must never be re-published: ActorMsgChannel
+        # would re-create actor_msg_<id> for an actor that no longer exists.
+        try:
+            actors_store[site()][actor_id]
+        except KeyError:
+            for e in stale:
+                _reconciler_mark_error(actor_id, e.get('id'),
+                                       "the actor was deleted before this message was processed")
+            continue
+        except Exception as ex:
+            logger.error(f"reconciler could not look up actor {actor_id}; skipping it this run: {ex}")
+            continue
+        depth = get_queue_depth(f'actor_msg_{actor_id}')
+        if depth is None or depth > 0:
+            continue
+        for e in stale:
+            ex_id = e.get('id')
+            qm = e.get('queued_message')
+            requeues = e.get('reconcile_requeues') or 0
+            key = f"{actor_id}_{ex_id}"
+            try:
+                if qm and requeues < max_requeues:
+                    # claim the attempt BEFORE publishing: the increment only succeeds if the
+                    # execution is still SUBMITTED and nobody else (a concurrent health run)
+                    # has counted this attempt, so an execution is published at most
+                    # max_requeues times. A publish that then fails still uses up the attempt.
+                    if not executions_store[site()].claim_increment(
+                            key, 'reconcile_requeues', requeues, {'status': codes.SUBMITTED}):
+                        logger.info(f"reconciler: execution {ex_id} (actor {actor_id}) changed or was "
+                                    f"claimed by another run; not re-publishing")
+                        continue
+                    ch = ActorMsgChannel(actor_id=actor_id)
+                    try:
+                        ch.put_msg(message=qm['message'], d=qm.get('d') or {})
+                    finally:
+                        try:
+                            ch.close()
+                        except Exception as close_e:
+                            logger.error(f"reconciler could not close the channel for actor {actor_id}: {close_e}")
+                    logger.critical(f"RECONCILER: re-published lost message for execution {ex_id} "
+                                    f"(actor {actor_id}, attempt {requeues + 1}/{max_requeues})")
+                else:
+                    if qm:
+                        reason = f"message was lost from the queue; re-published {requeues}x from the stored copy without completing"
+                    elif conf.get('message_outbox'):
+                        reason = "message was lost from the queue; no recoverable copy (binary or oversized)"
+                    else:
+                        reason = "message was lost from the queue; recovery disabled (message_outbox not set)"
+                    _reconciler_mark_error(actor_id, ex_id, reason)
+            except Exception as ex:
+                logger.error(f"reconciler failed on execution {ex_id} (actor {actor_id}): {ex}")
+
+
+def _reconciler_mark_error(actor_id, ex_id, reason):
+    """Mark a stuck execution ERROR with a reason (status_message), only if it is STILL SUBMITTED. The
+    reconciler decides from a snapshot taken at the start of the run; by the time it reaches an actor, a
+    worker may have run and finished the execution, and an unconditional write turned COMPLETE into ERROR."""
+    try:
+        res = executions_store[site()].full_update(
+            {'_id': f"{actor_id}_{ex_id}", 'status': codes.SUBMITTED},
+            {'$set': {'status': codes.ERROR, 'status_message': reason}, '$unset': {'queued_message': ''}})
+        if not res.modified_count:
+            logger.info(f"reconciler: execution {ex_id} (actor {actor_id}) is no longer SUBMITTED; left alone")
+            return
+        logger.critical(f"RECONCILER: execution {ex_id} (actor {actor_id}) ERROR: {reason}")
+    except Exception as ex:
+        logger.error(f"reconciler could not mark execution {ex_id} (actor {actor_id}) ERROR: {ex}")
+
+
 def main():
     logger.info(f"Running abaco health checks. Now: {time.time()}")
     if conf.container_backend == 'docker':
@@ -557,6 +692,12 @@ def main():
 
     # Check health of all workers, even if not connected to an actor.
     check_workers_store(ttl)
+
+    # Re-publish (or surface) executions whose messages vanished from rabbit.
+    try:
+        reconcile_lost_messages()
+    except Exception as e:
+        logger.error(f"Got exception from reconcile_lost_messages: {e}")
 
     # Remove rabbit queues left behind by workers that no longer exist.
     check_orphan_worker_queues()

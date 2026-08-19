@@ -58,7 +58,10 @@ class AbstractStore(collections.MutableMapping):
 
     def update(self, key, field, value):
         "Atomic ``self[key][field] = value``."""
-        pass
+        # Not `pass`: that silently discarded writes for any subclass that does not
+        # override it, and MongoStore does not.
+        # Use tuple-key assignment: store[key, field] = value.
+        raise NotImplementedError("use store[key, field] = value")
 
     def pop_field(self, key, field):
         "Atomic pop ``self[key][field]``."""
@@ -460,6 +463,23 @@ class MongoStore(AbstractStore):
         except DuplicateKeyError:
             return None
     
+    def claim_increment(self, key, field, expected, conditions=None):
+        """
+        Atomic compare-and-increment, for claiming a bounded retry:
+        ``$inc self[key][field]`` by 1 only if it currently equals `expected` (an `expected`
+        of 0/None also matches a missing or null field) and every extra `conditions` filter
+        on the document holds. Returns True if this caller made the increment (won the
+        claim), False if the document changed underneath it or does not match.
+        """
+        flt = {'_id': key}
+        flt.update(conditions or {})
+        flt[field] = expected if expected else {'$in': [None, 0]}
+        result = self._db.find_one_and_update(
+            filter=flt,
+            update={'$inc': {field: 1}},
+            projection={'_id': True})
+        return result is not None
+
     def aggregate(self, pipeline, options = None):
         # maxTimeMS bounds the server-side work per aggregation; without it a pathological
         # search pins a request thread for as long as the socket timeout allows.
