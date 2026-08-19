@@ -21,6 +21,7 @@ from queues import RabbitUnavailableError, connect_with_backoff
 import globals
 from models import Actor, Execution, Worker, site
 from stores import actors_store, workers_store, executions_store, get_site_rabbitmq_uri
+from queues import declare_queue, queue_declare_args
 
 from tapisservice.logs import get_logger
 logger = get_logger(__name__)
@@ -62,14 +63,14 @@ def get_pika_channel(queue_name, uri=None, *, durable=True, auto_delete=False, e
     connection = connect_with_backoff(params, deadline_s=deadline_s)
     channel = connection.channel()
     if declare:
-        arguments = {}
+        # must produce the same queue type as TaskQueue's declaration or the broker
+        # rejects the redeclare (queue type is fixed at creation).
+        arguments = dict(queue_declare_args(queue_name))
         if expires_ms:
             arguments['x-expires'] = expires_ms
-        channel.queue_declare(queue=queue_name,
-                              durable=durable,
-                              auto_delete=auto_delete,
-                              exclusive=exclusive,
-                              arguments=arguments)
+        # declare_queue logs a 406 (queue type / argument mismatch) loudly before re-raising.
+        declare_queue(channel, queue_name, durable=durable, arguments=arguments,
+                      auto_delete=auto_delete, exclusive=exclusive)
     return connection, channel
 
 

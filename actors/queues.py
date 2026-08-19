@@ -185,6 +185,43 @@ class LegacyQueue(object):
     pass
 
 
+# Queues that must never lose a message get the quorum treatment (Raft-replicated on
+# 3.8+; delivery-counted, so DLX delivery-limit policies work). Short-lived per-worker
+# channels stay classic: creating/destroying a Raft group per worker handshake is churn
+# for no durability benefit. Off unless rabbit_queue_type: quorum is set in config --
+# requires a 3.8+ broker, and a queue's type is fixed at first declaration.
+QUORUM_PREFIXES = ('actor_msg_', 'command_channel_', 'events_channel_')
+
+
+def queue_declare_args(name):
+    if (conf.get('rabbit_queue_type') or 'classic') != 'quorum':
+        return {}
+    if name and name.startswith(QUORUM_PREFIXES):
+        return {'x-queue-type': 'quorum'}
+    return {}
+
+
+QUEUE_MIGRATION_DOC = 'docs/rabbitmq.md'
+
+
+def declare_queue(channel, name, durable=True, arguments=None, **kwargs):
+    """channel.queue_declare that makes an argument mismatch loud and specific. A queue's
+    type and x-arguments are fixed when it is first declared; redeclaring it with
+    different ones (rabbit_queue_type flipped on a live broker, a stale x-delivery-limit)
+    makes the broker close the channel with 406 PRECONDITION_FAILED -- which otherwise
+    surfaces as a generic rabbit error and an endless reconnect loop. Still re-raises: the
+    fix is operational (see QUEUE_MIGRATION_DOC), never an automatic delete here."""
+    try:
+        return channel.queue_declare(queue=name, durable=durable, arguments=arguments, **kwargs)
+    except pika.exceptions.ChannelClosedByBroker as e:
+        if e.reply_code == 406:
+            logger.critical(f"queue type mismatch: RabbitMQ refused to redeclare '{name}' with arguments "
+                            f"{arguments or {}}: {e.reply_text}. The queue already exists with other "
+                            f"arguments (was rabbit_queue_type changed on a live broker?); every use of "
+                            f"this queue will fail until it is migrated: see {QUEUE_MIGRATION_DOC}")
+        raise
+
+
 class TaskQueue(object):
     def __init__(self, name=None, deadline_s=None):
         # one connection per TaskQueue instance, owned by the thread that made it --
@@ -192,7 +229,12 @@ class TaskQueue(object):
         self.conn = RabbitConnection(deadline_s=deadline_s)
         self._ch = self.conn._ch
         self.name = name
-        self._ch.queue_declare(queue=name, durable=True)
+        try:
+            declare_queue(self._ch, name, durable=True, arguments=queue_declare_args(name))
+        except Exception:
+            # the constructor is failing, so nobody will ever close() this connection
+            self.close()
+            raise
         # publisher confirms: basic_publish blocks until the broker accepts the message
         # and raises (UnroutableError/NackError) instead of silently dropping it. The
         # rabbitpy version published fire-and-forget.
