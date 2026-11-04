@@ -14,24 +14,24 @@ if [ $api = "reg" ]; then
     if [ $server = "dev" ]; then
         python3 -u /home/tapis/actors/reg_api.py
     else
-        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 -b :5000 reg_api:app
+        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 --preload -c /home/tapis/actors/gunicorn_conf.py -b :5000 reg_api:app
     fi
 elif [ $api = "admin" ]; then
     if [ $server = "dev" ]; then
         python3 -u /home/tapis/actors/admin_api.py
     else
-        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 -b :5000 admin_api:app
+        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 --preload -c /home/tapis/actors/gunicorn_conf.py -b :5000 admin_api:app
     fi
 elif [ $api = "metrics" ]; then
     if [ $server = "dev" ]; then
         python3 -u /home/tapis/actors/metrics_api.py
     else
-        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 -b :5000 metrics_api:app
+        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 --preload -c /home/tapis/actors/gunicorn_conf.py -b :5000 metrics_api:app
     fi
 elif [ $api = "mes" ]; then
     if [ $server = "dev" ]; then
         python3 -u /home/tapis/actors/message_api.py
     else
-        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 -b :5000 message_api:app
+        cd /home/tapis/actors; /usr/local/bin/gunicorn --workers ${processes:-2} --threads ${threads:-2} --timeout ${timeout:-120} --graceful-timeout ${graceful_timeout:-120} --max-requests ${max_requests:-500} --max-requests-jitter 50 --preload -c /home/tapis/actors/gunicorn_conf.py -b :5000 message_api:app
     fi
 fi

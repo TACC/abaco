@@ -113,12 +113,21 @@ MONGO_MAX_POOL_SIZE = int(conf.get('mongo_max_pool_size', 50) or 50)
 MONGO_SOCKET_TIMEOUT_MS = int(conf.get('mongo_socket_timeout_ms', 45000) or 45000)
 MONGO_MAX_TIME_MS = int(conf.get('mongo_max_time_ms', 30000) or 30000)
 _MONGO_CLIENTS = {}
+_MONGO_CLIENTS_PID = os.getpid()
 
 
 def _shared_mongo_client(cache_key, build, label):
     """Return the process-wide MongoClient for `cache_key`, building it on first use.
     `label` is what gets logged: cache_key[0] is the full mongo URI, which carries the
     password, so it must never reach a log line."""
+    global _MONGO_CLIENTS, _MONGO_CLIENTS_PID
+    if _MONGO_CLIENTS_PID != os.getpid():
+        # this process was forked (gunicorn --preload builds every store in the master).
+        # The inherited clients belong to the parent: their monitor threads did not survive
+        # the fork and a lock one of them held may stay held. Never reuse -- or close --
+        # them here; build this process's own.
+        _MONGO_CLIENTS = {}
+        _MONGO_CLIENTS_PID = os.getpid()
     client = _MONGO_CLIENTS.get(cache_key)
     if client is None:
         client = build()
@@ -181,6 +190,7 @@ class MongoStore(AbstractStore):
 
         :return:
         """
+        self._database_name, self._collection_name = database, db
         mongo_uri = f'mongodb://{host}:{port}'
 
         if user and password:
@@ -208,7 +218,7 @@ class MongoStore(AbstractStore):
                     raise SystemError(msg)
                 ca_cert_path = os.path.join(cert_dir, ca_cert_name)
                 client_cert_path = os.path.join(cert_dir, client_cert_name)
-                self._mongo_client = _shared_mongo_client(
+                self._client_spec = (
                     (mongo_uri, MONGO_TLS_VERIFY, client_cert_path, ca_cert_path),
                     lambda: MongoClient(mongo_uri,
                                         tls=True,
@@ -216,6 +226,7 @@ class MongoStore(AbstractStore):
                                         tlsCAFile=ca_cert_path,
                                         **common),
                     label)
+                self._bind(_shared_mongo_client(*self._client_spec))
             except Exception as e:
                 msg = f"Error creating MongoStore object with TLS + client verification. e: {e}"
                 logger.critical(msg)
@@ -230,21 +241,56 @@ class MongoStore(AbstractStore):
                 certs_path = conf.get("mongo_tls_certs_path")
                 if ca_cert_name and certs_path:
                     tls_kwargs['tlsCAFile'] = os.path.join(certs_path.split(':')[1], ca_cert_name)
-                self._mongo_client = _shared_mongo_client(
+                self._client_spec = (
                     (mongo_uri, MONGO_TLS_ONLY, tls_kwargs.get('tlsCAFile')),
                     lambda: MongoClient(mongo_uri, **tls_kwargs, **common),
                     label)
+                self._bind(_shared_mongo_client(*self._client_spec))
             except Exception as e:
                 msg = f"Error creating MongoStore object with TLS (no client cert). e: {e}"
                 logger.critical(msg)
                 raise Exception(msg)
         else:
-            self._mongo_client = _shared_mongo_client(
+            self._client_spec = (
                 (mongo_uri, MONGO_TLS_OFF),
                 lambda: MongoClient(mongo_uri, **common),
                 label)
-        self._mongo_database = self._mongo_client[database]
-        self._db = self._mongo_database[db]
+            self._bind(_shared_mongo_client(*self._client_spec))
+
+    # --- fork safety ----------------------------------------------------------------
+    # gunicorn --preload (entry.sh) imports the app -- and so builds every store -- in the
+    # master, then forks the workers. A MongoClient must not be used across a fork, so each
+    # store keeps the recipe for its client (_client_spec) and rebinds on first use in a new
+    # process. Stores built with __new__ (tests) have no recipe and are used as assigned.
+    def _bind(self, client):
+        self._pid = os.getpid()
+        self._client = client
+        self._database = client[self._database_name]
+        self._collection = self._database[self._collection_name]
+
+    def _check_fork(self):
+        if self.__dict__.get('_client_spec') is not None and self.__dict__.get('_pid') != os.getpid():
+            self._bind(_shared_mongo_client(*self._client_spec))
+
+    @property
+    def _mongo_client(self):
+        self._check_fork()
+        return self._client
+
+    @property
+    def _mongo_database(self):
+        self._check_fork()
+        return self._database
+
+    @property
+    def _db(self):
+        self._check_fork()
+        return self._collection
+
+    @_db.setter
+    def _db(self, collection):
+        self._pid = os.getpid()
+        self._collection = collection
 
     def __getitem__(self, fields):
         """

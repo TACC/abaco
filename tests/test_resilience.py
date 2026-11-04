@@ -2489,3 +2489,83 @@ class TestVendoredAuthServiceTokens:
         with pytest.raises(Exception) as exc:
             _load_vendored_auth({'jwt_leeway_seconds': 'five'})
         assert 'jwt_leeway_seconds' in str(exc.value)
+
+
+# ===========================================================================
+# gunicorn --preload: nothing fork-unsafe crosses into the workers
+# ===========================================================================
+
+class TestForkSafeMongoClients:
+    """--preload builds every store in the gunicorn master; each worker must get its own
+    MongoClient (an inherited one has dead monitor threads and possibly a held lock)."""
+
+    def _store(self, build):
+        import store
+        s = store.MongoStore.__new__(store.MongoStore)
+        s._database_name, s._collection_name = 'abaco_x', 'actors_store'
+        s._client_spec = (('mongodb://h:1', 'off', id(build)), build, 'h:1 (tls: off)')
+        s._bind(store._shared_mongo_client(*s._client_spec))
+        return s
+
+    def test_store_rebinds_to_a_new_client_after_fork(self):
+        import store
+        clients = []
+
+        def build():
+            clients.append(MagicMock(name=f'client{len(clients)}'))
+            return clients[-1]
+        s = self._store(build)
+        assert s._mongo_client is clients[0]
+        with patch('store.os.getpid', return_value=os.getpid() + 1):
+            assert s._mongo_client is clients[1]
+            assert s._db is clients[1]['abaco_x']['actors_store']
+        assert len(clients) == 2
+
+    def test_no_rebind_without_a_fork(self):
+        clients = []
+
+        def build():
+            clients.append(MagicMock())
+            return clients[-1]
+        s = self._store(build)
+        s._db, s._mongo_client, s._mongo_database
+        assert len(clients) == 1
+
+    def test_shared_cache_is_dropped_in_a_forked_process(self):
+        import store
+        parent = MagicMock(name='parent')
+        child = MagicMock(name='child')
+        key = ('mongodb://cache-test', 'off')
+        assert store._shared_mongo_client(key, lambda: parent, 'l') is parent
+        with patch('store.os.getpid', return_value=os.getpid() + 7):
+            assert store._shared_mongo_client(key, lambda: child, 'l') is child
+            parent.close.assert_not_called()   # never close the parent's client from a child
+
+    def test_tests_can_still_assign_db_directly(self):
+        import store
+        s = store.MongoStore.__new__(store.MongoStore)
+        s._db = MagicMock()
+        assert s._db is s._collection
+
+
+class TestGunicornPostFork:
+
+    def _load_conf(self):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'actors', 'gunicorn_conf.py')
+        spec = importlib.util.spec_from_file_location('gunicorn_conf_under_test', path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_post_fork_drops_the_service_clients_pooled_connections(self):
+        conf_mod = self._load_conf()
+        boot = types.ModuleType('__init__')
+        boot.t = MagicMock()
+        with patch.dict(sys.modules, {'__init__': boot}):
+            conf_mod.post_fork(MagicMock(), MagicMock(pid=123))
+        boot.t.requests_session.close.assert_called_once()
+
+    def test_post_fork_is_a_noop_before_the_app_is_loaded(self):
+        conf_mod = self._load_conf()
+        with patch.dict(sys.modules, {'__init__': types.ModuleType('__init__')}):
+            conf_mod.post_fork(MagicMock(), MagicMock(pid=1))   # no t: must not raise
