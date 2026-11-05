@@ -260,6 +260,7 @@ def check_workers(actor_id, ttl):
             # in versions prior to 1.9, worker create_time was not set until after it was READY
             if not worker_create_t:
                 hard_delete_worker(actor_id, worker_id, reason_str='Worker did not have a host_id or create_time field.')
+                continue
             # if still no host after 5 minutes, delete it
             if worker_create_t <  get_current_utc_time() - datetime.timedelta(minutes=5):
                 hard_delete_worker(actor_id, worker_id, reason_str='Worker did not have a host_id and had '

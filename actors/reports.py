@@ -25,7 +25,7 @@ try:
     mongo_host = conf.mongo_host
     mongo_port = conf.mongo_port
     mongo_uri = f"mongodb://{mongo_user}:{mongo_pass}@{mongo_host}:{mongo_port}"
-    print(f"mongo uri: {mongo_uri}")
+    print(f"mongo host: {mongo_host}:{mongo_port}")  # never print mongo_uri: it embeds the password
 except Exception as e:
     ###### FILL THIS IN FOR REMOTE RUNNING
     mongo_user = ''
@@ -36,10 +36,10 @@ except Exception as e:
     mongo_pass = urllib.parse.quote_plus(mongo_pass)
     if mongo_host and not mongo_user and not mongo_pass:
         mongo_uri = f"mongodb://{mongo_host}:{mongo_port}"
-        print(f"mongo uri: {mongo_uri}")
+        print(f"mongo host: {mongo_host}:{mongo_port}")  # never print mongo_uri: it embeds the password
     else:
         mongo_uri = f"mongodb://{mongo_user}:{mongo_pass}@{mongo_host}:{mongo_port}"
-        print(f"mongo uri: {mongo_uri}")
+        print(f"mongo host: {mongo_host}:{mongo_port}")  # never print mongo_uri: it embeds the password
 
     if not mongo_user or not mongo_pass or not mongo_host:
         print("Please manually enter mongo user, password, and host.")

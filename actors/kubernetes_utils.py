@@ -556,7 +556,7 @@ def execute_actor(actor_id,
         msg = "Failed to instantiate results socket. " \
               "Abaco compute host could be overloaded. (worker {};{})".format(worker_id, execution_id)
         logger.error(msg)
-        raise DockerStartContainerError(msg)
+        raise KubernetesStartContainerError(msg)
 
     logger.debug(f"results socket server instantiated. path: {socket_host_path} (worker {worker_id};{execution_id})")
 
@@ -802,7 +802,7 @@ def execute_actor(actor_id,
             logger.error(f"Could not determine final state for pod {name}. "
                          f"Exception: {e}; (worker {worker_id}; {execution_id})")
             pod_state = {'unavailable': True}
-    except client.rest.ApiException:
+    except client.rest.ApiException as e:
         logger.error(f"Could not get pod info for name: {name}. "
                      f"Exception: {e}; (worker {worker_id}; {execution_id})")
 

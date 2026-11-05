@@ -2277,7 +2277,7 @@ def permission_process(permissions, user, level, item):
             return True
         # otherwise, check if the permission belongs to this user and has the necessary level
         if p_user == user:
-            p_pem = codes.PermissionLevel(p_name)
+            p_pem = PermissionLevel(p_name)
             if p_pem >= level:
                 logger.info(f"Allowing request - user has appropriate permission with {item}.")
                 return True

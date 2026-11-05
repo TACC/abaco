@@ -2569,3 +2569,37 @@ class TestGunicornPostFork:
         conf_mod = self._load_conf()
         with patch.dict(sys.modules, {'__init__': types.ModuleType('__init__')}):
             conf_mod.post_fork(MagicMock(), MagicMock(pid=1))   # no t: must not raise
+
+
+# ===========================================================================
+# Pre-existing trunk bugs surfaced by the 2026-11 review
+# ===========================================================================
+
+class TestPermissionProcessUserGrant:
+    """models.permission_process called codes.PermissionLevel without importing codes:
+    any check that reached a user-specific grant raised NameError (-> 500)."""
+
+    def test_user_grant_at_or_above_level_allows(self):
+        from models import permission_process
+        from codes import READ, UPDATE
+        assert permission_process({'alice': 'UPDATE'}, 'alice', READ, 'actor x') is True
+        assert permission_process({'alice': 'READ'}, 'alice', UPDATE, 'actor x') is False
+
+
+class TestCheckWorkersNoHostNoCreateTime:
+
+    @patch('health.conf', new_callable=MagicMock)
+    @patch('health.site', return_value='test_site')
+    @patch('health.get_current_worker_containers', return_value=[])
+    @patch('health.Worker')
+    @patch('health.hard_delete_worker')
+    def test_deleted_once_and_no_type_error(self, mock_hard_del, MockWorker, mock_containers, mock_site,
+                                            mock_conf):
+        from health import check_workers
+        mock_conf.container_backend = 'docker'
+        mock_conf.spawner_host_id = 'host1'
+        # REQUESTED long ago by a pre-1.9 spawner: no host_id and no create_time
+        MockWorker.get_workers.return_value = [{'id': 'w1', 'actor_id': 'a1', 'status': 'REQUESTED'}]
+        with patch('health.os.environ', {'SPAWNER_HOST_ID': 'host1'}):
+            check_workers('a1', ttl=60)   # used to raise TypeError: None < datetime
+        assert mock_hard_del.call_count == 1
