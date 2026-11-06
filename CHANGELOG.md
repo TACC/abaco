@@ -2,9 +2,60 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Replacing home-made channelpy with pika so we can raise errors properly and restart in a more hardened fashion.
-- Replace ActorMsgChannel and EventsChannel in events.py
-- Remove ClientsChannel
+Resilience release: Abaco keeps working, or fails fast with a clear error, when RabbitMQ,
+Mongo or the auth services misbehave.
+
+### New features:
+- **RabbitMQ client:** pika 1.3.2 replaces channelpy/rabbitpy, with heartbeats, publisher
+  confirms and bounded reconnects (`rabbit_connect_deadline_s`, `rabbit_request_connect_deadline_s`).
+  A dead broker now answers 503, also mid-request (was a hang or 500).
+- **RabbitMQ 3.12** (was 3.6). Optional quorum queues (`rabbit_queue_type: quorum`) move a
+  message that keeps failing to the `abaco_dlq` dead-letter queue after `rabbit_delivery_limit`
+  (10) tries. The queue keeps at most 10,000 messages for 14 days; docs/rabbitmq.md shows how
+  to inspect, replay and purge it.
+- **Message outbox** (optional, `message_outbox`): health republishes messages RabbitMQ lost.
+  The stored copy has no x-nonce, is never returned by search, and is deleted once the
+  execution starts.
+- **Search** sorts and pages on the server (`sort_by`, `order_by`, `limit` up to
+  `search_max_limit`). Admins who send `X-Actors-Admin` can search the whole tenant.
+- **Service tokens** refresh early and recover on their own; startup waits up to 5 minutes
+  (`service_client_boot_timeout_s`) for the tenants and tokens services.
+- **Temporary admins:** `admin_usernames` (`"<tenant_id>:<username>"`), until SK roles work.
+
+### Bug fixes:
+- **Leaks:** broker connections (98 leaked, measured), orphaned worker queues, corrupt worker
+  records and zombie workers after a broker restart.
+- **No double runs:** executions longer than 30 minutes, messages the broker had already
+  accepted when a later step failed (the client retried), and in-flight executions after a
+  broker restart (unless the worker running it died) no longer run twice.
+- **Synchronous messages** answer within 90 s (`web_synch_message_timeout`); a failed
+  execution answers at once; results survive long executions.
+- **Workers** give a message back when Mongo or Tokens is down before the run, or when a stop
+  arrives before it starts; their control channel survives broker hiccups.
+- **Deleting an actor** works while RabbitMQ is down, and in quorum mode no longer crashes
+  RabbitMQ's dead-letter handling (which blocked new inboxes until a broker restart).
+- **Mongo:** client timeouts and one bounded pool per process (`mongo_max_pool_size`); 503 when
+  unreachable, 504 on a slow query (were 500).
+- **Smaller:** events are acknowledged only after processing; daily metrics documents stay
+  small; the autoscaler counts only ready messages; search rejects bad input with 400; sudo
+  helper hardened; flaskbase pinned to 1.9.0; reports.py no longer prints the Mongo password;
+  crashes fixed in permission checks, health and kubernetes_utils.
+
+### Deploy notes:
+- **Required:** run RabbitMQ with a raised `consumer_timeout` (compose: rabbitmq-abaco.conf;
+  kube: the erl arg in kube-template). Production manifests live outside this repo.
+- **Bad config now stops startup.** Every new key is in configschema.json with its default.
+  Watch for:
+  - `admin_usernames` entries must be `"<tenant_id>:<username>"`;
+  - `mongo_tls: true` still means client cert + private CA; plain TLS is the new value
+    `"tls-only"`; any other string fails;
+  - `rabbit_queue_type` must be `classic` (default) or `quorum`. Switching a live broker to
+    quorum: follow docs/rabbitmq.md.
+- gunicorn runs with `--preload` and a 120 s graceful timeout, so recycled workers let
+  in-flight requests (synchronous ones wait up to 90 s) finish.
+- The RabbitMQ management port is configurable (`rabbit_dash_port`, default 15672).
+- tapisservice's auth.py is vendored (actors/auth_tapisservice.py) and tapipy is patched with
+  HTTP timeouts at build time, until both fixes are released upstream.
 
 ## 26Q2.0
 Bumping changelog
