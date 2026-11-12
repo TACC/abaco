@@ -1,12 +1,14 @@
 ### Set Up by: Christian Garcia (TACC)
 ### Release-* methodology originally authored by Nathan Freeman (TACC) here:
 ### https://github.com/tapis-project/tapis-workflows/blob/prod/.github/workflows/ci.yml#L59
-# Description. This Github action runs when there are new commits to dev-v3, prod-v3, or v3-release-*.
+# Description. This Github action runs when there are new commits to dev-v3, prod-v3, nightly-v3, or v3-release-*.
 # The action logs into Docker with the Github action environment secrets `DOCKERHUB_USERNAME`
 # and `DOCKERHUB_TOKEN`.
 # The action pulls the repo and builds the abaco/core-v3 image and uses branch name as the
 # docker tag. In instance of `v3-release-1.2.0`, sed will delete `v3-release-`, leaving `1.2.0`.
 # If branch = prod-v3, tag becomes `staging` so staging is also built.
+# Branch nightly-v3 builds `abaco/core-v3:nightly`.
+# Pull requests build the image to check it but do not push it (refs/pull/N/merge is not a valid tag).
 #
 # NOVEMBER 16th:
 #   DOCKERHUB_USERNAME: username for cgarcia
@@ -16,7 +18,7 @@ name: Build & Push - All Branches
 on:
   push:
     tags: [ 'v3-*' ]
-    branches: [ dev-v3, prod-v3 ]
+    branches: [ dev-v3, prod-v3, nightly-v3 ]
   pull_request:
     branches: [ dev-v3, prod-v3 ]
   workflow_dispatch:
@@ -27,12 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     environment: docker
     steps:
-      - name: Get tag or branch name for Docker tag. sed replaces 'prod-v3' with 'staging'. 'dev-v3' becomes 'dev'.
+      - name: Get tag or branch name for Docker tag. 'prod-v3' becomes 'staging', 'dev-v3' becomes 'dev', 'nightly-v3' becomes 'nightly'.
         id: get_tag_name
         shell: bash
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/v3-* ]]; then
             echo "tag_name=$(echo ${GITHUB_REF#refs/tags/v3-})" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_EVENT_NAME}" == pull_request ]]; then
+            echo "tag_name=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
           else
             echo "tag_name=$(echo ${GITHUB_REF#refs/heads/} | sed 's/prod-v3/staging/g' | sed 's/-v3//g')" >> $GITHUB_OUTPUT
           fi
@@ -52,5 +56,5 @@ jobs:
       - name: Build & push tagged Docker backend image
         uses: docker/build-push-action@v3
         with:
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: abaco/core-v3:${{ steps.get_tag_name.outputs.tag_name }}
