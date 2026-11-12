@@ -215,6 +215,117 @@
       "type": "array",
       "description": "List of all allowable queues"
     },
+    "mongo_max_pool_size": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 50,
+      "description": "Upper bound on connections in each process's single shared Mongo client pool."
+    },
+    "mongo_socket_timeout_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 45000,
+      "description": "Mongo socketTimeoutMS: how long one read or write on an established connection may block."
+    },
+    "mongo_max_time_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 30000,
+      "description": "maxTimeMS applied to Mongo queries and aggregations; a query over it fails and the API answers 504."
+    },
+    "search_max_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1000,
+      "description": "Largest `limit` a search request may ask for."
+    },
+    "service_client_boot_timeout_s": {
+      "type": "number",
+      "minimum": 0,
+      "default": 300,
+      "description": "How long a process keeps retrying the tenants and tokens services at boot before exiting."
+    },
+    "jwt_leeway_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Clock-skew leeway, in seconds, when validating JWT expiry (vendored tapisservice auth)."
+    },
+    "web_synch_message_timeout": {
+      "type": "number",
+      "minimum": 1,
+      "default": 90,
+      "description": "Seconds a synchronous message request waits for its execution before answering 504 (the execution keeps running). Keep below nginx's proxy_read_timeout and gunicorn's graceful_timeout."
+    },
+    "rabbit_connect_deadline_s": {
+      "type": "number",
+      "minimum": 1,
+      "default": 60,
+      "description": "How long daemons (spawner, events, health, workers) retry a RabbitMQ connect before giving up."
+    },
+    "rabbit_request_connect_deadline_s": {
+      "type": "number",
+      "minimum": 1,
+      "default": 10,
+      "description": "How long an API request retries a RabbitMQ connect before answering 503."
+    },
+    "results_queue_expires_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1200000,
+      "description": "x-expires of results_<actor>_<execution> queues: the broker deletes one unused for this long."
+    },
+    "rabbit_dash_port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 15672,
+      "description": "Port of the RabbitMQ management API on rabbit_dash_host (rabbit init, health, autoscaler, admin endpoints)."
+    },
+    "message_outbox": {
+      "type": "boolean",
+      "default": false,
+      "description": "Store a bounded copy of each message on its execution so the health reconciler can re-publish a message lost from RabbitMQ. Off: lost messages are only marked ERROR."
+    },
+    "reconcile_lost_messages_after_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 900,
+      "description": "Age after which a SUBMITTED execution with an empty actor queue is treated as lost by the health reconciler."
+    },
+    "reconcile_max_requeues": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 1,
+      "description": "How many times the reconciler re-publishes a lost message from the outbox before marking it ERROR. 0 disables re-publishing."
+    },
+    "rabbit_queue_type": {
+      "type": "string",
+      "enum": [
+        "classic",
+        "quorum"
+      ],
+      "default": "classic",
+      "description": "Queue type for actor inboxes, command and events queues and abaco_dlq. Fixed when a queue is first declared: changing it on a live broker needs the migration in docs/rabbitmq.md."
+    },
+    "rabbit_delivery_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "Quorum inboxes only: deliveries after which a message is dead-lettered to abaco_dlq (abaco-actor-msg-quorum policy)."
+    },
+    "rabbit_dlq_max_length": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10000,
+      "description": "Most dead letters abaco_dlq keeps; the oldest are dropped beyond this."
+    },
+    "rabbit_dlq_message_ttl_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1209600000,
+      "description": "How long a dead letter stays in abaco_dlq (default 14 days)."
+    },
     "global_tenant_object": {
       "type": "object",
       "description": "Object containing global parameters which tenants may overwrite at times.",
